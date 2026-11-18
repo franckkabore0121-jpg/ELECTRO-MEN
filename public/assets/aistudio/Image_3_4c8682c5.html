@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ELECTRO-MEN | Écosystème Haute Précision &amp; Finance Technologique</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Syne & Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;family=Syne:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "outline-variant": "#4d4635",
+            "surface-variant": "#31353c",
+            "background": "#10141a",
+            "surface-bright": "#353940",
+            "surface": "#10141a",
+            "on-error-container": "#ffdad6",
+            "surface-container-low": "#181c22",
+            "error-container": "#93000a",
+            "primary-container": "#d4af37",
+            "on-primary-container": "#554300",
+            "surface-container-high": "#262a31",
+            "surface-container-lowest": "#0a0e14",
+            "on-secondary-container": "#b6bcc3",
+            "secondary-fixed-dim": "#c1c7ce",
+            "inverse-surface": "#dfe2eb",
+            "primary": "#f2ca50",
+            "tertiary-container": "#00c5db",
+            "primary-fixed-dim": "#e9c349",
+            "tertiary": "#00e3fd",
+            "secondary-container": "#464c52",
+            "on-primary": "#3c2f00",
+            "on-background": "#dfe2eb",
+            "tertiary-fixed-dim": "#00daf3",
+            "surface-container-highest": "#31353c",
+            "on-secondary-fixed-variant": "#41484d",
+            "on-primary-fixed-variant": "#574500",
+            "on-surface-variant": "#d0c5af",
+            "secondary": "#c1c7ce",
+            "on-tertiary-container": "#004d56",
+            "inverse-on-surface": "#2d3137",
+            "on-tertiary": "#00363d",
+            "on-tertiary-fixed": "#001f24",
+            "inverse-primary": "#735c00",
+            "on-surface": "#dfe2eb",
+            "primary-fixed": "#ffe088",
+            "outline": "#99907c",
+            "surface-dim": "#10141a",
+            "tertiary-fixed": "#9cf0ff",
+            "error": "#ffb4ab",
+            "on-secondary-fixed": "#161c21",
+            "on-error": "#690005",
+            "on-secondary": "#2b3136",
+            "surface-container": "#1c2026",
+            "on-tertiary-fixed-variant": "#004f58",
+            "secondary-fixed": "#dde3ea",
+            "on-primary-fixed": "#241a00",
+            "surface-tint": "#e9c349"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "margin-mobile": "1rem",
+            "gutter-mobile": "0.75rem",
+            "space-lg": "1.5rem",
+            "space-xl": "2.5rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "space-md": "1rem",
+            "margin": "2rem"
+          },
+          "fontFamily": {
+            "body-md": ["Plus Jakarta Sans"],
+            "headline-lg": ["Syne"],
+            "headline-md": ["Syne"],
+            "headline-xl": ["Syne"],
+            "caption": ["Plus Jakarta Sans"],
+            "body-lg": ["Plus Jakarta Sans"],
+            "label-sm": ["Plus Jakarta Sans"],
+            "label-lg": ["Plus Jakarta Sans"],
+            "headline-lg-mobile": ["Syne"],
+            "title-md": ["Plus Jakarta Sans"],
+            "headline-xl-mobile": ["Syne"]
+          },
+          "fontSize": {
+            "body-md": ["14px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-md": ["22px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "headline-xl": ["44px", { "lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "caption": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "body-lg": ["16px", { "lineHeight": "26px", "fontWeight": "400" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.08em", "fontWeight": "600" }],
+            "label-lg": ["14px", { "lineHeight": "18px", "letterSpacing": "0.03em", "fontWeight": "600" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "30px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "title-md": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "headline-xl-mobile": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.01em", "fontWeight": "700" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+    
+    /* Background Gold PCB Track subtle circuit styling */
+    .circuit-grid {
+      background-image: radial-gradient(rgba(212, 175, 55, 0.08) 1px, transparent 1px),
+                        radial-gradient(rgba(0, 227, 253, 0.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      background-position: 0 0, 12px 12px;
+    }
+
+    /* Prestige Gold Metallic Button */
+    .btn-gold-prestige {
+      background: linear-gradient(135deg, #F3E5AB 0%, #D4AF37 50%, #C5A059 100%);
+      color: #070A0E;
+      box-shadow: 0 4px 18px rgba(212, 175, 55, 0.35);
+      transition: all 0.25s ease;
+    }
+    .btn-gold-prestige:hover {
+      box-shadow: 0 6px 24px rgba(242, 202, 80, 0.55);
+      filter: brightness(1.06);
+    }
+    
+    /* Hide scrollbars for smooth carousels */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface antialiased font-body-md selection:bg-primary selection:text-surface-container-lowest pb-28 min-h-screen relative circuit-grid">
+<!-- TOP BAR (SHARED COMPONENT ANCHOR & IMMUTABLE IDENTITY) -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-gutter-mobile py-space-sm bg-surface-container-lowest/90 backdrop-blur-md border-b border-outline-variant/30 max-w-7xl mx-auto shadow-[0_4px_24px_-4px_rgba(212,175,55,0.08)]">
+<div class="flex items-center gap-2">
+<!-- Official Emblem -->
+<div class="w-9 h-9 rounded-lg overflow-hidden border border-primary/40 bg-surface-container-lowest p-0.5 shadow-[0_0_12px_rgba(212,175,55,0.25)] flex items-center justify-center">
+<img alt="ELECTRO-MEN Logo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYQK9PHK1gxPYmsjSpM_WzArRpu3_NpauDk6vI_qVevEsnKANKxumB_VZQl8HRRqW4P8Od5XOJ4Fux7G9O8CMLXh1671NfdLfV5pZ-qOYBY6-qkri1HLIefnkxFKYsWA06s6Xix5hj26MVCs-Cl28xSDEgbcuWJCnF6dni86E2RzGgdv6JgPzsJp8LN3x78yez4MqF6EOf5-k0VknrCJB_xjbzW43R2NnrApiO3dc1z8mWQ5vQDcc50XM16IymZEbat4M"/>
+</div>
+<!-- Strict Brand Name Anchor -->
+<span class="font-headline-md text-headline-md tracking-wider text-primary uppercase drop-shadow-[0_0_8px_rgba(242,202,80,0.35)]">ELECTRO-MEN</span>
+</div>
+<!-- Actions / Utilities -->
+<div class="flex items-center gap-space-xs">
+<button aria-label="Recherche de composants" class="w-9 h-9 rounded flex items-center justify-center text-secondary hover:text-primary transition-colors duration-200">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<button aria-label="Panier d'achat" class="relative w-9 h-9 rounded flex items-center justify-center text-secondary hover:text-primary transition-colors duration-200">
+<span class="material-symbols-outlined" data-icon="shopping_bag">shopping_bag</span>
+<!-- Counter Badge -->
+<span class="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-surface-container-lowest">3</span>
+</button>
+<button aria-label="Analytique &amp; Cotations" class="w-9 h-9 rounded flex items-center justify-center text-tertiary hover:text-primary transition-colors duration-200">
+<span class="material-symbols-outlined" data-icon="query_stats">query_stats</span>
+</button>
+</div>
+</header>
+<!-- SPACER FOR FIXED TOPBAR -->
+<div class="h-16"></div>
+<!-- TICKER / STOCK & TELEMETRY BAND -->
+<section class="w-full bg-surface-container-lowest/80 border-b border-outline-variant/20 px-gutter-mobile py-1 overflow-x-auto no-scrollbar flex items-center gap-space-md text-caption">
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse shadow-[0_0_8px_#00e3fd]"></span>
+<span class="text-tertiary font-label-sm">FABLAB HUB 2026</span>
+<span class="text-on-surface-variant">Ticket min: 50 000 FCFA</span>
+</div>
+<div class="w-px h-3 bg-outline-variant/40 shrink-0"></div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="material-symbols-outlined text-primary text-xs" data-icon="memory">memory</span>
+<span class="text-secondary font-label-sm">ESP32-S3 STOCK:</span>
+<span class="text-primary font-semibold">DISPONIBLE</span>
+</div>
+<div class="w-px h-3 bg-outline-variant/40 shrink-0"></div>
+<div class="flex items-center gap-1.5 shrink-0">
+<span class="material-symbols-outlined text-tertiary text-xs" data-icon="verified">verified</span>
+<span class="text-secondary font-label-sm">ACADÉMIE IoT :</span>
+<span class="text-on-surface">Prochaine cohorte J-4</span>
+</div>
+</section>
+<!-- MAIN WRAPPER -->
+<main class="px-margin-mobile flex flex-col gap-space-xl mt-space-md">
+<!-- HERO SECTION: PRESTIGE & 3 PÔLES -->
+<section class="relative overflow-hidden rounded-xl border border-primary/25 bg-surface-container-lowest p-space-md shadow-[0_8px_32px_-8px_rgba(212,175,55,0.15)]">
+<!-- Subtle Decorative Glows -->
+<div class="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-primary/10 blur-3xl pointer-events-none"></div>
+<div class="absolute -bottom-10 -left-10 w-44 h-44 rounded-full bg-tertiary/10 blur-2xl pointer-events-none"></div>
+<div class="relative z-10">
+<!-- Prestige Pill -->
+<div class="inline-flex items-center gap-1.5 px-space-sm py-0.5 rounded-full bg-surface-container border border-primary/30 mb-space-sm">
+<span class="material-symbols-outlined text-primary text-xs" data-icon="bolt">bolt</span>
+<span class="text-primary font-label-sm tracking-widest uppercase">Écosystème Technologique d'Élite</span>
+</div>
+<h1 class="font-headline-xl-mobile text-headline-xl-mobile font-bold text-on-surface leading-tight tracking-tight">
+          L'Électronique <br/>
+<span class="text-primary drop-shadow-[0_2px_12px_rgba(242,202,80,0.3)]">de Précision</span> &amp; <br/>
+<span class="text-tertiary">l'Investissement Futur</span>
+</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-space-xs leading-relaxed">
+          Composants certifiés, kits d'ingénierie avancés, formations pratiques de pointe et opportunités de souscription industrielle en Afrique de l'Ouest.
+        </p>
+<!-- Call to actions hero -->
+<div class="flex items-center gap-space-xs mt-space-md">
+<a class="btn-gold-prestige flex-1 py-2.5 px-3 rounded font-label-lg text-label-lg font-bold flex items-center justify-center gap-1.5 text-center" href="#boutique">
+<span class="material-symbols-outlined text-base" data-icon="storefront">storefront</span>
+            Boutique Pro
+          </a>
+<a class="flex-1 py-2.5 px-3 rounded bg-surface-container-high border border-tertiary/40 text-tertiary font-label-lg text-label-lg font-semibold flex items-center justify-center gap-1 hover:border-tertiary transition-colors duration-200" href="#investir">
+<span class="material-symbols-outlined text-base" data-icon="trending_up">trending_up</span>
+            Investir
+          </a>
+</div>
+</div>
+</section>
+<!-- LES 3 PILIERS MAJEURS (CARTE RACCOURCIS TACTILES) -->
+<section>
+<div class="flex items-center justify-between mb-space-sm">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface flex items-center gap-2">
+<span class="w-2 h-2 rounded bg-primary"></span>
+          Trois Piliers Stratégiques
+        </h2>
+<span class="text-caption text-on-surface-variant font-label-sm">ÉCOSYSTÈME</span>
+</div>
+<div class="grid grid-cols-1 gap-space-sm">
+<!-- Pilier 1: Boutique -->
+<a class="group relative flex items-center justify-between p-space-md rounded-xl bg-surface-container border border-outline-variant/30 hover:border-primary/50 transition-all duration-200 active:scale-[0.99] shadow-sm" href="#boutique">
+<div class="flex items-center gap-space-md">
+<div class="w-12 h-12 rounded bg-surface-container-lowest border border-primary/30 flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="memory">memory</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-title-md text-title-md text-on-surface font-semibold">Boutique Composants</h3>
+<span class="text-[10px] bg-primary/10 text-primary border border-primary/30 px-1.5 py-0.2 rounded font-bold">DISPO</span>
+</div>
+<p class="font-caption text-caption text-secondary">Kits ESP32, microcontrôleurs, circuits intégrés &amp; outillage de précision.</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors" data-icon="arrow_forward_ios">arrow_forward_ios</span>
+</a>
+<!-- Pilier 2: Académie -->
+<a class="group relative flex items-center justify-between p-space-md rounded-xl bg-surface-container border border-outline-variant/30 hover:border-tertiary/50 transition-all duration-200 active:scale-[0.99] shadow-sm" href="#academie">
+<div class="flex items-center gap-space-md">
+<div class="w-12 h-12 rounded bg-surface-container-lowest border border-tertiary/30 flex items-center justify-center text-tertiary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="school">school</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-title-md text-title-md text-on-surface font-semibold">Académie &amp; Cours Pratiques</h3>
+<span class="text-[10px] bg-tertiary/10 text-tertiary border border-tertiary/30 px-1.5 py-0.2 rounded font-bold">CERTIFIÉ</span>
+</div>
+<p class="font-caption text-caption text-secondary">Ateliers IoT, programmation C++, soudure et travaux pratiques en présentiel &amp; vidéo.</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-tertiary transition-colors" data-icon="arrow_forward_ios">arrow_forward_ios</span>
+</a>
+<!-- Pilier 3: Investissement -->
+<a class="group relative flex items-center justify-between p-space-md rounded-xl bg-surface-container border border-primary/30 hover:border-primary transition-all duration-200 active:scale-[0.99] shadow-[0_4px_20px_-6px_rgba(212,175,55,0.15)]" href="#investir">
+<div class="flex items-center gap-space-md">
+<div class="w-12 h-12 rounded bg-surface-container-lowest border border-primary/50 flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-2xl" data-icon="finance_mode">finance_mode</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-title-md text-title-md text-primary font-semibold">Investir &amp; Actionnariat</h3>
+<span class="text-[10px] bg-primary text-surface-container-lowest px-1.5 py-0.2 rounded font-extrabold uppercase">CAMPAGNE</span>
+</div>
+<p class="font-caption text-caption text-secondary">Financez l'expansion de nos lignes de fabrication et prenez des parts stratégiques.</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary" data-icon="arrow_forward_ios">arrow_forward_ios</span>
+</a>
+</div>
+</section>
+<!-- CARROUSEL / GRILLE COMPOSANTS & KITS EN VEDETTE -->
+<section id="boutique">
+<div class="flex items-end justify-between mb-space-sm">
+<div>
+<span class="text-tertiary font-label-sm tracking-wider uppercase">STOCK ET OUTILLAGE PRO</span>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Composants &amp; Kits Vedettes</h2>
+</div>
+<a class="font-label-sm text-label-sm text-primary hover:underline flex items-center gap-0.5" href="#boutique">
+          Tout voir <span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+</a>
+</div>
+<!-- Horizontal Scrollable Container -->
+<div class="flex gap-space-md overflow-x-auto no-scrollbar pb-space-sm -mx-margin-mobile px-margin-mobile">
+<!-- Produit 1: ESP32 Basic Starter Kit -->
+<div class="shrink-0 w-72 rounded-xl bg-surface-container border border-outline-variant/40 overflow-hidden flex flex-col justify-between shadow-md">
+<div class="relative bg-surface-container-lowest p-space-sm flex items-center justify-center h-44">
+<span class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-primary text-surface-container-lowest">Populaire - Kit Pratique</span>
+<img alt="Kit ESP32 Basic Starter Kit avec capteurs et afficheur" class="max-h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDO3XEmVyI9r_p_BK_VFWtvqYC6Ake0HolRpBnElH-sGAP8TVO8HvOxAOpWMp9p2vsOzEgeYhbGH23Ve6Ud-69gatcUspMmqT0JXbYqCEk8xbfGdwLut9Lnn5YtOqz8PofUgg5BIJgUBV9MR5qJx6EX79wmC81VFpTeD2WlHydn2FuKL1Y_qPm5uE-Ja7bMcTc-kAxq5iGf4Ls8-sVC-YMKhXZhpjkWLf9AUbaYqP_97RPmU9q5u9yPMHuVtOOACuRiuoM"/>
+</div>
+<div class="p-space-md flex flex-col gap-2 flex-1 justify-between">
+<div>
+<span class="text-caption text-on-surface-variant font-label-sm">RÉF : EM-KIT-ESP32-BASIC</span>
+<h3 class="font-title-md text-title-md text-on-surface font-semibold line-clamp-2 mt-0.5">ESP32 Basic Starter Kit &amp; Capteurs</h3>
+<p class="font-caption text-caption text-secondary mt-1">Inclus microcontrôleur WiFi/BLE, afficheur OLED, relais, câbles &amp; breadboard.</p>
+</div>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between">
+<div>
+<span class="text-caption text-secondary">Prix unitaire</span>
+<p class="font-headline-md text-headline-md font-bold text-primary">18 500 <span class="text-xs text-on-surface">F CFA</span></p>
+</div>
+<button class="w-10 h-10 rounded bg-primary text-surface-container-lowest flex items-center justify-center hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-sm">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Produit 2: Kit Perfectionnement Électronique -->
+<div class="shrink-0 w-72 rounded-xl bg-surface-container border border-outline-variant/40 overflow-hidden flex flex-col justify-between shadow-md">
+<div class="relative bg-surface-container-lowest p-space-sm flex items-center justify-center h-44">
+<span class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-surface-container-high border border-outline-variant text-on-surface">Niveau 1</span>
+<img alt="Kit de Perfectionnement en Électronique 38 composants + 2 PCB" class="max-h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAj5YliiRa3v7azTqFBbqw6ASCrjopyscftW8_6k64CwXNyXlLYp0SYHusrXF_Xu29y583aBmVIQFps0UtLXaWb7_YF_v_9UzpT0VQWWENzMPUTxg6LxMQdbooCMkCBrua9OFqP6uaiSvBNZavd2z0-K4I5J3EKfPXr2y5PZQu2FvD_O6l_BuItoGMdgDsSYG3EQqMQF6PEY_8WOS0QIAOAsDrfCMpigjXbbIU2GWxpEMHG8DXLU8im7ME39dPJTv-n1iQ"/>
+</div>
+<div class="p-space-md flex flex-col gap-2 flex-1 justify-between">
+<div>
+<span class="text-caption text-on-surface-variant font-label-sm">RÉF : EM-KIT-PROG-38</span>
+<h3 class="font-title-md text-title-md text-on-surface font-semibold line-clamp-2 mt-0.5">Kit Perfectionnement 38 Composants + 2 PCB</h3>
+<p class="font-caption text-caption text-secondary mt-1">Modules didactiques, condensateurs, transistors et résistances calibrées.</p>
+</div>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between">
+<div>
+<span class="text-caption text-secondary">Prix unitaire</span>
+<p class="font-headline-md text-headline-md font-bold text-primary">7 500 <span class="text-xs text-on-surface">F CFA</span></p>
+</div>
+<button class="w-10 h-10 rounded bg-primary text-surface-container-lowest flex items-center justify-center hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-sm">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Produit 3: Oscilloscope Numérique Portable -->
+<div class="shrink-0 w-72 rounded-xl bg-surface-container border border-outline-variant/40 overflow-hidden flex flex-col justify-between shadow-md">
+<div class="relative bg-surface-container-lowest p-space-sm flex items-center justify-center h-44">
+<span class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 border border-tertiary text-tertiary">Mesure Pro</span>
+<img alt="Oscilloscope Numérique Portable bi-canal avec sondes" class="max-h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuaVkPKGw5b2ruBk5udC5gn5sOiMj7xE9CLBC8SKT8nBNAEo4WqH9SOClx1Ytxg1DuYmMU2hYEK0JMrd_OZR1MFcFJ0MSYzjiQdmASMUT9Ne6SLpH8Hio5QCBLnBznO2RVP9qGBIgqo5OgF0emaFcugjDASaqfe5yoOuGnpKPqVg7J1veh5LEIsdMCIXctjqGh2bQoHJ6Hu8ZSTZcC8pVtd2WNgI4eczkCtlkKjQ1VW4KrOkds3-1sSk2bkffDWwv2yRA"/>
+</div>
+<div class="p-space-md flex flex-col gap-2 flex-1 justify-between">
+<div>
+<span class="text-caption text-on-surface-variant font-label-sm">RÉF : EM-LAB-OSC-2CH</span>
+<h3 class="font-title-md text-title-md text-on-surface font-semibold line-clamp-2 mt-0.5">Oscilloscope Numérique Bi-Canal</h3>
+<p class="font-caption text-caption text-secondary mt-1">Écran couleur TFT haute résolution, sondes hautes tensions et batterie rechargeable.</p>
+</div>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between">
+<div>
+<span class="text-caption text-secondary">Prix unitaire</span>
+<p class="font-headline-md text-headline-md font-bold text-primary">45 000 <span class="text-xs text-on-surface">F CFA</span></p>
+</div>
+<button class="w-10 h-10 rounded bg-primary text-surface-container-lowest flex items-center justify-center hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-sm">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Produit 4: Fer à souder électronique réglable -->
+<div class="shrink-0 w-72 rounded-xl bg-surface-container border border-outline-variant/40 overflow-hidden flex flex-col justify-between shadow-md">
+<div class="relative bg-surface-container-lowest p-space-sm flex items-center justify-center h-44">
+<span class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-surface-container-high border border-outline-variant text-on-surface">Outillage</span>
+<img alt="Fer à souder électronique numérique réglable avec écran LCD" class="max-h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDEcVhA4h3NbYN7LtqvI51-EXThvGwNh80Z3MuL8MppfEBMVeiJ1NO1sZ-WHCXVxtr0uyFGGjkBUEmuIDhwr59OPpZgni5AcOFi6yEc6ds0Smylkrrfb7VFIE_cpa_ZSAsugeIx8rgm3lRkzDzvb4yDcKzkciZ09EZM4zvAEOtKU-ZCPxkFTVjPFg-szpwSH9zj2aow35VdsGWsYlRnxrLDfCJgA-Z1Q4t8ZBxBLalMNZxecqTflKejBrzb8KPyTyo5U9o"/>
+</div>
+<div class="p-space-md flex flex-col gap-2 flex-1 justify-between">
+<div>
+<span class="text-caption text-on-surface-variant font-label-sm">RÉF : EM-TOOL-WELD-LCD</span>
+<h3 class="font-title-md text-title-md text-on-surface font-semibold line-clamp-2 mt-0.5">Fer à Souder Numérique LCD</h3>
+<p class="font-caption text-caption text-secondary mt-1">Thermorégulation précise 180°C-480°C, chauffe céramique ultra-rapide.</p>
+</div>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between">
+<div>
+<span class="text-caption text-secondary">Prix unitaire</span>
+<p class="font-headline-md text-headline-md font-bold text-primary">12 000 <span class="text-xs text-on-surface">F CFA</span></p>
+</div>
+<button class="w-10 h-10 rounded bg-primary text-surface-container-lowest flex items-center justify-center hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-sm">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Produit 5: Circuit Intégré LM358 -->
+<div class="shrink-0 w-72 rounded-xl bg-surface-container border border-outline-variant/40 overflow-hidden flex flex-col justify-between shadow-md">
+<div class="relative bg-surface-container-lowest p-space-sm flex items-center justify-center h-44">
+<span class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 border border-primary/40 text-primary">Composant IC</span>
+<img alt="Circuit intégré LM358 Amplificateur Opérationnel double" class="max-h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuASUT3X6KvFTXFczOIwzy6vkcJcJuUXUzqtnDkVLitvBebQNor6O56eEOE03i9RHSEBjAcl1HxVMgn8C0DhAauHCcsM9uuyCd2TLSHBSdygRNC7Tfki7lMRh_F6SFuOUXYkeWwIAwirSJwMCILuimt118ZZeUnDfL3w89HxRrjDnpkUF9P_ysWfwfVlgciwIVRc0oXEaHJvOayK-aKc0_O0aO4VgODQnKRTn3YKk6NFiNwgo5xGrHoEnDFnvzizw-cgxDg"/>
+</div>
+<div class="p-space-md flex flex-col gap-2 flex-1 justify-between">
+<div>
+<span class="text-caption text-on-surface-variant font-label-sm">RÉF : EM-SEMI-LM358</span>
+<h3 class="font-title-md text-title-md text-on-surface font-semibold line-clamp-2 mt-0.5">Circuit Intégré LM358 Op-Amp Dual</h3>
+<p class="font-caption text-caption text-secondary mt-1">Amplificateur opérationnel double canal, format DIP-8 standard pour prototypage.</p>
+</div>
+<div class="pt-2 border-t border-outline-variant/20 flex items-center justify-between">
+<div>
+<span class="text-caption text-secondary">Prix unitaire</span>
+<p class="font-headline-md text-headline-md font-bold text-primary">500 <span class="text-xs text-on-surface">F CFA</span></p>
+</div>
+<button class="w-10 h-10 rounded bg-primary text-surface-container-lowest flex items-center justify-center hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-sm">
+<span class="material-symbols-outlined" data-icon="add_shopping_cart">add_shopping_cart</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2 : ACADÉMIE & FORMATIONS PRATIQUES -->
+<section class="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-space-md relative overflow-hidden" id="academie">
+<!-- Glow Accent -->
+<div class="absolute top-0 right-0 w-56 h-56 bg-tertiary/5 rounded-full blur-3xl pointer-events-none"></div>
+<div class="flex items-center justify-between mb-space-md relative z-10">
+<div>
+<span class="text-primary font-label-sm tracking-wider uppercase">PÔLE TRANSMISSION &amp; COMPÉTENCES</span>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Académie &amp; Certifications</h2>
+</div>
+<span class="w-8 h-8 rounded-full bg-tertiary/10 border border-tertiary/40 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-base" data-icon="workspace_premium">workspace_premium</span>
+</span>
+</div>
+<!-- Hero Course Card -->
+<div class="rounded-xl bg-surface-container border border-outline-variant/40 p-space-md mb-space-md relative z-10">
+<div class="flex items-center gap-2 mb-space-xs">
+<span class="px-2 py-0.5 rounded bg-tertiary/15 text-tertiary font-label-sm border border-tertiary/30">Débutant → Intermédiaire</span>
+<span class="px-2 py-0.5 rounded bg-surface-container-high text-secondary font-label-sm">Kit Matériel Inclus</span>
+</div>
+<h3 class="font-title-md text-title-md font-bold text-on-surface">
+          Maîtriser l'IoT &amp; l'ESP32 par la Pratique
+        </h3>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">
+          Programme d'ingénierie appliquée : programmation réseau, télémétrie capteurs vers Cloud, gestion d'énergie et fabrication d'un objet connecté autonome.
+        </p>
+<!-- Features Matrix -->
+<div class="grid grid-cols-2 gap-space-xs my-space-md text-caption">
+<div class="flex items-center gap-2 text-secondary">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="videocam">videocam</span>
+            12 Modules Vidéo HD
+          </div>
+<div class="flex items-center gap-2 text-secondary">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="build">build</span>
+            Travaux Pratiques Guidés
+          </div>
+<div class="flex items-center gap-2 text-secondary">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="verified_user">verified_user</span>
+            Instructeur Certifié
+          </div>
+<div class="flex items-center gap-2 text-secondary">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="assignment_turned_in">assignment_turned_in</span>
+            Attestation d'Aptitude
+          </div>
+</div>
+<div class="flex items-center gap-space-sm pt-space-xs border-t border-outline-variant/20">
+<a class="btn-gold-prestige flex-1 py-2.5 px-3 rounded font-label-lg text-label-lg font-bold flex items-center justify-center gap-1.5 text-center" href="#">
+<span class="material-symbols-outlined text-base" data-icon="play_circle">play_circle</span>
+            Découvrir la formation
+          </a>
+<button class="w-10 h-10 rounded border border-outline-variant/50 text-secondary hover:text-primary flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="share">share</span>
+</button>
+</div>
+</div>
+<!-- Express Module Shortcut -->
+<div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-high/60 border border-outline-variant/20 relative z-10">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" data-icon="iron">iron</span>
+</div>
+<div>
+<h4 class="font-label-lg text-label-lg text-on-surface font-semibold">Soudure &amp; Prototypage PCB</h4>
+<p class="font-caption text-caption text-secondary">Atelier intensif en présentiel (4h d'immersion)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="chevron_right">chevron_right</span>
+</div>
+</section>
+<!-- SECTION 3 : ESPACE INVESTISSEMENT & FINANCEMENT PARTICIPATIF -->
+<section class="rounded-xl border border-primary/40 bg-surface-container-lowest p-space-md shadow-[0_4px_32px_-4px_rgba(212,175,55,0.20)] relative overflow-hidden" id="investir">
+<!-- Circuit watermark accent -->
+<div class="absolute -right-10 -bottom-10 w-48 h-48 bg-primary/10 rounded-full blur-2xl pointer-events-none"></div>
+<div class="flex items-start justify-between mb-space-sm relative z-10">
+<div>
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-bold border border-primary/30 mb-1">
+<span class="material-symbols-outlined text-xs" data-icon="trending_up">trending_up</span>
+            OPPORTUNITÉ ACTIONNARIAT
+          </div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-on-surface">Investissement Technologique</h2>
+</div>
+<div class="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-base" data-icon="corporate_fare">corporate_fare</span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant relative z-10">
+        Participez au financement de l'infrastructure technologique locale et bénéficiez de rendements indexés sur la production industrielle.
+      </p>
+<!-- Projet Phare : Extension FabLab 2026 -->
+<div class="mt-space-md p-space-md rounded-xl bg-surface-container border border-outline-variant/50 relative z-10">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-title-md text-title-md text-primary font-bold">Extension Atelier d'Assemblage &amp; FabLab 2026</h3>
+<span class="text-caption text-secondary">Projet No. EM-FIN-FAB26 | Ouvert aux souscriptions</span>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary/10 text-tertiary border border-tertiary/40 font-label-sm font-bold">
+            En Cours
+          </span>
+</div>
+<!-- Gauge / Bar de financement -->
+<div class="mt-space-md">
+<div class="flex justify-between items-center text-caption mb-1">
+<span class="text-on-surface font-semibold">68% Financé</span>
+<span class="text-primary font-bold">10 200 000 / 15 000 000 FCFA</span>
+</div>
+<div class="w-full h-2 rounded-full bg-surface-container-highest overflow-hidden p-0.5 border border-outline-variant/40">
+<div class="h-full rounded-full bg-gradient-to-r from-primary to-tertiary w-[68%] shadow-[0_0_8px_#00e3fd]"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-space-sm mt-space-md pt-space-xs border-t border-outline-variant/20 text-caption">
+<div>
+<span class="text-secondary block">Ticket d'entrée min.</span>
+<span class="font-bold text-on-surface">50 000 F CFA</span>
+</div>
+<div>
+<span class="text-secondary block">Distribution dividendes</span>
+<span class="font-bold text-tertiary">Trimestrielle</span>
+</div>
+</div>
+</div>
+<!-- Action Button Prestige -->
+<div class="mt-space-md relative z-10">
+<a class="btn-gold-prestige w-full py-3 px-space-md rounded font-label-lg text-label-lg font-extrabold flex items-center justify-center gap-2 text-center uppercase tracking-wide" href="https://wa.me/22665484738?text=Bonjour%20ELECTRO-MEN,%20je%20souhaite%20obtenir%20le%20dossier%20d'investissement%20et%20souscrire%20des%20actions.">
+<span class="material-symbols-outlined text-lg" data-icon="token">token</span>
+          Demande d'Investissement / Actions
+        </a>
+<div class="flex items-center justify-center gap-1.5 mt-2 text-caption text-on-surface-variant">
+<span class="material-symbols-outlined text-xs text-primary" data-icon="lock">lock</span>
+<span>Dossier d'actionnariat audité &amp; formalités juridiques certifiées</span>
+</div>
+</div>
+</section>
+<!-- ASSISTANCE & CONTACT DIRECT WHATSAPP -->
+<section class="rounded-xl border border-outline-variant/30 bg-surface-container-low p-space-md flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-11 h-11 rounded-full bg-[#25D366]/15 border border-[#25D366]/40 flex items-center justify-center text-[#25D366]">
+<span class="material-symbols-outlined text-2xl" data-icon="chat">chat</span>
+</div>
+<div>
+<h4 class="font-title-md text-title-md text-on-surface font-semibold">Conseil &amp; Commandes WhatsApp</h4>
+<p class="font-caption text-caption text-secondary">+226 65 48 47 38 (Assistance directe 7j/7)</p>
+</div>
+</div>
+<a class="px-3 py-2 rounded bg-surface-container-high border border-outline-variant text-on-surface hover:text-primary font-label-sm font-semibold flex items-center gap-1" href="https://wa.me/22665484738" rel="noopener noreferrer" target="_blank">
+        Discuter
+        <span class="material-symbols-outlined text-sm" data-icon="open_in_new">open_in_new</span>
+</a>
+</section>
+</main>
+<!-- BOTTOM NAVIGATION BAR (SHARED COMPONENT EXECUTION) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-gutter-mobile py-space-xs border-t border-outline-variant/40 bg-surface-container-lowest/95 backdrop-blur-xl shadow-[0_-8px_32px_-8px_rgba(212,175,55,0.12)]">
+<!-- Item 1: Composants (Boutique) -->
+<a class="flex flex-col items-center justify-center text-primary font-label-sm text-label-sm relative after:content-[''] after:w-1 after:h-1 after:rounded-full after:bg-tertiary after:mt-1 after:shadow-[0_0_8px_#00e3fd]" href="#boutique">
+<span class="material-symbols-outlined text-xl" data-icon="memory">memory</span>
+<span class="mt-0.5">Composants</span>
+</a>
+<!-- Item 2: Bourse & IR -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1" href="#investir">
+<span class="material-symbols-outlined text-xl" data-icon="trending_up">trending_up</span>
+<span class="mt-0.5">Bourse &amp; IR</span>
+</a>
+<!-- Item 3: Solutions (Académie & Projets) -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1" href="#academie">
+<span class="material-symbols-outlined text-xl" data-icon="precision_manufacturing">precision_manufacturing</span>
+<span class="mt-0.5">Solutions</span>
+</a>
+<!-- Item 4: Profil -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1" href="#profil">
+<span class="material-symbols-outlined text-xl" data-icon="corporate_fare">corporate_fare</span>
+<span class="mt-0.5">Profil</span>
+</a>
+</nav>
+<!-- Micro-interactions Script -->
+<script>
+    // Smooth scroll for anchor shortcuts
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        const targetId = this.getAttribute('href');
+        if (targetId && targetId !== '#') {
+          const targetEl = document.querySelector(targetId);
+          if (targetEl) {
+            e.preventDefault();
+            targetEl.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }
+        }
+      });
+    });
+  </script>
+</body></html>

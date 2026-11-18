@@ -1,0 +1,40 @@
+[
+  {
+    "id": "#EM-INV-5047",
+    "lastName": "KABORE",
+    "firstName": "Franck",
+    "name": "Franck KABORE",
+    "email": "franckkabore0121@gmail.com",
+    "phone": "+226 56283526",
+    "passwordHash": "901ebb558b4ed5d92813edf2650030a53f0c2216013899ace15bc96bdd547238baa077a31d05e7b072ef9acb8e2d0d3d7be5f3bd5509319b2ed383c01da20b55",
+    "passwordSalt": "2e4c7c2f35213a92c1bc82e96db6295f",
+    "assignedPassword": "franck012138",
+    "status": "en_attente",
+    "statusReason": "Demande soumise par l’utilisateur, en cours d’examen par l’administrateur.",
+    "statusUpdatedAt": "17/11/2026",
+    "isVerified": true,
+    "createdAt": "17 nov. 2026",
+    "totalInvested": 0,
+    "sharesCount": 0,
+    "dividendsEarned": 0
+  },
+  {
+    "id": "#EM-INV-6812",
+    "lastName": "OUEDRAOGO",
+    "firstName": "Franck",
+    "name": "Franck OUEDRAOGO",
+    "email": "franckkabore454@gmail.com",
+    "phone": "+226 50656417",
+    "passwordHash": "2db9d2da0ce73fae7aed157412b506d49f8196e9e38680871ecb9eb542eafb4a55a07daaff71a859eea749419fdb294650f6e4f12ed69ff6e4d63f714590d8a9",
+    "passwordSalt": "c1214a48a388c09f63f4dce52a9ab461",
+    "assignedPassword": "fghjklm&é\"'(-",
+    "status": "en_attente",
+    "statusReason": "Demande soumise par l’utilisateur, en cours d’examen par l’administrateur.",
+    "statusUpdatedAt": "17/11/2026",
+    "isVerified": true,
+    "createdAt": "17 nov. 2026",
+    "totalInvested": 0,
+    "sharesCount": 0,
+    "dividendsEarned": 0
+  }
+]

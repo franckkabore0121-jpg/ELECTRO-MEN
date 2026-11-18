@@ -1,0 +1,77 @@
+{
+  "customAdminUrl": "/electromen-gestion",
+  "masterPasswordHash": "2bb7e289d1c9bed43f6ce25fcb5c7a5ceb7d09ca1ee77452586f9318d4fa53ba",
+  "masterPasswordHint": "ELECTRO-2026",
+  "admins": [
+    {
+      "id": "adm-1",
+      "name": "Franck Kaboré (Propriétaire)",
+      "email": "franckkabore454@gmail.com",
+      "phone": "+226 65 48 47 38",
+      "role": "admin_principal",
+      "passwordHash": "4cd93978366107ed79936b24b3078d3d3403e3770171554ebeac674a554a34e7",
+      "assignedPasswordPlainText": "SUPER-MASTER-ELM",
+      "isProtected": true,
+      "addedDate": "21/10/2026"
+    },
+    {
+      "id": "adm-2",
+      "name": "PARE Badra Aliyou Haidara",
+      "email": "badrapare@gmail.com",
+      "phone": "+226 67 31 46 05",
+      "role": "admin_secondaire",
+      "passwordHash": "6af50e1aa582900efa0e094c45902f0c2bef8e25692d0818aa2900095f9f12c5",
+      "assignedPasswordPlainText": "BADRA-SEC-2026",
+      "isProtected": false,
+      "addedDate": "24/10/2026"
+    },
+    {
+      "id": "adm-3",
+      "name": "Dr. Oumar Traoré",
+      "email": "oumar.traore@fasomail.bf",
+      "phone": "+226 76 12 34 56",
+      "role": "admin_secondaire",
+      "passwordHash": "ac4ef4d803c217dbdbd7e13b1d9c7c88bc1743c2cccfa3c168cf431a3296564f",
+      "assignedPasswordPlainText": "SEC-TRAORE-2026",
+      "isProtected": false,
+      "addedDate": "22/10/2026"
+    }
+  ],
+  "activeTokens": {
+    "52530b79cce8f7de2228ce217fd28a16633288ee78f6eb98fb46fb0eb42216bd": {
+      "email": "badrapare@gmail.com",
+      "role": "admin_secondaire",
+      "expiresAt": 1793047793429
+    },
+    "270eae4e2811fbf56f1676f807fe66147cdcfd3b2b3ce70c5fb21fc152e61de0": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1793047797201
+    },
+    "a7eff19ff4cd78e33afc82e73cb4d7b06aea8aa6447b85d5380314c33f6fe822": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1795025296941
+    },
+    "8130758994592eb4f1f92a561a16c62298f9e4166e6256c5ba9f08e663c20130": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1795025641790
+    },
+    "069ae7f4452dfd56adf96e5018fe21d9d26b59a431b6a158569d98b37ee362d4": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1795042100657
+    },
+    "eaf1a6b0849191cfbaffbbcb8c39bbd040ef57ee049115836d5a230404d71aa5": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1795097292218
+    },
+    "906942e7b24fb2a89aa97729f057ed9baa36f60d512206186464ee68dadf4308": {
+      "email": "franckkabore454@gmail.com",
+      "role": "admin_principal",
+      "expiresAt": 1795101922037
+    }
+  }
+}

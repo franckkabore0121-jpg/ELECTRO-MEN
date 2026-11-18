@@ -1,0 +1,5 @@
+[
+  { "id": "electronique", "name": "Électronique & IoT", "domain": "electronique", "isActive": true },
+  { "id": "electrotechnique", "name": "Électrotechnique Industrielle & Puissance", "domain": "electrotechnique", "isActive": true },
+  { "id": "informatique", "name": "Informatique, Réseaux & Maintenance", "domain": "informatique", "isActive": true }
+]

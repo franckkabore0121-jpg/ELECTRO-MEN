@@ -1,0 +1,8 @@
+{
+  "name": "ELECTRO-MEN",
+  "description": "ELECTRO-MEN à Ouagadougou (Burkina Faso) : composants électroniques d'ingénierie certifiés, équipements informatiques et électrotechniques, académie de formation pratique et plateforme d'actionnariat participatif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

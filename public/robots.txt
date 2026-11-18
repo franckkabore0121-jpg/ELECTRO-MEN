@@ -1,0 +1,27 @@
+# robots.txt - ELECTRO-MEN Corporate Portal
+# Plateforme Technologique & Actionnariat Industriel Participatif
+# Siège : Ouagadougou, Burkina Faso
+
+User-agent: *
+Allow: /
+Allow: /?tab=accueil
+Allow: /?tab=solutions
+Allow: /?tab=bourse
+Allow: /?tab=boutique_electronique
+Allow: /?tab=boutique_electrotechnique
+Allow: /?tab=boutique_informatique
+Allow: /?tab=composants
+Allow: /assets/
+Allow: /public/
+
+# Protection stricte et exclusion des pages privées, portefeuilles et console d'administration
+Disallow: /admin
+Disallow: /admin/
+Disallow: /admin*
+Disallow: /*?tab=admin*
+Disallow: /*?tab=profil*
+Disallow: /electromen-gestion*
+Disallow: /api/
+
+# Référence au Sitemap XML officiel
+Sitemap: https://electromen.bf/sitemap.xml

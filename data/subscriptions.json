@@ -1,0 +1,18 @@
+[
+  {
+    "id": "SUB-1793967655791-748",
+    "investorId": "#EM-INV-3333",
+    "investorName": "Issa Ouedraogo",
+    "investorEmail": "issa.ouedraogo@example.com",
+    "investorPhone": "+226 70 20 30 40",
+    "operationId": "op-1793967651437",
+    "operationTitle": "Projet Test Solaire Ouaga",
+    "offerId": "off-1793967651437-std",
+    "offerTitle": "Parts Ordinaires - Projet Test Solaire Ouaga",
+    "shares": 4,
+    "sharePrice": 2500,
+    "totalAmount": 10000,
+    "status": "pending_admin",
+    "requestedAt": "06/11/2026 12:20"
+  }
+]

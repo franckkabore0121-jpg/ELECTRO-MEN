@@ -1,0 +1,327 @@
+Gestion de l'état et de la disponibilité des composants
+Dans l'espace Administrateur d'ELECTRO-MEN, permettre à l'administrateur de définir et de modifier à tout moment l'état de disponibilité de chaque composant électronique ou équipement informatique.
+Pour chaque produit, proposer trois états :
+En stock : le composant est disponible immédiatement à la vente.
+En rupture de stock : le composant est temporairement indisponible et ne peut pas être commandé comme un produit disponible.
+Sur commande : le composant n'est pas disponible immédiatement, mais le client peut passer une commande pour que l'administrateur organise son approvisionnement.
+Fonctionnement dans l'espace administrateur
+Ajouter un champ « État du produit » dans le formulaire d'ajout et de modification des produits.
+Permettre à l'administrateur de sélectionner l'un des trois états.
+Permettre de modifier cet état à tout moment.
+Enregistrer l'état dans les données du produit afin qu'il reste identique sur toutes les pages où le produit apparaît.
+Permettre à l'administrateur de définir également la quantité disponible pour les produits en stock.
+Si la quantité atteint zéro, signaler le produit comme épuisé et proposer à l'administrateur de confirmer le changement d'état.GESTION DES RETRAITS DES INVESTISSEURS PAR SECTEUR
+Modifier le fonctionnement des demandes de retrait d’argent des investisseurs dans le projet ELECTRO-MEN, sans supprimer ni modifier les autres fonctionnalités existantes.
+Redirection WhatsApp selon le secteur d’investissement
+Lorsqu’un investisseur souhaite retirer de l’argent, le système doit identifier le secteur auquel son investissement est associé et afficher le numéro WhatsApp correspondant :
+Électronique : 65484738
+Électrotechnique : 07 31 57 34
+Informatique : 56283526
+Le bouton WhatsApp doit ouvrir une conversation avec l’administrateur du secteur concerné. Il ne faut jamais envoyer automatiquement l’investisseur vers le numéro d’un autre secteur.
+Fonctionnement de la demande de retrait
+L’investisseur sélectionne son investissement et saisit le montant qu’il souhaite retirer.
+Le système vérifie ses données et enregistre la demande avec le statut « En attente de validation ».
+Le système affiche le bouton « Contacter l’administrateur sur WhatsApp » avec le numéro correspondant au secteur de l’investissement.
+La conversation WhatsApp peut contenir un message prérempli indiquant le nom ou l’identifiant de l’investisseur, le secteur, le montant demandé et la référence de la demande, sans divulguer de données confidentielles inutiles.
+L’administrateur vérifie la demande et confirme le paiement uniquement après avoir vérifié que l’argent a réellement été versé.
+Le solde de l’investisseur ne doit pas être débité définitivement et la demande ne doit pas être marquée comme payée avant la confirmation autorisée de l’administrateur.
+Sécurité et fiabilité
+Chaque secteur doit utiliser exclusivement le numéro WhatsApp qui lui est attribué.
+Empêcher les doubles paiements et les doubles validations.
+Conserver l’historique des demandes de retrait.
+Si un numéro n’est pas valide ou si WhatsApp ne peut pas s’ouvrir, afficher le numéro pour permettre à l’investisseur de le contacter manuellement.
+Permettre à l’administrateur autorisé de modifier les numéros ultérieurement depuis l’espace administrateur.
+Conserver toutes les autres fonctionnalités et l’architecture existante d’ELECTRO-MEN.
+Important : les numéros doivent être enregistrés comme des contacts WhatsApp réels. Vérifier leur format international avant de créer les liens de conversation. Ne pas inventer de chiffres manquants.ELECTRO-MEN CORPORATE PORTAL — GESTION DES INVESTISSEMENTS, DES OFFRES ET DU PARTAGE DES BÉNÉFICES
+Consigne générale : améliore le projet ELECTRO-MEN existant sans reconstruire l'application. Conserve son architecture, ses pages, son design premium sombre et technologique, ses comptes utilisateurs, son système de gestion des parts et ses fonctionnalités déjà opérationnelles. Examine le code actuel avant toute modification et réutilise les mécanismes existants.
+Gestion du partage des bénéfices
+Dans l'espace Administrateur, lorsque l'administrateur clique sur « Partage des bénéfices », afficher un formulaire permettant de préparer une distribution.
+L'administrateur doit pouvoir :
+Choisir le secteur concerné : Électronique, Électrotechnique ou Informatique.
+Consulter le bénéfice net distribuable réellement réalisé et validé.
+Consulter le montant total réservé aux investisseurs.
+Ajouter un motif ou une note destinée aux investisseurs.
+Indiquer la période concernée et la date prévue de distribution.
+Consulter la liste des investisseurs éligibles.
+Prévisualiser les calculs avant de publier la distribution.
+Règle obligatoire de répartition
+Sur le bénéfice net distribuable réalisé grâce aux produits vendus :
+70 % reviennent aux investisseurs éligibles.
+30 % reviennent à ELECTRO-MEN.
+Les 70 % destinés aux investisseurs sont répartis à parts égales entre tous les investisseurs éligibles du secteur concerné, indépendamment du nombre de parts détenues par chacun.
+Utiliser les formules suivantes :
+Part des investisseurs = bénéfice net distribuable × 70 %.
+Part d'ELECTRO-MEN = bénéfice net distribuable × 30 %.
+Montant individuel = part totale des investisseurs ÷ nombre d'investisseurs éligibles.
+Exemple : pour un bénéfice net distribuable de 100 000 FCFA et 10 investisseurs éligibles, les investisseurs reçoivent 70 000 FCFA au total, soit 7 000 FCFA chacun. ELECTRO-MEN conserve 30 000 FCFA.
+Le calcul doit être effectué automatiquement et présenté à l'administrateur avant validation.
+Définir clairement les critères d'éligibilité des investisseurs avant chaque distribution. Seuls les investisseurs éligibles au secteur et à la période concernés doivent participer au partage.
+Si aucun investisseur n'est éligible, bloquer la distribution et demander une vérification.
+Publication de la distribution
+Après vérification, l'administrateur peut cliquer sur « Publier le partage des bénéfices ».
+Les investisseurs concernés peuvent consulter dans leur espace personnel :
+Le secteur concerné.
+La période de référence.
+Le motif ou la note de l'administrateur.
+Le montant individuel qui leur revient.
+Le statut de la distribution et sa date.
+Ne pas afficher les informations personnelles ou les montants individuels des autres investisseurs.
+Empêcher les doubles distributions pour les mêmes bénéfices. Conserver l'historique des calculs, publications, validations et paiements. Ne jamais distribuer des bénéfices fictifs ou non confirmés.
+Création et publication des offres d'investissement
+Ajouter ou améliorer la rubrique « Gestion des offres d'investissement » dans l'espace Administrateur.
+L'administrateur doit pouvoir créer une offre pour une boutique ou un projet réel d'ELECTRO-MEN.
+Le formulaire doit comprendre :
+Nom de la boutique ou du projet.
+Secteur : Électronique, Électrotechnique ou Informatique.
+Description détaillée de l'investissement.
+Objectif du projet et utilisation prévue des fonds.
+Montant total recherché.
+Montant minimum et maximum d'investissement, si applicables.
+Valeur d'une part et nombre de parts disponibles, si le projet fonctionne par parts.
+Conditions de participation.
+Durée ou période prévue de l'investissement.
+Date d'ouverture et date de clôture prévue.
+Numéro WhatsApp de la boutique concernée.
+Image de présentation, si disponible.La description doit expliquer le projet, son objectif, l'utilisation prévue des fonds, les conditions de participation et les risques éventuels.
+Ne jamais inventer des données financières, des rendements garantis ou des promesses de bénéfices.
+L'administrateur doit pouvoir enregistrer une offre comme brouillon, la prévisualiser, la publier, la modifier, la suspendre ou la fermer.
+Chaque offre doit être liée à la boutique concernée, au secteur et aux administrateurs autorisés à la gérer.
+Confidentialité des montants financiers
+Les investisseurs ne doivent jamais voir les montants globaux des offres d'investissement.
+Les informations suivantes sont réservées aux administrateurs autorisés :
+Montant total recherché.
+Montant total collecté.
+Montant restant à collecter.
+Statistiques financières globales des souscriptions.
+Ne pas afficher ces informations dans les cartes, les fiches détaillées, les tableaux de bord, les notifications ou les pages accessibles aux investisseurs.
+Ne pas transmettre ces données aux comptes investisseurs par les API ou les réponses du serveur. La confidentialité doit être appliquée au niveau des autorisations et de l'accès aux données, pas uniquement par un masquage visuel.
+Informations que les investisseurs peuvent voir
+Nom de la boutique ou du projet.
+Secteur concerné.
+Description détaillée de l'investissement.
+Objectif du projet.
+Conditions de participation.
+Valeur d'une part, si applicable.
+Dates importantes.
+Statut de l'offre.
+Bouton « Investir », uniquement lorsque l'offre est ouverte.
+Bouton « Contacter la boutique sur WhatsApp ».
+Cette restriction ne doit pas empêcher les investisseurs de consulter leurs propres parts, leurs propres transactions ou les montants individuels de bénéfices qui leur reviennent.
+États des offres d'investissement
+Chaque offre doit avoir l'un des statuts suivants :
+Brouillon : visible uniquement par les administrateurs autorisés.
+Ouvert : visible et accessible à la souscription.
+Suspendu : temporairement indisponible pour les nouvelles souscriptions.
+Fermé : définitivement clôturé pour les nouvelles souscriptions.
+L'administrateur doit pouvoir ouvrir, suspendre ou fermer une offre.
+La fermeture peut intervenir lorsque la date limite est atteinte, lorsque l'objectif de collecte est atteint ou lorsque l'administrateur décide de mettre fin aux souscriptions.
+Prévoir une confirmation avant la fermeture définitive.
+Si la fermeture automatique à la date limite est activée, le système doit la déclencher automatiquement et vérifier la date côté serveur.
+Conséquences de la fermeture d'une offre
+Lorsqu'une offre est fermée :
+Interdire tout nouvel achat ou toute nouvelle réservation de parts.
+Désactiver les boutons « Investir » et « Acheter des parts ».
+Bloquer les souscriptions côté serveur, même si un utilisateur conserve une ancienne page ouverte ou utilise un ancien lien.
+Afficher « Investissement fermé » ou « Offre clôturée ».
+Conserver la description et les informations publiques de l'offre.
+Afficher le bouton « Contacter la boutique sur WhatsApp ».
+Le bouton WhatsApp doit ouvrir une conversation avec le numéro configuré de la boutique et préparer un message mentionnant l'offre. Ne pas inventer de numéro.
+La fermeture ne doit pas supprimer les parts déjà acquises, les transactions précédentes ou les droits des investisseurs existants. Elle empêche uniquement les nouvelles souscriptions.
+Création d'un compte investisseur sans offre ouverte
+Permettre aux utilisateurs de créer un compte investisseur même si toutes les offres sont fermées.
+Lorsque l'utilisateur se connecte et qu'aucune offre n'est ouverte, afficher :
+« Aucun investissement en cours. Aucune offre d'investissement n'est actuellement ouverte. Vous pouvez consulter les projets clôturés et contacter les boutiques concernées pour obtenir davantage d'informations. »
+Dans cette situation :
+Autoriser la création du compte investisseur.
+Ne créer aucun investissement automatiquement.
+Ne pas attribuer de parts6. DÉPÔTS DES INVESTISSEURS
+Lorsqu'un investisseur souhaite effectuer un dépôt :
+Il sélectionne le secteur ou l'offre concernée.
+Il saisit le montant qu'il souhaite déposer.
+Il vérifie les informations et valide sa demande.
+Le système crée une demande avec une référence unique et le statut « En attente de validation ».
+Le système affiche le bouton « Contacter l'administrateur sur WhatsApp » correspondant au secteur concerné.
+L'investisseur transmet les informations nécessaires au responsable.
+L'administrateur vérifie la réception réelle des fonds avant de confirmer le dépôt.
+Une fois la confirmation autorisée effectuée, le système met à jour les données concernées et conserve la trace de l'opération.
+Une demande envoyée ne signifie pas que l'argent a été reçu. Ne jamais créditer automatiquement un compte sur la seule base d'une demande ou d'un message WhatsApp.
+RETRAITS DES INVESTISSEURS PAR WHATSAPP
+Lorsqu'un investisseur demande un retrait, le système doit identifier le secteur auquel son investissement est associé et lui présenter le numéro WhatsApp du responsable correspondant.
+Numéros WhatsApp officiels par secteur
+Électronique : 65484738
+Électrotechnique : 07 31 57 34
+Informatique : 56283526
+Utiliser exactement les numéros fournis. Les enregistrer dans une configuration modifiable par l'administrateur autorisé, afin de pouvoir les actualiser ultérieurement sans modifier tout le code de l'application.
+Fonctionnement du retrait
+L'investisseur sélectionne l'investissement concerné.
+Il saisit le montant qu'il souhaite retirer.
+Le système vérifie les conditions de retrait et les fonds personnels disponibles selon les règles applicables.
+L'investisseur confirme sa demande.
+Le système enregistre une demande unique avec une référence et le statut « En attente de validation ».
+Le système identifie automatiquement le secteur concerné.
+Il affiche le numéro WhatsApp correspondant et un bouton permettant d'ouvrir une conversation avec le responsable de ce secteur.
+Un message prérempli peut contenir la référence de la demande, le secteur et le montant demandé. N'inclure que les informations personnelles nécessaires.
+L'administrateur vérifie la demande, les conditions applicables et le paiement réel.
+L'administrateur confirme le retrait dans l'espace administrateur uniquement après avoir vérifié que le paiement a effectivement été réalisé.
+Règles impératives
+Une demande d'un investisseur du secteur Électronique doit utiliser le numéro Électronique.
+Une demande d'un investisseur du secteur Électrotechnique doit utiliser le numéro Électrotechnique.
+Une demande d'un investisseur du secteur Informatique doit utiliser le numéro Informatique.
+Ne jamais rediriger automatiquement un investisseur vers le responsable d'un autre secteur.
+Si l'investisseur détient des participations dans plusieurs secteurs, lui demander de sélectionner la participation concernée avant de déterminer le contact.
+Le simple clic sur WhatsApp ne doit jamais confirmer le paiement.
+Ne jamais marquer un retrait comme payé avant la confirmation autorisée.
+Empêcher les doubles validations et les doubles paiements.
+Conserver l'historique de chaque demande et de chaque changement de statut.
+Si WhatsApp ne peut pas s'ouvrir, afficher le numéro pour que l'investisseur puisse le contacter manuellement.
+RÉPARTITION DES BÉNÉFICES : 70 % AUX INVESTISSEURS
+Ajouter une fonction permettant à l'administrateur autorisé de répartir les bénéfices réellement réalisés sur les produits vendus.
+Règle de répartition
+70 % du bénéfice net distribuable validé sont réservés aux investisseurs admissibles du secteur concerné.
+Les 30 % restants reviennent à ELECTRO-MEN.
+La part globale de 70 % destinée aux investisseurs est divisée à parts égales entre tous les investisseurs admissibles du secteur concerné pour la période de distribution, indépendamment du nombre de parts détenues, conformément à cette règle de répartition.
+Ne pas confondre chiffre d'affaires, argent collecté, montant investi et bénéfice net. Seul un bénéfice réellement réalisé, vérifié et validé par un administrateur autorisé peut être distribué.
+Exemple de calcul
+Si le bénéfice net distribuable validé est de 100 000 FCFA :
+Part totale des investisseurs : 70 000 FCFA.
+Part d'ELECTRO-MEN : 30 000 FCFA.
+Si 10 investisseurs sont admissibles à cette distribution dans le secteur concerné :
+Chaque investisseur reçoit 7 000 FCFA.
+ELECTRO-MEN conserve 30 000 FCFA.
+Cet exemple est uniquement illustratif. Le système doit calculer les montants à partir des données réelles validées.
+Interface de distribution des bénéfices
+Dans l'espace administrateur, permettre de renseigner :
+Le secteur concerné.
+La période de distribution.
+Le bénéfice net distribuable réellement réalisé.
+Une note ou justification.
+La liste des investisseurs admissibles, déterminée selon les règles de participation enregistrées.
+La date de validation.
+Afficher un aperçu du calcul avant confirmation. Le système doit calculer automatiquement les 70 %, les 30 % et la part individuelle de chaque investisseur admissible.
+Après validation, publier les montants individuels dans les espaces personnels concernés.
+Sécurité des distributions
+Ne jamais distribuer un bénéfice estimé comme s'il était déjà réalisé.
+Ne jamais déclencher deux distributions identiques par erreur.
+Conserver la date, la référence, le montant, le secteur, la période et l'administrateur ayant validé la distribution.
+Bloquer la distribution si aucun investisseur n'est admissible.
+Permettre à chaque investisseur de voir uniquement son propre bénéfice attribué.
+Ne pas divulguer la liste privée des autres investisseurs ni leurs montants individuels.
+Prévoir un historique consultable par les administrateurs autorisés.
+Si le système ne dispose pas encore de données financières fiables, demander la validation et les informations manquantes plutôt que d'inventer des chiffres.
+INTERFACE PUBLIQUE DES INVESTISSEMENTS
+Créer une présentation claire et professionnelle des offres disponibles.
+Chaque offre doit afficher les informations autorisées : nom du projet, secteur, description, objectifs, conditions de participation, statut et contact du responsable.
+Pour une offre ouverte, afficher les actions autorisées pour consulter les conditions et soumettre une demande de participation.
+Pour une offre suspendue ou fermée, désactiver la souscription et afficher un message explicatif. Le contact WhatsApp peut rester accessible.
+Ne jamais afficher les montants globaux recherchés, collectés ou restants aux investisseurs ou aux visiteurs.
+PRODUITS, BOUTIQUE ET LIVRAISON
+Conserver et compléter les fonctions commerciales déjà présentes :
+Gestion des produits électroniques, électrotechniques et informatiques.
+Photos réelles ajoutées par l'administrateur.
+Descriptions et caractéristiques techniques.
+Vidéos de présentation gérées uniquement par l'administrateur.
+Prix et promotions.
+Codes de réduction configurés par l'administrateur pour les produits concernés.
+Frais de livraison configurés par l'administrateur selon la situation géographique du client.
+Statuts de disponibilité : « En stock », « Rupture de stock » et « Sur commande ».
+Bouton de partage social pour chaque image ou produit10. PRODUITS, BOUTIQUE ET LIVRAISON
+Conserver et compléter les fonctions commerciales déjà présentes :
+Gestion des produits électroniques, électrotechniques et informatiques.
+Photos réelles ajoutées par l'administrateur.
+Descriptions et caractéristiques techniques.
+Vidéos de présentation gérées uniquement par l'administrateur.
+Prix et promotions.
+Codes de réduction configurés par l'administrateur pour les produits concernés.
+Frais de livraison configurés par l'administrateur selon la situation géographique du client.
+Statuts de disponibilité : « En stock », « Rupture de stock » et « Sur commande ».
+Bouton de partage social pour chaque image ou produit lorsque cette fonctionnalité est prévue.
+Ne pas afficher des images de remplacement ou des photos générées automatiquement comme s'il s'agissait des véritables produits du catalogue. Si aucune photo réelle n'a été ajoutée, afficher un emplacement neutre clairement identifiable.
+HISTORIQUE, CONTRÔLES ET PROTECTION DES DONNÉES
+Enregistrer les opérations importantes :
+Création et modification des offres.
+Changements de statut.
+Dépôts et retraits demandés et validés.
+Distributions de bénéfices.
+Modifications des numéros WhatsApp.
+Changements de droits et de rôles.
+Modifications des produits et des contenus.
+Pour les opérations financières, utiliser des références uniques et des statuts explicites, par exemple :
+« En attente de validation »
+« Validé »
+« Refusé »
+« Annulé », lorsque cela est autorisé.
+Protéger les données personnelles et financières. Vérifier les autorisations côté serveur, empêcher les accès non autorisés et éviter qu'une même opération soit confirmée deux fois.
+Ne jamais considérer un simple message WhatsApp, une capture d'écran ou une demande soumise comme une preuve suffisante de paiement sans vérification par le responsable autorisé.
+CONSIGNES TECHNIQUES POUR GOOGLE AI STUDIO
+Avant d'appliquer les modifications :
+Examiner les pages, fichiers, composants, routes, données et fonctionnalités déjà existants.
+Identifier les éléments réutilisables.
+Ajouter les nouvelles fonctions sans supprimer les anciennes.
+Ne pas remplacer l'application complète par une maquette ou une nouvelle architecture non nécessaire.
+Ne pas supprimer les liens entre les pages existantes.
+Conserver les styles, la navigation et la compatibilité mobile.
+Utiliser le système de stockage et le backend déjà présents lorsqu'ils sont adaptés.
+Si une fonction nécessite un backend, une base de données ou un système d'authentification qui n'existe pas encore, l'indiquer clairement et mettre en place une solution compatible plutôt que de simuler une sécurité réelle uniquement côté interface.
+Ne pas inventer de transactions, d'investisseurs, de bénéfices ou de confirmations de paiement.
+Tester les permissions, les statuts, les calculs, les numéros WhatsApp et les parcours Web et mobile.
+Tests obligatoires
+Vérifier que les investisseurs peuvent créer un compte même si aucune offre n'est ouverte.
+Vérifier qu'une offre fermée ne permet aucune nouvelle souscription.
+Vérifier que les montants globaux de collecte sont inaccessibles aux investisseurs.
+Vérifier que les demandes de retrait dirigent vers le numéro du bon secteur.
+Vérifier qu'une demande WhatsApp ne confirme pas automatiquement un paiement.
+Vérifier que la distribution des bénéfices respecte la règle 70 % / 30 % et le partage égal entre investisseurs admissibles.
+Vérifier que les investisseurs ne voient que leurs propres informations.
+Vérifier que les clients ne peuvent pas gérer les vidéos.
+Vérifier que seuls les administrateurs autorisés peuvent effectuer les actions d'administration.
+Vérifier que les pages et les fonctionnalités déjà existantes continuent de fonctionner.
+Résultat attendu : une mise à jour complète, cohérente et sécurisée d'ELECTRO-MEN Corporate Portal, qui conserve le projet actuel et ajoute les fonctionnalités demandées sans supprimer les éléments déjà fonctionnels. lorsque cette fonctionnalité est prévue.
+A. Supprimer les rubriques inutiles du compte investisseur
+Dans le menu et le tableau de bord du compte investisseur, supprimer les rubriques suivantes :
+« Mes formations actives »
+« Mes documents »
+« Attestations »
+Ces rubriques ne doivent plus apparaître dans la navigation, les cartes du tableau de bord ni les menus du compte investisseur.
+Cette suppression concerne uniquement l'affichage et les fonctionnalités de ces rubriques dans le compte investisseur. Ne pas supprimer les données ou les fonctions de formation qui sont nécessaires aux autres utilisateurs ou à l'espace administrateur.
+B. Ajouter une rubrique « Réglages »
+Ajouter au compte investisseur une rubrique clairement visible appelée « Réglages », accessible depuis le menu du compte et, si possible, depuis une icône d'engrenage.
+Cette rubrique doit permettre à l'investisseur de gérer ses propres paramètres :
+Informations personnelles : consulter et modifier son nom, son prénom et les autres informations de profil modifiables.
+Coordonnées : modifier son numéro de téléphone et son adresse e-mail selon les procédures de vérification disponibles.
+Sécurité du compte : modifier son mot de passe après vérification de son identité et proposer une fonction de réinitialisation sécurisée.
+Notifications : choisir les notifications qu'il souhaite recevoir, lorsque cette fonctionnalité est disponible.
+Préférences : gérer les préférences d'affichage et de langue si ces options sont prises en charge par l'application.
+Déconnexion : proposer un bouton visible permettant de se déconnecter de son compte en toute sécurité.
+C. Protection des accès
+Un investisseur ne peut modifier que ses propres informations et ses propres réglages.
+Il ne peut pas modifier son solde, ses bénéfices validés, ses transactions, ses investissements ou ses droits administratifs depuis les réglages.
+Toute modification sensible doit être vérifiée et autorisée par le système de sécurité.
+Les changements de mot de passe et les modifications des coordonnées doivent suivre les procédures d'authentification et de vérification disponibles.A. Supprimer les rubriques inutiles du compte investisseur
+Dans le menu et le tableau de bord du compte investisseur, supprimer les rubriques suivantes :
+« Mes formations actives »
+« Mes documents »
+« Attestations »
+Ces rubriques ne doivent plus apparaître dans la navigation, les cartes du tableau de bord ni les menus du compte investisseur.
+Cette suppression concerne uniquement l'affichage et les fonctionnalités de ces rubriques dans le compte investisseur. Ne pas supprimer les données ou les fonctions de formation qui sont nécessaires aux autres utilisateurs ou à l'espace administrateur.
+B. Ajouter une rubrique « Réglages »
+Ajouter au compte investisseur une rubrique clairement visible appelée « Réglages », accessible depuis le menu du compte et, si possible, depuis une icône d'engrenage.
+Cette rubrique doit permettre à l'investisseur de gérer ses propres paramètres :
+Informations personnelles : consulter et modifier son nom, son prénom et les autres informations de profil modifiables.
+Coordonnées : modifier son numéro de téléphone et son adresse e-mail selon les procédures de vérification disponibles.
+Sécurité du compte : modifier son mot de passe après vérification de son identité et proposer une fonction de réinitialisation sécurisée.
+Notifications : choisir les notifications qu'il souhaite recevoir, lorsque cette fonctionnalité est disponible.
+Préférences : gérer les préférences d'affichage et de langue si ces options sont prises en charge par l'application.
+Déconnexion : proposer un bouton visible permettant de se déconnecter de son compte en toute sécurité.
+C. Protection des accès
+Un investisseur ne peut modifier que ses propres informations et ses propres réglages.
+Il ne peut pas modifier son solde, ses bénéfices validés, ses transactions, ses investissements ou ses droits administratifs depuis les réglages.
+Toute modification sensible doit être vérifiée et autorisée par le système de sécurité.
+Les changements de mot de passe et les modifications des coordonnées doivent suivre les procédures d'authentification et de vérification disponibles.
+Ne pas afficher ni enregistrer les mots de passe en clair.
+Ne pas donner aux investisseurs l'accès aux réglages réservés aux administrateurs.
+D. Présentation visuelle
+Après la modification, vérifier que les rubriques « Mes formations actives », « Mes documents » et « Attestations » ne sont plus visibles dans le compte investisseur, et que la nouvelle rubrique « Réglages » fonctionne correctement.
+Ne pas afficher ni enregistrer les mots de passe en clair.
+Ne pas donner aux investisseurs l'accès aux réglages réservés aux administrateurs.
+D. Présentation visuelle
+Après la modification, vérifier que les rubriques « Mes formations actives », « Mes documents » et « Attestations » ne sont plus visibles dans le compte investisseur, et que la nouvelle rubrique « Réglages » fonctionne correctement.FAUT supprimer les images que tu as mis et je ne suis pas au courant,par exemple les images de nos projet reuissit supprime sa.

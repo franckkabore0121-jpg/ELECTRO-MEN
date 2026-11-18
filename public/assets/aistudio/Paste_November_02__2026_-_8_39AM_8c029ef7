@@ -1,0 +1,778 @@
+L'administrateur doit pouvoir saisir lui me des operations de financement et publier comme pour les activités,je doit pouvoir voir en temps réel le utilisateurs connecter a mon application MISSION : TRANSFORMER ELECTRO-MEN EN APPLICATION ANDROID PRÊTE POUR GOOGLE PLAY STORE
+Tu es un ingénieur Android Senior, développeur Full-Stack, architecte logiciel et spécialiste de la publication d'applications sur Google Play Console.
+PROMPT DE CORRECTION ET DE RESTRUCTURATION DE LA PAGE FORMATION — ELECTRO-MEN
+Tu es un développeur Full-Stack Senior, architecte logiciel et expert en conception d'applications web et mobiles.
+Ta mission est d'effectuer un audit complet et une restructuration professionnelle de la page FORMATION de mon application ELECTRO-MEN.
+Je rencontre des problèmes dans cette page. Je veux qu'elle soit entièrement organisée et contrôlée par l'administrateur, sans aucune information fictive ni contenu créé automatiquement.
+1. ANALYSE APPROFONDIE AVANT MODIFICATION
+Avant de toucher au code :
+Analyse intégralement la page Formation actuelle.
+Examine ses composants, ses boutons, ses formulaires et ses fonctionnalités.
+Examine les relations entre la page Formation et l'espace administrateur.
+Identifie les problèmes d'affichage et de fonctionnement.
+Vérifie comment les formations, vidéos, images et informations sont actuellement enregistrées.
+Vérifie les connexions avec la base de données et les API.
+Identifie les fonctionnalités incomplètes ou non fonctionnelles.
+Ne commence pas par reconstruire la page sans comprendre son architecture actuelle.
+Préserve les autres pages et fonctionnalités de l'application.
+2. SUPPRESSION DES ÉLÉMENTS NON SOUHAITÉS
+Supprimer complètement de l'application les boutons et fonctionnalités visibles suivants :
+Télémétrie.
+Cotisations Bourse Tech.
+Les supprimer de tous les emplacements où ils apparaissent dans l'interface utilisateur : navigation, page Formation, menus, tableaux de bord et raccourcis.
+Supprimer également les liens et accès associés s'ils ne servent plus à aucune fonctionnalité nécessaire.
+Ne pas supprimer des données ou des services techniques indépendants sans vérifier leurs dépendances.
+3. NOUVELLE ORGANISATION DE LA PAGE FORMATION
+Créer une présentation claire, professionnelle, moderne et adaptée aux téléphones.
+La page Formation doit être structurée autour des trois domaines suivants :
+Électronique.
+Électrotechnique.
+Informatique.
+Chaque domaine doit disposer de son propre espace de formation.
+L'organisation doit permettre à l'administrateur de classer facilement les formations dans la bonne catégorie.
+Prévoir une présentation claire comprenant uniquement les formations réellement ajoutées et publiées par l'administrateur.
+Ne jamais afficher :
+Des formations fictives.
+Des vidéos de démonstration inventées.
+Des formateurs fictifs.
+Des nombres d'étudiants inventés.
+Des statistiques fictives.
+Des attestations fictives.
+Des cours générés automatiquement.
+Si aucune formation n'est disponible dans une catégorie, afficher un message professionnel indiquant qu'aucune formation n'est actuellement disponible.
+4. CONTRÔLE TOTAL PAR L'ADMINISTRATEUR
+Créer ou corriger le système de gestion des formations dans l'espace administrateur existant.
+L'administrateur autorisé doit pouvoir effectuer les opérations suivantes :
+A. Gestion des catégories
+Ajouter une catégorie.
+Modifier une catégorie.
+Supprimer une catégorie.
+Organiser les catégories.
+Activer ou désactiver une catégorie.
+Déplacer une formation d'une catégorie à une autre.
+B. Gestion des formations
+Ajouter une formation.
+Modifier une formation.
+Supprimer une formation.
+Enregistrer une formation comme brouillon.
+Publier une formation.
+Dépublier une formation.
+Suspendre temporairement une formation.
+Modifier l'ordre d'affichage.
+Prévisualiser une formation avant publication.
+C. Informations d'une formation
+Prévoir les champs suivants :
+Titre de la formation.
+Catégorie.
+Description.
+Image de présentation.
+Vidéo de formation.
+Durée, uniquement si elle est réellement connue.
+Niveau, uniquement si l'administrateur le renseigne.
+Objectifs pédagogiques, uniquement si l'administrateur les renseigne.
+Date de publication.
+Statut de publication.
+Les informations facultatives doivent rester vides lorsqu'elles ne sont pas renseignées.
+Ne jamais inventer automatiquement des informations manquantes.
+5. GESTION DES VIDÉOS DE FORMATION
+C'est une fonctionnalité essentielle.
+Je veux que l'administrateur puisse ajouter facilement des vidéos de formation sans être obligé de quitter l'application.
+Prévoir une interface d'ajout de vidéo propre et professionnelle.
+L'administrateur doit pouvoir :
+Ajouter une vidéo depuis un fichier lorsque le stockage existant le permet.
+Ajouter un lien vidéo.
+Modifier un lien vidéo.
+Remplacer une vidéo.
+Supprimer une vidéo.
+Prévisualiser la vidéo avant publication.
+Associer chaque vidéo à une formation et à une catégorie.
+Définir l'ordre des vidéos.
+Publier ou masquer une vidéo.
+Le formulaire doit gérer correctement les erreurs d'URL, les formats non pris en charge et les problèmes de téléversement.
+IMPORTANT :
+Lorsque l'administrateur sélectionne une vidéo, l'application ne doit pas le faire sortir de l'espace administrateur.
+Ne pas rediriger l'administrateur vers une page externe pour terminer l'ajout.
+Le lecteur vidéo destiné aux apprenants doit fonctionner correctement avec le son, le volume et les commandes de lecture adaptées.
+Respecter les droits d'accès et les conditions d'utilisation des hébergeurs vidéo.
+6. GESTION DES IMAGES
+L'administrateur doit pouvoir :
+Ajouter une image de présentation.
+Remplacer une image.
+Supprimer une image.
+Prévisualiser l'image.
+Associer une image à une formation.
+Ne pas afficher les images génériques ou fictives de Google AI Studio comme s'il s'agissait de véritables formations.
+Lorsqu'aucune image n'est fournie, utiliser un emplacement neutre et professionnel.
+7. AFFICHAGE CÔTÉ APPRENANT
+Les utilisateurs doivent uniquement voir les formations publiées et autorisées.
+Lorsqu'un utilisateur ouvre la page Formation :
+Il découvre les trois catégories.
+Il peut consulter les formations disponibles.
+Il peut ouvrir une formation publiée.
+Il peut consulter sa description.
+Il peut accéder aux vidéos autorisées.
+Il bénéficie d'une navigation simple et fluide.
+Les formations en brouillon, suspendues ou dépubliées ne doivent jamais être accessibles aux utilisateurs ordinaires.
+L'utilisateur ne doit pas voir les outils de gestion réservés à l'administrateur.
+8. SÉCURITÉ ET AUTORISATIONS
+Le contrôle administrateur doit être réel et non simplement visuel.
+Seuls les administrateurs autorisés peuvent ajouter des formations.
+Seuls les administrateurs autorisés peuvent modifier ou supprimer les contenus.
+Vérifier les permissions côté serveur.
+Protéger les API de gestion.
+Empêcher un client de modifier les contenus.
+Empêcher un utilisateur de publier directement une formation.
+Protéger les fichiers téléversés.
+Ne pas exposer les URL privées ou les secrets de stockage.
+Ne jamais considérer qu'un bouton masqué suffit à protéger une fonctionnalité.
+9. ORGANISATION DE L'INTERFACE ADMINISTRATEUR
+Je veux un véritable centre de commande pour la gestion des formations.
+L'interface doit être simple à comprendre et rapide à utiliser.
+Organiser les fonctionnalités par sections :
+Vue d'ensemble des formations.
+Gestion des catégories.
+Liste des formations.
+Ajouter une formation.
+Gestion des vidéos.
+Gestion des images.
+Brouillons.
+Formations publiées.
+Formations suspendues.
+Prévoir des boutons clairement identifiés pour les actions.
+Ajouter une confirmation avant toute suppression définitive.
+Prévoir des messages de succès et d'erreur compréhensibles.
+Ne pas surcharger l'interface avec des informations inutiles.
+Les statistiques éventuelles doivent provenir exclusivement des données réelles de la base de données.
+10. BASE DE DONNÉES ET SAUVEGARDE
+Vérifier et corriger le système de stockage des formations.
+Chaque formation doit être enregistrée avec son propre identifiant.
+Les catégories, vidéos, images et contenus doivent être correctement associés.
+Les modifications de l'administrateur doivent être persistantes après :
+Actualisation de la page.
+Déconnexion et reconnexion.
+Redémarrage de l'application.
+Déploiement d'une nouvelle version.
+Ne pas conserver les formations uniquement dans un état temporaire du navigateur.
+Ne pas créer de données fictives pour remplir la base.
+Avant toute modification du schéma de base de données, vérifier les tables existantes et préserver les données réelles.
+11. TESTS OBLIGATOIRES
+Tester réellement les opérations suivantes :
+Ajouter une catégorie.
+Modifier une catégorie.
+Supprimer une catégorie.
+Ajouter une formation.
+Modifier une formation.
+Enregistrer une formation en brouillon.
+Publier une formation.
+Dépublier une formation.
+Ajouter une vidéo.
+Modifier une vidéo.
+Remplacer une vidéo.
+Supprimer une vidéo.
+Ajouter et remplacer une image.
+Vérifier l'affichage côté apprenant.
+Vérifier qu'un utilisateur non administrateur ne peut pas gérer les formations.
+Vérifier que les données restent enregistrées après reconnexion.
+Vérifier la disparition des boutons Télémétrie et Cotisations Bourse Tech.
+Corriger les erreurs détectées.
+12. CONSIGNE FINALE
+Je ne veux pas une simple proposition de design.
+Je veux que tu analyses, corriges et implémentes réellement toutes les modifications dans mon projet existant.
+Ne crée aucune donnée fictive.
+Ne supprime aucune autre fonctionnalité de mon application.
+Ne modifie pas les règles de gestion des clients, des investisseurs, des paiements ou des autres modules.
+La page Formation doit être entièrement administrable depuis l'espace administrateur, avec une gestion fiable des catégories, formations, vidéos et images.
+À la fin, présente-moi un rapport précisant :
+Les problèmes identifiés.
+Les corrections réalisées.
+Les fichiers modifiés.
+Les modifications de la base de données.
+Les fonctionnalités testées.
+Les éventuels problèmes restant à résoudre.
+OBJECTIF FINAL : obtenir une page FORMATION ELECTRO-MEN professionnelle, fonctionnelle, sans données fictives et entièrement contrôlée par l'administrateur.
+l'adminitrateur doit pouvoir supprimer les compte administrateurs sécondaire.
+Tu dois prendre en charge la préparation technique complète de mon application ELECTRO-MEN pour sa distribution officielle sur Google Play Store.
+Mon objectif est de permettre aux utilisateurs de rechercher ELECTRO-MEN sur Play Store, de télécharger l'application, de l'installer et de l'utiliser normalement sur leurs téléphones Android.
+1. ANALYSE OBLIGATOIRE DE L'APPLICATION EXISTANTE
+Avant de commencer :
+Examine l'intégralité du projet.
+Identifie le framework et les technologies utilisés.
+Identifie le fonctionnement du frontend et du backend.
+Vérifie les dépendances et les configurations.
+Identifie les fonctionnalités qui nécessitent une connexion Internet.
+Vérifie la compatibilité avec Android.
+Identifie les éventuelles erreurs qui empêchent la compilation.
+Ne suppose pas que le projet est compatible avec Android sans vérification.
+Ne reconstruis pas l'application depuis zéro.
+Ne supprime aucune page, fonctionnalité, donnée, API ou configuration existante.
+Ne crée aucune donnée fictive.
+Conserve la connexion avec le backend et la base de données actuels.
+2. CONVERSION ET INTÉGRATION ANDROID
+Détermine la meilleure solution technique selon l'architecture existante.
+Si le projet est une application web compatible, étudie l'intégration avec Capacitor pour produire une véritable application Android.
+Si une autre architecture est déjà présente, conserve-la et adapte-la correctement.
+L'application Android doit :
+Posséder sa propre icône.
+Avoir son propre écran de démarrage.
+S'ouvrir sans afficher la barre d'adresse d'un navigateur.
+Disposer d'une navigation adaptée aux téléphones.
+Gérer correctement le bouton Retour Android.
+Gérer les interruptions réseau.
+Afficher un message en cas de perte de connexion.
+Pouvoir retrouver une connexion normale après le retour d'Internet.
+Respecter les dimensions et orientations des écrans Android.
+Fonctionner correctement sur différents modèles de téléphones.
+Ne crée pas une simple WebView vide qui ouvre uniquement le site Internet.
+L'application doit conserver ses fonctionnalités réelles et apporter une expérience Android de qualité.
+3. COMPATIBILITÉ GOOGLE PLAY
+Configurer le projet pour respecter les exigences actuelles de Google Play.
+Exigences :
+Utiliser Android App Bundle (.aab).
+Configurer compileSdk et targetSdk selon les exigences en vigueur au moment de la publication.
+Pour une nouvelle application soumise à partir du 31 août 2026, cibler au minimum Android API 36.
+Choisir un minSdk cohérent avec les appareils Android visés.
+Configurer un identifiant d'application unique et définitif.
+Configurer correctement le versionCode et le versionName.
+Vérifier le manifeste Android.
+Déclarer uniquement les permissions réellement nécessaires.
+Vérifier les dépendances et les bibliothèques.
+Vérifier la compatibilité des plugins Android.
+Supprimer les configurations de développement inutiles de la version de production.
+Ne jamais désactiver les protections de sécurité pour faciliter la compilation.
+4. IDENTITÉ OFFICIELLE ELECTRO-MEN
+Préparer une identité cohérente :
+Nom de l'application : ELECTRO-MEN
+Activité :
+Vente de composants électroniques.
+Vente d'équipements électrotechniques.
+Vente d'équipements informatiques.
+Formations et apprentissage technique.
+Fonctionnalités d'investissement selon les conditions applicables.
+Créer ou optimiser :
+Icône Android haute qualité.
+Icône adaptative.
+Écran de lancement.
+Logo officiel.
+Couleurs de marque.
+Nom affiché sur le téléphone.
+Ne pas modifier l'identité visuelle existante sans nécessité.
+5. OPTIMISATION DE LA FICHE GOOGLE PLAY
+Préparer les éléments nécessaires à la fiche officielle :
+Nom de l'application.
+Description courte.
+Description complète.
+Catégorie appropriée.
+Coordonnées de contact du développeur.
+Adresse du site officiel.
+Adresse de la politique de confidentialité.
+Captures d'écran authentiques de l'application.
+Image promotionnelle de présentation.
+Icône haute résolution.
+Informations de support utilisateur.
+Optimiser naturellement la description pour les recherches Google Play autour de :
+ELECTRO-MEN.
+Composants électroniques.
+Électronique.
+Électrotechnique.
+Informatique.
+Formation électronique.
+Matériel informatique.
+Ne pas utiliser de mots-clés trompeurs, de répétitions artificielles ou de fausses fonctionnalités.
+Les images doivent représenter les véritables interfaces de l'application.
+6. OPTIMISATION DE L'EXPÉRIENCE UTILISATEUR
+Vérifier et améliorer :
+La vitesse de démarrage.
+Le temps de chargement des pages.
+La fluidité de navigation.
+L'affichage des produits.
+Le chargement des images.
+La lecture des vidéos de formation.
+La création des comptes.
+La connexion client.
+La connexion investisseur.
+Les fonctionnalités administratives.
+Les formulaires.
+Les boutons et liens.
+Les messages d'erreur.
+Aucun bouton ne doit être décoratif ou sans fonctionnement réel.
+Toutes les fonctionnalités doivent être testées sur un véritable environnement Android.
+7. SÉCURITÉ ET CONFIDENTIALITÉ
+Conserver et renforcer les règles de sécurité existantes.
+Toutes les communications doivent utiliser HTTPS.
+Ne pas intégrer de clés secrètes dans l'application Android.
+Ne jamais exposer les identifiants administrateurs.
+Protéger les sessions.
+Respecter les permissions Android.
+Protéger les informations des clients et investisseurs.
+Fournir une politique de confidentialité publique.
+Prévoir un mécanisme de suppression de compte accessible aux utilisateurs.
+Prévoir également une procédure de suppression de compte accessible depuis une page web si elle est requise par Google Play.
+Déclarer honnêtement les données collectées, utilisées et partagées.
+Ne pas collecter de données inutiles.
+8. FONCTIONNALITÉS FINANCIÈRES ET INVESTISSEMENT
+ELECTRO-MEN possède un espace investisseur.
+Ne supprime pas cette fonctionnalité.
+Vérifie les règles Google Play relatives aux fonctionnalités financières.
+Prépare les informations nécessaires à la déclaration des fonctionnalités financières dans Play Console.
+Ne présente pas les investissements comme garantis ou sans risque.
+Ne crée pas de promesses de rendement fictives.
+Préserve les règles de fonctionnement et de validation administrative existantes.
+Signale toute fonctionnalité financière qui nécessite des justificatifs, autorisations ou déclarations réglementaires avant publication.
+9. TESTS AVANT PUBLICATION
+Effectuer une série de tests :
+Installation de l'application.
+Premier démarrage.
+Navigation entre les pages.
+Connexion et déconnexion.
+Création d'un compte client.
+Accès investisseur selon les autorisations.
+Chargement des produits.
+Affichage des images.
+Lecture des vidéos.
+Fonctionnement des demandes de commande.
+Fonctionnement des contacts WhatsApp.
+Gestion des erreurs réseau.
+Bouton Retour Android.
+Redémarrage de l'application.
+Tests sur plusieurs tailles d'écran.
+Vérification des permissions.
+Vérification de la stabilité et des performances.
+Corriger les erreurs avant de produire la version finale.
+10. PRODUCTION DU FICHIER ANDROID
+Je veux obtenir un véritable fichier Android App Bundle signé (.aab), prêt à être envoyé dans Google Play Console.
+Préparer également un APK de test si possible.
+Configurer :
+Signature de production.
+Clé de signature conservée de manière sécurisée.
+Version de production.
+Build reproductible.
+Configuration de mise à jour future.
+Conservation de l'identifiant d'application.
+Ne jamais intégrer les mots de passe ou clés de signature dans GitHub.
+Ne jamais écraser une clé de signature existante sans vérification.
+Ne jamais publier une version de test comme version de production.
+11. COMPATIBILITÉ AVEC LE DÉPLOIEMENT EXISTANT
+Mon application utilise déjà un système de stockage du code et un hébergement web.
+Préserve :
+Le dépôt GitHub existant.
+Le backend existant.
+L'hébergement Render existant.
+Les bases de données.
+Les URL API.
+Les fonctionnalités administratives.
+Les données réelles.
+L'application Android doit communiquer avec le backend de production correctement configuré.
+Les mises à jour du site web ne doivent pas casser l'application Android.
+12. RAPPORT FINAL OBLIGATOIRE
+À la fin, donne-moi :
+L'architecture Android retenue.
+Les technologies utilisées.
+Les fichiers créés et modifiés.
+Les configurations Android réalisées.
+Les erreurs corrigées.
+Les tests effectués.
+Les éventuels problèmes encore présents.
+Les éléments qui doivent être configurés manuellement.
+L'emplacement exact du fichier APK de test.
+L'emplacement exact du fichier AAB de production.
+Si tu ne peux pas générer le fichier AAB dans ton environnement, explique précisément pourquoi et donne-moi les commandes exactes pour le générer.
+13. CONSIGNE FINALE
+Ne te contente pas de me donner une liste de recommandations.
+Travaille directement sur le projet existant.
+Je veux une application ELECTRO-MEN professionnelle, stable, rapide, sécurisée et compatible avec Google Play Store.
+Ne déclare jamais l'application prête si elle n'a pas été compilée, testée et vérifiée.
+Ne publie rien automatiquement et ne modifie pas mes données de production sans mon autorisation.
+La priorité est de conserver intégralement les fonctionnalités existantes tout en préparant une véritable version Android publiable sur Google Play.
+Gemini 3.8 Flash
+Ran for 38s
+
+summarize_auto
+Action history
+chevron_right
+error
+Quota limits exceeded
+L'administrateur doit pouvoir saisir lui me des operations de financement et publier comme pour les activités,je doit pouvoir voir en temps réel le utilisateurs connecter a mon application MISSION : TRANSFORMER ELECTRO-MEN EN APPLICATION ANDROID PRÊTE POUR GOOGLE PLAY STORE
+Tu es un ingénieur Android Senior, développeur Full-Stack, architecte logiciel et spécialiste de la publication d'applications sur Google Play Console.
+PROMPT DE CORRECTION ET DE RESTRUCTURATION DE LA PAGE FORMATION — ELECTRO-MEN
+Tu es un développeur Full-Stack Senior, architecte logiciel et expert en conception d'applications web et mobiles.
+Ta mission est d'effectuer un audit complet et une restructuration professionnelle de la page FORMATION de mon application ELECTRO-MEN.
+Je rencontre des problèmes dans cette page. Je veux qu'elle soit entièrement organisée et contrôlée par l'administrateur, sans aucune information fictive ni contenu créé automatiquement.
+ANALYSE APPROFONDIE AVANT MODIFICATION
+Avant de toucher au code :
+Analyse intégralement la page Formation actuelle.
+Examine ses composants, ses boutons, ses formulaires et ses fonctionnalités.
+Examine les relations entre la page Formation et l'espace administrateur.
+Identifie les problèmes d'affichage et de fonctionnement.
+Vérifie comment les formations, vidéos, images et informations sont actuellement enregistrées.
+Vérifie les connexions avec la base de données et les API.
+Identifie les fonctionnalités incomplètes ou non fonctionnelles.
+Ne commence pas par reconstruire la page sans comprendre son architecture actuelle.
+Préserve les autres pages et fonctionnalités de l'application.
+SUPPRESSION DES ÉLÉMENTS NON SOUHAITÉS
+Supprimer complètement de l'application les boutons et fonctionnalités visibles suivants :
+Télémétrie.
+Cotisations Bourse Tech.
+Les supprimer de tous les emplacements où ils apparaissent dans l'interface utilisateur : navigation, page Formation, menus, tableaux de bord et raccourcis.
+Supprimer également les liens et accès associés s'ils ne servent plus à aucune fonctionnalité nécessaire.
+Ne pas supprimer des données ou des services techniques indépendants sans vérifier leurs dépendances.
+NOUVELLE ORGANISATION DE LA PAGE FORMATION
+Créer une présentation claire, professionnelle, moderne et adaptée aux téléphones.
+La page Formation doit être structurée autour des trois domaines suivants :
+Électronique.
+Électrotechnique.
+Informatique.
+Chaque domaine doit disposer de son propre espace de formation.
+L'organisation doit permettre à l'administrateur de classer facilement les formations dans la bonne catégorie.
+Prévoir une présentation claire comprenant uniquement les formations réellement ajoutées et publiées par l'administrateur.
+Ne jamais afficher :
+Des formations fictives.
+Des vidéos de démonstration inventées.
+Des formateurs fictifs.
+Des nombres d'étudiants inventés.
+Des statistiques fictives.
+Des attestations fictives.
+Des cours générés automatiquement.
+Si aucune formation n'est disponible dans une catégorie, afficher un message professionnel indiquant qu'aucune formation n'est actuellement disponible.
+CONTRÔLE TOTAL PAR L'ADMINISTRATEUR
+Créer ou corriger le système de gestion des formations dans l'espace administrateur existant.
+L'administrateur autorisé doit pouvoir effectuer les opérations suivantes :
+A. Gestion des catégories
+Ajouter une catégorie.
+Modifier une catégorie.
+Supprimer une catégorie.
+Organiser les catégories.
+Activer ou désactiver une catégorie.
+Déplacer une formation d'une catégorie à une autre.
+B. Gestion des formations
+Ajouter une formation.
+Modifier une formation.
+Supprimer une formation.
+Enregistrer une formation comme brouillon.
+Publier une formation.
+Dépublier une formation.
+Suspendre temporairement une formation.
+Modifier l'ordre d'affichage.
+Prévisualiser une formation avant publication.
+C. Informations d'une formation
+Prévoir les champs suivants :
+Titre de la formation.
+Catégorie.
+Description.
+Image de présentation.
+Vidéo de formation.
+Durée, uniquement si elle est réellement connue.
+Niveau, uniquement si l'administrateur le renseigne.
+Objectifs pédagogiques, uniquement si l'administrateur les renseigne.
+Date de publication.
+Statut de publication.
+Les informations facultatives doivent rester vides lorsqu'elles ne sont pas renseignées.
+Ne jamais inventer automatiquement des informations manquantes.
+GESTION DES VIDÉOS DE FORMATION
+C'est une fonctionnalité essentielle.
+Je veux que l'administrateur puisse ajouter facilement des vidéos de formation sans être obligé de quitter l'application.
+Prévoir une interface d'ajout de vidéo propre et professionnelle.
+L'administrateur doit pouvoir :
+Ajouter une vidéo depuis un fichier lorsque le stockage existant le permet.
+Ajouter un lien vidéo.
+Modifier un lien vidéo.
+Remplacer une vidéo.
+Supprimer une vidéo.
+Prévisualiser la vidéo avant publication.
+Associer chaque vidéo à une formation et à une catégorie.
+Définir l'ordre des vidéos.
+Publier ou masquer une vidéo.
+Le formulaire doit gérer correctement les erreurs d'URL, les formats non pris en charge et les problèmes de téléversement.
+IMPORTANT :
+Lorsque l'administrateur sélectionne une vidéo, l'application ne doit pas le faire sortir de l'espace administrateur.
+Ne pas rediriger l'administrateur vers une page externe pour terminer l'ajout.
+Le lecteur vidéo destiné aux apprenants doit fonctionner correctement avec le son, le volume et les commandes de lecture adaptées.
+Respecter les droits d'accès et les conditions d'utilisation des hébergeurs vidéo.
+GESTION DES IMAGES
+L'administrateur doit pouvoir :
+Ajouter une image de présentation.
+Remplacer une image.
+Supprimer une image.
+Prévisualiser l'image.
+Associer une image à une formation.
+Ne pas afficher les images génériques ou fictives de Google AI Studio comme s'il s'agissait de véritables formations.
+Lorsqu'aucune image n'est fournie, utiliser un emplacement neutre et professionnel.
+AFFICHAGE CÔTÉ APPRENANT
+Les utilisateurs doivent uniquement voir les formations publiées et autorisées.
+Lorsqu'un utilisateur ouvre la page Formation :
+Il découvre les trois catégories.
+Il peut consulter les formations disponibles.
+Il peut ouvrir une formation publiée.
+Il peut consulter sa description.
+Il peut accéder aux vidéos autorisées.
+Il bénéficie d'une navigation simple et fluide.
+Les formations en brouillon, suspendues ou dépubliées ne doivent jamais être accessibles aux utilisateurs ordinaires.
+L'utilisateur ne doit pas voir les outils de gestion réservés à l'administrateur.
+SÉCURITÉ ET AUTORISATIONS
+Le contrôle administrateur doit être réel et non simplement visuel.
+Seuls les administrateurs autorisés peuvent ajouter des formations.
+Seuls les administrateurs autorisés peuvent modifier ou supprimer les contenus.
+Vérifier les permissions côté serveur.
+Protéger les API de gestion.
+Empêcher un client de modifier les contenus.
+Empêcher un utilisateur de publier directement une formation.
+Protéger les fichiers téléversés.
+Ne pas exposer les URL privées ou les secrets de stockage.
+Ne jamais considérer qu'un bouton masqué suffit à protéger une fonctionnalité.
+ORGANISATION DE L'INTERFACE ADMINISTRATEUR
+Je veux un véritable centre de commande pour la gestion des formations.
+L'interface doit être simple à comprendre et rapide à utiliser.
+Organiser les fonctionnalités par sections :
+Vue d'ensemble des formations.
+Gestion des catégories.
+Liste des formations.
+Ajouter une formation.
+Gestion des vidéos.
+Gestion des images.
+Brouillons.
+Formations publiées.
+Formations suspendues.
+Prévoir des boutons clairement identifiés pour les actions.
+Ajouter une confirmation avant toute suppression définitive.
+Prévoir des messages de succès et d'erreur compréhensibles.
+Ne pas surcharger l'interface avec des informations inutiles.
+Les statistiques éventuelles doivent provenir exclusivement des données réelles de la base de données.
+BASE DE DONNÉES ET SAUVEGARDE
+Vérifier et corriger le système de stockage des formations.
+Chaque formation doit être enregistrée avec son propre identifiant.
+Les catégories, vidéos, images et contenus doivent être correctement associés.
+Les modifications de l'administrateur doivent être persistantes après :
+Actualisation de la page.
+Déconnexion et reconnexion.
+Redémarrage de l'application.
+Déploiement d'une nouvelle version.
+Ne pas conserver les formations uniquement dans un état temporaire du navigateur.
+Ne pas créer de données fictives pour remplir la base.
+Avant toute modification du schéma de base de données, vérifier les tables existantes et préserver les données réelles.
+TESTS OBLIGATOIRES
+Tester réellement les opérations suivantes :
+Ajouter une catégorie.
+Modifier une catégorie.
+Supprimer une catégorie.
+Ajouter une formation.
+Modifier une formation.
+Enregistrer une formation en brouillon.
+Publier une formation.
+Dépublier une formation.
+Ajouter une vidéo.
+Modifier une vidéo.
+Remplacer une vidéo.
+Supprimer une vidéo.
+Ajouter et remplacer une image.
+Vérifier l'affichage côté apprenant.
+Vérifier qu'un utilisateur non administrateur ne peut pas gérer les formations.
+Vérifier que les données restent enregistrées après reconnexion.
+Vérifier la disparition des boutons Télémétrie et Cotisations Bourse Tech.
+Corriger les erreurs détectées.
+CONSIGNE FINALE
+Je ne veux pas une simple proposition de design.
+Je veux que tu analyses, corriges et implémentes réellement toutes les modifications dans mon projet existant.
+Ne crée aucune donnée fictive.
+Ne supprime aucune autre fonctionnalité de mon application.
+Ne modifie pas les règles de gestion des clients, des investisseurs, des paiements ou des autres modules.
+La page Formation doit être entièrement administrable depuis l'espace administrateur, avec une gestion fiable des catégories, formations, vidéos et images.
+À la fin, présente-moi un rapport précisant :
+Les problèmes identifiés.
+Les corrections réalisées.
+Les fichiers modifiés.
+Les modifications de la base de données.
+Les fonctionnalités testées.
+Les éventuels problèmes restant à résoudre.
+OBJECTIF FINAL : obtenir une page FORMATION ELECTRO-MEN professionnelle, fonctionnelle, sans données fictives et entièrement contrôlée par l'administrateur.
+l'adminitrateur doit pouvoir supprimer les compte administrateurs sécondaire.
+Tu dois prendre en charge la préparation technique complète de mon application ELECTRO-MEN pour sa distribution officielle sur Google Play Store.
+Mon objectif est de permettre aux utilisateurs de rechercher ELECTRO-MEN sur Play Store, de télécharger l'application, de l'installer et de l'utiliser normalement sur leurs téléphones Android.
+ANALYSE OBLIGATOIRE DE L'APPLICATION EXISTANTE
+Avant de commencer :
+Examine l'intégralité du projet.
+Identifie le framework et les technologies utilisés.
+Identifie le fonctionnement du frontend et du backend.
+Vérifie les dépendances et les configurations.
+Identifie les fonctionnalités qui nécessitent une connexion Internet.
+Vérifie la compatibilité avec Android.
+Identifie les éventuelles erreurs qui empêchent la compilation.
+Ne suppose pas que le projet est compatible avec Android sans vérification.
+Ne reconstruis pas l'application depuis zéro.
+Ne supprime aucune page, fonctionnalité, donnée, API ou configuration existante.
+Ne crée aucune donnée fictive.
+Conserve la connexion avec le backend et la base de données actuels.
+CONVERSION ET INTÉGRATION ANDROID
+Détermine la meilleure solution technique selon l'architecture existante.
+Si le projet est une application web compatible, étudie l'intégration avec Capacitor pour produire une véritable application Android.
+Si une autre architecture est déjà présente, conserve-la et adapte-la correctement.
+L'application Android doit :
+Posséder sa propre icône.
+Avoir son propre écran de démarrage.
+S'ouvrir sans afficher la barre d'adresse d'un navigateur.
+Disposer d'une navigation adaptée aux téléphones.
+Gérer correctement le bouton Retour Android.
+Gérer les interruptions réseau.
+Afficher un message en cas de perte de connexion.
+Pouvoir retrouver une connexion normale après le retour d'Internet.
+Respecter les dimensions et orientations des écrans Android.
+Fonctionner correctement sur différents modèles de téléphones.
+Ne crée pas une simple WebView vide qui ouvre uniquement le site Internet.
+L'application doit conserver ses fonctionnalités réelles et apporter une expérience Android de qualité.
+COMPATIBILITÉ GOOGLE PLAY
+Configurer le projet pour respecter les exigences actuelles de Google Play.
+Exigences :
+Utiliser Android App Bundle (.aab).
+Configurer compileSdk et targetSdk selon les exigences en vigueur au moment de la publication.
+Pour une nouvelle application soumise à partir du 31 août 2026, cibler au minimum Android API 36.
+Choisir un minSdk cohérent avec les appareils Android visés.
+Configurer un identifiant d'application unique et définitif.
+Configurer correctement le versionCode et le versionName.
+Vérifier le manifeste Android.
+Déclarer uniquement les permissions réellement nécessaires.
+Vérifier les dépendances et les bibliothèques.
+Vérifier la compatibilité des plugins Android.
+Supprimer les configurations de développement inutiles de la version de production.
+Ne jamais désactiver les protections de sécurité pour faciliter la compilation.
+IDENTITÉ OFFICIELLE ELECTRO-MEN
+Préparer une identité cohérente :
+Nom de l'application : ELECTRO-MEN
+Activité :
+Vente de composants électroniques.
+Vente d'équipements électrotechniques.
+Vente d'équipements informatiques.
+Formations et apprentissage technique.
+Fonctionnalités d'investissement selon les conditions applicables.
+Créer ou optimiser :
+Icône Android haute qualité.
+Icône adaptative.
+Écran de lancement.
+Logo officiel.
+Couleurs de marque.
+Nom affiché sur le téléphone.
+Ne pas modifier l'identité visuelle existante sans nécessité.
+OPTIMISATION DE LA FICHE GOOGLE PLAY
+Préparer les éléments nécessaires à la fiche officielle :
+Nom de l'application.
+Description courte.
+Description complète.
+Catégorie appropriée.
+Coordonnées de contact du développeur.
+Adresse du site officiel.
+Adresse de la politique de confidentialité.
+Captures d'écran authentiques de l'application.
+Image promotionnelle de présentation.
+Icône haute résolution.
+Informations de support utilisateur.
+Optimiser naturellement la description pour les recherches Google Play autour de :
+ELECTRO-MEN.
+Composants électroniques.
+Électronique.
+Électrotechnique.
+Informatique.
+Formation électronique.
+Matériel informatique.
+Ne pas utiliser de mots-clés trompeurs, de répétitions artificielles ou de fausses fonctionnalités.
+Les images doivent représenter les véritables interfaces de l'application.
+OPTIMISATION DE L'EXPÉRIENCE UTILISATEUR
+Vérifier et améliorer :
+La vitesse de démarrage.
+Le temps de chargement des pages.
+La fluidité de navigation.
+L'affichage des produits.
+Le chargement des images.
+La lecture des vidéos de formation.
+La création des comptes.
+La connexion client.
+La connexion investisseur.
+Les fonctionnalités administratives.
+Les formulaires.
+Les boutons et liens.
+Les messages d'erreur.
+Aucun bouton ne doit être décoratif ou sans fonctionnement réel.
+Toutes les fonctionnalités doivent être testées sur un véritable environnement Android.
+SÉCURITÉ ET CONFIDENTIALITÉ
+Conserver et renforcer les règles de sécurité existantes.
+Toutes les communications doivent utiliser HTTPS.
+Ne pas intégrer de clés secrètes dans l'application Android.
+Ne jamais exposer les identifiants administrateurs.
+Protéger les sessions.
+Respecter les permissions Android.
+Protéger les informations des clients et investisseurs.
+Fournir une politique de confidentialité publique.
+Prévoir un mécanisme de suppression de compte accessible aux utilisateurs.
+Prévoir également une procédure de suppression de compte accessible depuis une page web si elle est requise par Google Play.
+Déclarer honnêtement les données collectées, utilisées et partagées.
+Ne pas collecter de données inutiles.
+FONCTIONNALITÉS FINANCIÈRES ET INVESTISSEMENT
+ELECTRO-MEN possède un espace investisseur.
+Ne supprime pas cette fonctionnalité.
+Vérifie les règles Google Play relatives aux fonctionnalités financières.
+Prépare les informations nécessaires à la déclaration des fonctionnalités financières dans Play Console.
+Ne présente pas les investissements comme garantis ou sans risque.
+Ne crée pas de promesses de rendement fictives.
+Préserve les règles de fonctionnement et de validation administrative existantes.
+Signale toute fonctionnalité financière qui nécessite des justificatifs, autorisations ou déclarations réglementaires avant publication.
+TESTS AVANT PUBLICATION
+Effectuer une série de tests :
+Installation de l'application.
+Premier démarrage.
+Navigation entre les pages.
+Connexion et déconnexion.
+Création d'un compte client.
+Accès investisseur selon les autorisations.
+Chargement des produits.
+Affichage des images.
+Lecture des vidéos.
+Fonctionnement des demandes de commande.
+Fonctionnement des contacts WhatsApp.
+Gestion des erreurs réseau.
+Bouton Retour Android.
+Redémarrage de l'application.
+Tests sur plusieurs tailles d'écran.
+Vérification des permissions.
+Vérification de la stabilité et des performances.
+Corriger les erreurs avant de produire la version finale.
+PRODUCTION DU FICHIER ANDROID
+Je veux obtenir un véritable fichier Android App Bundle signé (.aab), prêt à être envoyé dans Google Play Console.
+Préparer également un APK de test si possible.
+Configurer :
+Signature de production.
+Clé de signature conservée de manière sécurisée.
+Version de production.
+Build reproductible.
+Configuration de mise à jour future.
+Conservation de l'identifiant d'application.
+Ne jamais intégrer les mots de passe ou clés de signature dans GitHub.
+Ne jamais écraser une clé de signature existante sans vérification.
+Ne jamais publier une version de test comme version de production.
+COMPATIBILITÉ AVEC LE DÉPLOIEMENT EXISTANT
+Mon application utilise déjà un système de stockage du code et un hébergement web.
+Préserve :
+Le dépôt GitHub existant.
+Le backend existant.
+L'hébergement Render existant.
+Les bases de données.
+Les URL API.
+Les fonctionnalités administratives.
+Les données réelles.
+L'application Android doit communiquer avec le backend de production correctement configuré.
+Les mises à jour du site web ne doivent pas casser l'application Android.
+RAPPORT FINAL OBLIGATOIRE
+À la fin, donne-moi :
+L'architecture Android retenue.
+Les technologies utilisées.
+Les fichiers créés et modifiés.
+Les configurations Android réalisées.
+Les erreurs corrigées.
+Les tests effectués.
+Les éventuels problèmes encore présents.
+Les éléments qui doivent être configurés manuellement.
+L'emplacement exact du fichier APK de test.
+L'emplacement exact du fichier AAB de production.
+Si tu ne peux pas générer le fichier AAB dans ton environnement, explique précisément pourquoi et donne-moi les commandes exactes pour le générer.
+CONSIGNE FINALE
+Ne te contente pas de me donner une liste de recommandations.
+Travaille directement sur le projet existant.
+Je veux une application ELECTRO-MEN professionnelle, stable, rapide, sécurisée et compatible avec Google Play Store.
+Ne déclare jamais l'application prête si elle n'a pas été compilée, testée et vérifiée.
+Ne publie rien automatiquement et ne modifie pas mes données de production sans mon autorisation.
+La priorité est de conserver intégralement les fonctionnalités existantes tout en préparant une véritable version Android publiable sur Google Play.

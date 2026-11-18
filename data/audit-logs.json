@@ -1,0 +1,137 @@
+[
+  {
+    "id": "aud-1794956122278-163",
+    "author": "Franck OUEDRAOGO",
+    "date": "17/11/2026 22:55",
+    "actionType": "investor_application",
+    "description": "Nouvelle candidature investisseur : Franck OUEDRAOGO (franckkabore454@gmail.com)",
+    "entityType": "investor",
+    "targetId": "#EM-INV-6812"
+  },
+  {
+    "id": "aud-1794955943812-349",
+    "author": "Franck KABORE",
+    "date": "17/11/2026 22:52",
+    "actionType": "investor_application",
+    "description": "Nouvelle candidature investisseur : Franck KABORE (franckkabore0121@gmail.com)",
+    "entityType": "investor",
+    "targetId": "#EM-INV-5047"
+  },
+  {
+    "id": "aud-1794939550942-545",
+    "author": "Admin Principal",
+    "date": "17/11/2026 18:19",
+    "actionType": "create_product",
+    "description": "Ajout du produit \"kjjklmk\" (PROD-1794939550920)",
+    "entityType": "product",
+    "targetId": "prod-1794939550920"
+  },
+  {
+    "id": "aud-1793967665474-548",
+    "author": "Admin Principal",
+    "date": "06/11/2026 12:21",
+    "actionType": "delete_investor",
+    "description": "Suppression du compte investisseur de Issa Ouedraogo",
+    "entityType": "investor",
+    "targetId": "#EM-INV-3333"
+  },
+  {
+    "id": "aud-1793967665461-78",
+    "author": "Admin Principal",
+    "date": "06/11/2026 12:21",
+    "actionType": "delete_operation",
+    "description": "Suppression définitive de l'opération \"Projet Test Solaire Ouaga\"",
+    "entityType": "operation",
+    "targetId": "op-1793967651437"
+  },
+  {
+    "id": "aud-1793967655797-714",
+    "author": "Issa Ouedraogo",
+    "date": "06/11/2026 12:20",
+    "actionType": "subscribe_shares",
+    "description": "Souscription de 4 parts (10 000 FCFA) pour \"Projet Test Solaire Ouaga\" - Parts Ordinaires - Projet Test Solaire Ouaga",
+    "entityType": "subscription",
+    "targetId": "SUB-1793967655791-748"
+  },
+  {
+    "id": "aud-1793967651438-420",
+    "author": "Admin Principal",
+    "date": "06/11/2026 12:20",
+    "actionType": "create_operation",
+    "description": "Création et publication de l'opération \"Projet Test Solaire Ouaga\" (Ouvert)",
+    "entityType": "operation",
+    "targetId": "op-1793967651437"
+  },
+  {
+    "id": "aud-1793967627595-431",
+    "author": "Admin Principal",
+    "date": "06/11/2026 12:20",
+    "actionType": "update_investor_status",
+    "description": "Statut de Issa Ouedraogo modifié : \"en_attente\" -> \"approuve\"",
+    "entityType": "investor",
+    "targetId": "#EM-INV-3333"
+  },
+  {
+    "id": "aud-1793967617965-798",
+    "author": "Issa Ouedraogo",
+    "date": "06/11/2026 12:20",
+    "actionType": "investor_application",
+    "description": "Nouvelle candidature investisseur : Issa Ouedraogo (issa.ouedraogo@example.com)",
+    "entityType": "investor",
+    "targetId": "#EM-INV-3333"
+  },
+  {
+    "id": "aud-1793894742743-413",
+    "author": "Admin Principal",
+    "date": "05/11/2026 16:05",
+    "actionType": "delete_product",
+    "description": "Suppression du produit \"Multimètre Numérique Automatique\" (ELM-MULTI-TEST)",
+    "entityType": "product",
+    "targetId": "prod-1793894735891-142"
+  },
+  {
+    "id": "aud-1793894735892-938",
+    "author": "Admin Principal",
+    "date": "05/11/2026 16:05",
+    "actionType": "create_product",
+    "description": "Ajout du produit \"Multimètre Numérique Automatique\" (ELM-MULTI-TEST)",
+    "entityType": "product",
+    "targetId": "prod-1793894735891-142"
+  },
+  {
+    "id": "aud-1793716327999-372",
+    "author": "Admin Principal",
+    "date": "03/11/2026 14:32",
+    "actionType": "delete_course",
+    "description": "Suppression de la formation \"Test Formation Electro\"",
+    "entityType": "course",
+    "targetId": "course-1793716324830-295"
+  },
+  {
+    "id": "aud-1793716324854-126",
+    "author": "Admin Principal",
+    "date": "03/11/2026 14:32",
+    "actionType": "create_course",
+    "description": "Création de la formation \"Test Formation Electro\" (electronique)",
+    "entityType": "course",
+    "targetId": "course-1793716324830-295"
+  },
+  {
+    "id": "aud-1793710935655-482",
+    "author": "Admin Principal",
+    "date": "03/11/2026 13:02",
+    "actionType": "create_operation",
+    "description": "Création et publication de l'opération \"Regroupement de fonts\" (Ouvert)",
+    "entityType": "operation",
+    "targetId": "op-1793710935654"
+  },
+  {
+    "id": "aud-1793710617451-818",
+    "author": "IBRAHIM KABORE",
+    "date": "03/11/2026 12:56",
+    "actionType": "investor_application",
+    "description": "Nouvelle candidature investisseur : IBRAHIM KABORE (ibrahimkabore233@gmail.com)",
+    "entityType": "investor",
+    "targetId": "#EM-INV-2791"
+  }
+]

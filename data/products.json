@@ -1,0 +1,35 @@
+[
+  {
+    "id": "prod-1794939550920",
+    "name": "kjjklmk",
+    "ref": "PROD-1794939550920",
+    "domain": "informatique",
+    "subGroup": "ordinateurs",
+    "category": "informatique",
+    "categoryLabel": "Ordinateurs & Postes",
+    "price": 150000,
+    "stock": 5,
+    "stockStatus": "in_stock",
+    "inStock": true,
+    "description": "Produit haute précision certifié ELECTRO-MEN.",
+    "details": [
+      "Conforme normes industrielles",
+      "Garantie officielle ELECTRO-MEN"
+    ],
+    "specs": [
+      "Conforme normes industrielles",
+      "Garantie officielle ELECTRO-MEN"
+    ],
+    "image": "/uploads/media-1794939538161-6a0512f8.jpeg",
+    "hasRealPhoto": true,
+    "isPublished": true,
+    "isDraft": false,
+    "isFeaturedOnHome": true,
+    "isPremium": true,
+    "isPromo": true,
+    "isNew": true,
+    "isNewArrival": true,
+    "isFlashSale": true,
+    "createdAt": "2026-11-17T18:19:10.934Z"
+  }
+]

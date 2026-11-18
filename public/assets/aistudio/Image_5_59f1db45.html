@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ELECTRO-MEN | Académie &amp; Formations Pratiques</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Syne & Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;family=Syne:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with custom theme config -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-tertiary-container": "#004d56",
+            "inverse-primary": "#735c00",
+            "on-secondary": "#2b3136",
+            "surface-container-highest": "#31353c",
+            "on-error-container": "#ffdad6",
+            "surface-dim": "#10141a",
+            "on-background": "#dfe2eb",
+            "background": "#10141a",
+            "on-primary-fixed-variant": "#574500",
+            "error": "#ffb4ab",
+            "primary-container": "#d4af37",
+            "on-primary": "#3c2f00",
+            "surface-container-high": "#262a31",
+            "on-surface": "#dfe2eb",
+            "on-primary-fixed": "#241a00",
+            "on-tertiary-fixed": "#001f24",
+            "on-primary-container": "#554300",
+            "surface-variant": "#31353c",
+            "on-surface-variant": "#d0c5af",
+            "surface-tint": "#e9c349",
+            "on-tertiary": "#00363d",
+            "surface-container-lowest": "#0a0e14",
+            "on-secondary-container": "#b6bcc3",
+            "inverse-surface": "#dfe2eb",
+            "primary-fixed-dim": "#e9c349",
+            "tertiary": "#00e3fd",
+            "tertiary-container": "#00c5db",
+            "surface-container": "#1c2026",
+            "outline-variant": "#4d4635",
+            "primary-fixed": "#ffe088",
+            "on-error": "#690005",
+            "surface": "#10141a",
+            "on-secondary-fixed-variant": "#41484d",
+            "error-container": "#93000a",
+            "tertiary-fixed": "#9cf0ff",
+            "on-secondary-fixed": "#161c21",
+            "secondary-fixed": "#dde3ea",
+            "tertiary-fixed-dim": "#00daf3",
+            "outline": "#99907c",
+            "secondary-container": "#464c52",
+            "inverse-on-surface": "#2d3137",
+            "secondary": "#c1c7ce",
+            "secondary-fixed-dim": "#c1c7ce",
+            "surface-bright": "#353940",
+            "surface-container-low": "#181c22",
+            "primary": "#f2ca50",
+            "on-tertiary-fixed-variant": "#004f58"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "0.75rem",
+            "space-lg": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2.5rem",
+            "margin-mobile": "1rem",
+            "gutter": "1rem",
+            "space-md": "1rem",
+            "space-sm": "0.5rem",
+            "margin": "2rem"
+          },
+          "fontFamily": {
+            "headline-lg-mobile": ["Syne"],
+            "label-sm": ["Plus Jakarta Sans"],
+            "headline-lg": ["Syne"],
+            "caption": ["Plus Jakarta Sans"],
+            "label-lg": ["Plus Jakarta Sans"],
+            "body-md": ["Plus Jakarta Sans"],
+            "headline-xl": ["Syne"],
+            "headline-md": ["Syne"],
+            "headline-xl-mobile": ["Syne"],
+            "body-lg": ["Plus Jakarta Sans"],
+            "title-md": ["Plus Jakarta Sans"]
+          },
+          "fontSize": {
+            "headline-lg-mobile": ["24px", { "lineHeight": "30px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.08em", "fontWeight": "600" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "caption": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "label-lg": ["14px", { "lineHeight": "18px", "letterSpacing": "0.03em", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "headline-xl": ["44px", { "lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-md": ["22px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "headline-xl-mobile": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "body-lg": ["16px", { "lineHeight": "26px", "fontWeight": "400" }],
+            "title-md": ["18px", { "lineHeight": "24px", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    /* PCB Trace subtle decorative pattern */
+    .bg-pcb-matrix {
+      background-color: #0a0e14;
+      background-image: radial-gradient(rgba(212, 175, 55, 0.08) 1px, transparent 0),
+                        radial-gradient(rgba(0, 227, 253, 0.05) 1px, transparent 0);
+      background-size: 24px 24px;
+      background-position: 0 0, 12px 12px;
+    }
+    
+    .gold-gradient-btn {
+      background: linear-gradient(135deg, #F3E5AB 0%, #D4AF37 50%, #C5A059 100%);
+    }
+
+    .hairline-gold-border {
+      border: 1px solid rgba(212, 175, 55, 0.28);
+    }
+
+    .hairline-cyan-border {
+      border: 1px solid rgba(0, 227, 253, 0.35);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface antialiased font-body-md text-body-md selection:bg-primary-container selection:text-on-primary-container min-h-screen pb-28 relative bg-pcb-matrix">
+<!-- TOPBAR & EN-TÊTE FIXE (Mobile Strict ELECTRO-MEN) -->
+<header class="fixed top-0 left-0 w-full z-50 bg-surface-container-lowest/90 backdrop-blur-md shadow-[0_4px_24px_-4px_rgba(212,175,55,0.08)]">
+<div class="max-w-md mx-auto px-margin-mobile py-space-sm flex items-center justify-between">
+<!-- Brand Anchor: Logo + Nom STRICT -->
+<div class="flex items-center space-x-3">
+<div class="w-9 h-9 rounded-lg overflow-hidden border border-outline-variant/60 flex items-center justify-center bg-surface-container-lowest shadow-[0_0_12px_rgba(242,202,80,0.2)]">
+<img alt="ELECTRO-MEN Logo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCejgR1rt_oRC2tAja_RWaQDyxiYWXL0AdyNM9ordINYCElgyVPa6qKYJXyV5m8Qq3VL5xK9DN3Dns8LQMmvUPfahiTbp6mZw1wJTOx8eCSmh-M9bGDM6sMiFje_4RkskKhwZy-wLpepodcVvMCrsXEJ11Qmmy0lEnDt13rivug_VktH13ejO3fLR36HFGxTZ0tsT7VugeXGg_Hs6MFMODj0MGyn-LkUKdQ6VY1Az9jXU7y1QPpVhJvLaU0aTcM4WD17jk"/>
+</div>
+<span class="font-headline-md text-headline-md tracking-wider text-primary uppercase drop-shadow-[0_0_8px_rgba(242,202,80,0.35)]">
+          ELECTRO-MEN
+        </span>
+</div>
+<!-- Action Icons: Recherche & Badge Mes Cours (2) -->
+<div class="flex items-center space-x-2">
+<button class="w-9 h-9 rounded-lg bg-surface-container-low border border-outline-variant/40 flex items-center justify-center text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</button>
+<button class="relative w-9 h-9 rounded-lg bg-surface-container-low border border-outline-variant/40 flex items-center justify-center text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">school</span>
+<span class="absolute -top-1 -right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-tertiary text-on-tertiary font-label-sm text-[9px] font-bold shadow-[0_0_6px_rgba(0,227,253,0.8)]">
+            2
+          </span>
+</button>
+</div>
+</div>
+</header>
+<!-- MAIN VIEWPORT (MOBILE APP CANVAS) -->
+<main class="max-w-md mx-auto pt-20 px-margin-mobile space-y-space-lg">
+<!-- HERO / TABLEAU DE BORD DE L'APPRENANT (REPRISE RAPIDE) -->
+<section class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<span class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_#00e3fd] animate-pulse"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-tertiary">Espace Apprenant Actif</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline">Session continue</span>
+</div>
+<!-- Card Video Player stylisée -->
+<div class="relative rounded-lg bg-surface-container-lowest border hairline-gold-border p-space-md shadow-[0_8px_32px_-8px_rgba(212,175,55,0.12)] overflow-hidden group">
+<!-- Substrat glow -->
+<div class="absolute -right-16 -top-16 w-40 h-40 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
+<!-- Header Course info -->
+<div class="flex items-start justify-between gap-3 mb-space-sm">
+<div>
+<span class="inline-block px-2 py-0.5 mb-1.5 rounded-sm bg-tertiary/10 border border-tertiary/30 text-tertiary font-label-sm text-[10px] uppercase font-bold tracking-wider">
+              En cours de lecture
+            </span>
+<h2 class="font-title-md text-title-md text-on-surface font-bold">
+              Maîtriser l'IoT &amp; l'ESP32 par la Pratique
+            </h2>
+</div>
+<span class="px-2 py-1 rounded bg-surface-container-high border border-outline-variant/50 text-secondary font-label-sm text-[10px]">
+            Vidéo 1080p HD
+          </span>
+</div>
+<!-- Video Simulation Banner -->
+<div class="relative w-full h-36 rounded bg-surface-container-low border border-outline-variant/30 flex items-center justify-center overflow-hidden mb-space-sm">
+<!-- Background placeholder video scene -->
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-surface-container-lowest/60 to-transparent z-10"></div>
+<div class="absolute inset-0 opacity-40 bg-[radial-gradient(#d4af37_1px,transparent_1px)] [background-size:16px_16px]"></div>
+<!-- Central play button -->
+<button class="relative z-20 w-12 h-12 rounded-full gold-gradient-btn flex items-center justify-center text-on-primary shadow-[0_0_20px_rgba(212,175,55,0.6)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<!-- Module badge bottom left inside preview -->
+<div class="absolute bottom-2 left-2 z-20 flex items-center space-x-1.5 text-secondary font-label-sm text-[10px] bg-surface-container-lowest/80 px-2 py-0.5 rounded backdrop-blur-sm border border-outline-variant/40">
+<span class="material-symbols-outlined text-tertiary text-[14px]">timer</span>
+<span>Reste 18 min • Module 7/12</span>
+</div>
+<!-- Module Name bottom right -->
+<div class="absolute bottom-2 right-2 z-20 text-[10px] text-primary/90 font-medium">
+            WiFi &amp; Serveur Web local
+          </div>
+</div>
+<!-- Barre de progression -->
+<div class="space-y-1 mb-space-md">
+<div class="flex justify-between items-center font-label-sm text-label-sm">
+<span class="text-secondary">Progression globale</span>
+<span class="text-primary font-bold">65% complété</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary-container via-primary to-tertiary rounded-full shadow-[0_0_8px_rgba(0,227,253,0.6)]" style="width: 65%;"></div>
+</div>
+</div>
+<!-- Action CTAs -->
+<div class="grid grid-cols-2 gap-2">
+<button class="gold-gradient-btn py-2 px-3 rounded text-on-primary font-label-lg text-label-lg font-bold flex items-center justify-center space-x-1.5 shadow-[0_0_12px_rgba(212,175,55,0.3)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+<span>Reprendre</span>
+</button>
+<button class="bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/50 py-2 px-3 rounded text-secondary hover:text-on-surface font-label-lg text-label-lg flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-tertiary text-[18px]">download_for_offline</span>
+<span>Schémas PDF</span>
+</button>
+</div>
+</div>
+</section>
+<!-- PACK DUO EXCLUSIF (FORMATION + KIT PHYSIQUE LIVRÉ) -->
+<section class="rounded-lg bg-gradient-to-b from-surface-container-low to-surface-container-lowest border hairline-gold-border p-space-md relative overflow-hidden shadow-[0_8px_32px_-8px_rgba(212,175,55,0.18)]">
+<!-- Glow ambient -->
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/15 rounded-full blur-2xl pointer-events-none"></div>
+<!-- Tag prestige -->
+<div class="flex items-center justify-between mb-space-sm">
+<span class="px-2.5 py-1 rounded bg-primary/10 border border-primary/40 text-primary font-label-sm text-label-sm tracking-widest uppercase font-bold flex items-center space-x-1">
+<span class="material-symbols-outlined text-[14px]">local_shipping</span>
+<span>Pack Formation + Kit Matériel</span>
+</span>
+<span class="px-2 py-0.5 rounded bg-error-container/40 border border-error/30 text-error font-label-sm text-[10px] font-bold">
+          -20% Réduction
+        </span>
+</div>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-1">
+        Apprenez par la pratique avec le Kit Officiel
+      </h3>
+<p class="font-body-md text-body-md text-secondary mb-space-md text-xs">
+        Recevez la boîte physique complète de composants chez vous au Burkina Faso &amp; International, avec accès illimité à la formation pas-à-pas.
+      </p>
+<!-- Images Dual Display (ESP32 + 38 Composants) -->
+<div class="grid grid-cols-2 gap-2 mb-space-md">
+<!-- Kit ESP32 Image 8 -->
+<div class="relative rounded border border-outline-variant/50 overflow-hidden bg-surface-container-lowest h-28 flex items-center justify-center p-1">
+<img alt="Kit ESP32 Starter" class="w-full h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDtDQX80BbUVcPmaKU3v63vdFPzGD1YjF02X8Mt0PfH3JQhi6MFqbpcVdTxyigLvaPmyTvvb4nE7ckFMrjYey2QcgfwxytnmgF3xhFl_fH3eFeN72P3SS4fBBnj-zN51ndR34qoDqNQsTnpwGV3lDN7Zh5EvuUGxwExrdKWYolzK8jlVzJLHLKOCch0P_vMn6jztS_vc929oEU9JRoDbOjgPfGoehNxJ-UPEAOE4m2XVnEnVtvfqRn4l7SXsN0k5O63YlA"/>
+<div class="absolute bottom-1 left-1 bg-surface-container-lowest/90 px-1.5 py-0.5 rounded text-[9px] font-label-sm text-primary font-semibold border border-outline-variant/30">
+            Kit ESP32 IoT
+          </div>
+</div>
+<!-- Boite 38 Composants Image 15 -->
+<div class="relative rounded border border-outline-variant/50 overflow-hidden bg-surface-container-lowest h-28 flex items-center justify-center p-1">
+<img alt="Boîte de perfectionnement 38 composants" class="w-full h-full object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCBN4LC8mfQtHSGcG9i7FY1soGucfxWwMOeZh7YzlkbGfH6LGVsdPd5uOl5TjKomkazrcqnsKlRONbw2s6c98R2t6IHVAC1h4tlVC2rZhOrfSw5bskBlaT7yJ7dtIG5PF9WhRo-9CVg1xiA2sK58ozKbFgAg7a8fJZ9U1tYWGW9_lqnCAytE7DAWSB4nJ_a-b-mviM_xBO9dPRm-scZ880NT4fC4gx5a2lsOuvnpfGIFFRaCn3w0WFsf2xaOgZvHJEf_lQ"/>
+<div class="absolute bottom-1 left-1 bg-surface-container-lowest/90 px-1.5 py-0.5 rounded text-[9px] font-label-sm text-tertiary font-semibold border border-outline-variant/30">
+            Pack 38 Pièces + PCB
+          </div>
+</div>
+</div>
+<!-- Pricing Bar & CTA -->
+<div class="flex items-center justify-between pt-2 border-t border-outline-variant/40">
+<div>
+<span class="block text-[11px] text-outline line-through">28 000 F CFA</span>
+<span class="font-title-md text-title-md text-primary font-extrabold tracking-tight">
+            22 500 F CFA
+          </span>
+</div>
+<button class="gold-gradient-btn px-4 py-2.5 rounded text-on-primary font-label-lg text-label-lg font-bold flex items-center space-x-1.5 shadow-[0_0_16px_rgba(212,175,55,0.4)] active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[18px]">shopping_bag</span>
+<span>Commander le Pack</span>
+</button>
+</div>
+</section>
+<!-- FILTRES THÉMATIQUES HORIZONTAUX -->
+<section class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<h4 class="font-label-sm text-label-sm text-secondary uppercase tracking-wider font-semibold">
+          Filières &amp; Spécialités
+        </h4>
+<span class="font-label-sm text-label-sm text-tertiary flex items-center">
+          Tous nos modules
+          <span class="material-symbols-outlined text-[14px] ml-0.5">chevron_right</span>
+</span>
+</div>
+<!-- Chip list with smooth scroll -->
+<div class="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-primary text-on-primary font-label-sm text-label-sm font-bold shadow-[0_0_10px_rgba(242,202,80,0.4)]">
+          Tous les cours
+        </button>
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/40 text-secondary hover:text-on-surface font-label-sm text-label-sm">
+          IoT &amp; ESP32
+        </button>
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/40 text-secondary hover:text-on-surface font-label-sm text-label-sm">
+          Électronique Fondamentale
+        </button>
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/40 text-secondary hover:text-on-surface font-label-sm text-label-sm">
+          Soudure &amp; PCB
+        </button>
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/40 text-secondary hover:text-on-surface font-label-sm text-label-sm">
+          Dépannage &amp; Mesures
+        </button>
+<button class="whitespace-nowrap px-3.5 py-1.5 rounded-full bg-surface-container-high border border-outline-variant/40 text-secondary hover:text-on-surface font-label-sm text-label-sm">
+          Certifications Pro
+        </button>
+</div>
+</section>
+<!-- CATALOGUE DES FORMATIONS PHARES -->
+<section class="space-y-space-md">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">
+          Formations Phares
+        </h3>
+<span class="font-label-sm text-label-sm text-outline">3 Programmes Actifs</span>
+</div>
+<!-- CARTE 1 : ÉLECTRONIQUE DE BASE -->
+<article class="rounded-lg bg-surface-container-lowest border hairline-gold-border p-space-md space-y-space-sm relative group hover:border-primary/60 transition-colors shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)]">
+<div class="flex justify-between items-start">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-secondary font-label-sm text-[10px]">
+              Niveau Débutant
+            </span>
+<span class="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary font-label-sm text-[10px]">
+              16 Modules (8h)
+            </span>
+</div>
+<div class="flex items-center text-primary font-label-sm text-xs font-bold space-x-0.5">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">star</span>
+<span>4.9/5</span>
+</div>
+</div>
+<h4 class="font-title-md text-title-md text-on-surface font-bold group-hover:text-primary transition-colors">
+          Électronique de Base &amp; Analyse de Circuits
+        </h4>
+<!-- Programme synthétique -->
+<div class="space-y-1.5 py-1 border-y border-outline-variant/20 text-xs text-secondary">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-tertiary text-[14px]">check_circle</span>
+<span>Composants passifs : Résistances, condensateurs, inductances</span>
+</div>
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-tertiary text-[14px]">check_circle</span>
+<span>Transistors bipolaires &amp; MOSFET en commutation/amplification</span>
+</div>
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-tertiary text-[14px]">check_circle</span>
+<span>Régulation de tension stable (LM317, 78L05) &amp; Timer NE555</span>
+</div>
+</div>
+<!-- Footer Prix & CTA -->
+<div class="flex items-center justify-between pt-1">
+<div>
+<span class="block font-title-md text-title-md text-primary font-bold">10 000 F CFA</span>
+<span class="text-[10px] text-outline">Accès à vie + Attestation</span>
+</div>
+<button class="px-3.5 py-2 rounded bg-surface-container-high hover:bg-primary hover:text-on-primary border border-outline-variant/50 text-on-surface font-label-lg text-label-lg font-semibold transition-all flex items-center space-x-1">
+<span>Voir le programme</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</article>
+<!-- CARTE 2 : CONCEPTION PCB & SOUDURE ÉLITE -->
+<article class="rounded-lg bg-surface-container-lowest border border-outline-variant/40 p-space-md space-y-space-sm relative group hover:border-tertiary/60 transition-colors shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)]">
+<div class="flex justify-between items-start">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 rounded bg-tertiary/10 border border-tertiary/30 text-tertiary font-label-sm text-[10px] font-bold">
+              Présentiel &amp; Vidéo
+            </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-secondary font-label-sm text-[10px]">
+              6 Ateliers pratiques
+            </span>
+</div>
+<span class="text-secondary font-label-sm text-[11px] flex items-center space-x-1">
+<span class="material-symbols-outlined text-tertiary text-[14px]">verified</span>
+<span>Instructeur Pro</span>
+</span>
+</div>
+<h4 class="font-title-md text-title-md text-on-surface font-bold group-hover:text-tertiary transition-colors">
+          Conception de Circuits Imprimés (PCB) &amp; Soudure Élite
+        </h4>
+<p class="font-body-md text-body-md text-secondary text-xs">
+          Routage professionnel sur logiciel de CAO, manipulation de fer à souder régulé à température constante et réalisation de prototypes durables.
+        </p>
+<!-- Footer Prix & CTA -->
+<div class="flex items-center justify-between pt-1 border-t border-outline-variant/20">
+<div>
+<span class="block font-title-md text-title-md text-tertiary font-bold">15 000 F CFA</span>
+<span class="text-[10px] text-outline">Kit PCB d'exercice inclus</span>
+</div>
+<button class="px-3.5 py-2 rounded bg-tertiary/15 hover:bg-tertiary hover:text-on-tertiary border border-tertiary/40 text-tertiary font-label-lg text-label-lg font-semibold transition-all flex items-center space-x-1">
+<span>S'inscrire à l'atelier</span>
+<span class="material-symbols-outlined text-[16px]">edit_square</span>
+</button>
+</div>
+</article>
+<!-- CARTE 3 : INSTRUMENTATION AVANCÉE -->
+<article class="rounded-lg bg-surface-container-lowest border border-outline-variant/40 p-space-md space-y-space-sm relative group hover:border-primary/60 transition-colors shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)]">
+<div class="flex justify-between items-start">
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-secondary font-label-sm text-[10px]">
+              Intermédiaire / Pro
+            </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-secondary font-label-sm text-[10px]">
+              8 Modules immersifs
+            </span>
+</div>
+<span class="text-primary font-label-sm text-[11px] flex items-center space-x-1">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>Laboratoire</span>
+</span>
+</div>
+<h4 class="font-title-md text-title-md text-on-surface font-bold group-hover:text-primary transition-colors">
+          Instrumentation : Maîtriser l'Oscilloscope &amp; Multimètre
+        </h4>
+<p class="font-body-md text-body-md text-secondary text-xs">
+          Diagnostic méthodique de pannes complexes, analyse de signaux PWM, capture de transitoires et mesure de fréquences de découpage.
+        </p>
+<!-- Footer Prix & CTA -->
+<div class="flex items-center justify-between pt-1 border-t border-outline-variant/20">
+<div>
+<span class="block font-title-md text-title-md text-primary font-bold">12 500 F CFA</span>
+<span class="text-[10px] text-outline">Cas concrets &amp; Dépannages</span>
+</div>
+<button class="px-3.5 py-2 rounded bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/50 text-on-surface font-label-lg text-label-lg font-semibold transition-all flex items-center space-x-1">
+<span>Découvrir</span>
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+</button>
+</div>
+</article>
+</section>
+<!-- CERTIFICATION OFFICIELLE & ATTESTATION -->
+<section class="rounded-lg bg-surface-container-lowest border hairline-gold-border p-space-md relative overflow-hidden">
+<div class="flex items-start space-x-3.5">
+<div class="w-12 h-12 rounded-lg bg-primary/10 border border-primary/40 flex-shrink-0 flex items-center justify-center text-primary shadow-[0_0_12px_rgba(242,202,80,0.25)]">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
+</div>
+<div class="space-y-1">
+<h4 class="font-title-md text-title-md text-on-surface font-bold">
+            Certifications Agréées ELECTRO-MEN
+          </h4>
+<p class="font-body-md text-body-md text-secondary text-xs">
+            Chaque cursus validé délivre un certificat numérique unique horodaté avec QR code de vérification instantanée, valorisable sur votre CV technique.
+          </p>
+</div>
+</div>
+<div class="mt-space-sm pt-space-sm border-t border-outline-variant/30 flex items-center justify-between text-xs">
+<span class="text-tertiary flex items-center space-x-1 font-label-sm">
+<span class="material-symbols-outlined text-[14px]">verified</span>
+<span>Sceau d'authenticité cryptographique</span>
+</span>
+<span class="text-outline font-label-sm">Normes ISO / CEM</span>
+</div>
+</section>
+<!-- ASSISTANCE PÉDAGOGIQUE & CLUB WHATSAPP DIRECT -->
+<section class="rounded-lg bg-gradient-to-r from-surface-container-lowest to-surface-container-low border border-outline-variant/50 p-space-md flex flex-col space-y-3">
+<div class="flex items-center space-x-2.5">
+<div class="w-8 h-8 rounded-full bg-[#25D366]/20 border border-[#25D366]/40 flex items-center justify-center text-[#25D366]">
+<span class="material-symbols-outlined text-[20px]">chat</span>
+</div>
+<div>
+<h4 class="font-title-md text-title-md text-on-surface font-bold text-sm">
+            Assistance &amp; Mentorat Direct
+          </h4>
+<p class="text-[11px] text-secondary">
+            Un doute sur un schéma ou un montage ? Nos formateurs répondent en direct.
+          </p>
+</div>
+</div>
+<a class="w-full py-2.5 px-4 rounded bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/40 text-[#25D366] font-label-lg text-label-lg font-bold flex items-center justify-center space-x-2 transition-colors active:scale-95" href="https://wa.me/22665484738" rel="noopener noreferrer" target="_blank">
+<span class="material-symbols-outlined text-[18px]">phone_in_talk</span>
+<span>Poser une question (+226 65 48 47 38)</span>
+</a>
+</section>
+</main>
+<!-- BARRE DE NAVIGATION INFÉRIEURE MOBILE (STYLE SHARED COMPONENTS EXECUTION) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-gutter-mobile py-space-xs border-t border-outline-variant/40 bg-surface-container-lowest/95 backdrop-blur-xl shadow-[0_-8px_32px_-8px_rgba(212,175,55,0.12)] max-w-md left-1/2 -translate-x-1/2">
+<!-- Item 1: Composants / Boutique -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">memory</span>
+<span class="mt-0.5">Composants</span>
+</a>
+<!-- Item 2: Formations (ACTIF pour l'écran Académie & Formations) -->
+<a class="flex flex-col items-center justify-center text-primary font-label-sm text-label-sm relative after:content-[''] after:w-1 after:h-1 after:rounded-full after:bg-tertiary after:mt-1 after:shadow-[0_0_8px_#00e3fd]" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">precision_manufacturing</span>
+<span class="mt-0.5 font-bold">Solutions</span>
+</a>
+<!-- Item 3: Bourse & IR -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">trending_up</span>
+<span class="mt-0.5">Bourse &amp; IR</span>
+</a>
+<!-- Item 4: Profil -->
+<a class="flex flex-col items-center justify-center text-secondary/60 hover:text-secondary font-label-sm text-label-sm py-1 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">corporate_fare</span>
+<span class="mt-0.5">Profil</span>
+</a>
+</nav>
+</body></html>
