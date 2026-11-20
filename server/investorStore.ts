@@ -45,6 +45,10 @@ function getPool(): Pool {
   return pool;
 }
 
+export async function checkUserStoreConnection(): Promise<void> {
+  await getPool().query('SELECT 1');
+}
+
 export function normalizeInvestorEmail(email: string): string {
   return email.trim().toLowerCase();
 }

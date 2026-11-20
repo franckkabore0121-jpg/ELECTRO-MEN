@@ -1,30 +1,29 @@
-# Render Blueprint for ELECTRO-MEN Corporate Web Service
-# Documentation: https://render.com/docs/blueprint-spec
+# Render Blueprint for ELECTRO-MEN
 
 services:
   - type: web
     name: electro-men
     runtime: node
     plan: free
-    region: frankfurt # Idéal pour l'Afrique de l'Ouest / Europe (faible latence)
-    buildCommand: npm install && npm run build
+    region: frankfurt
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: 24.22.1
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: DATABASE_URL
-        sync: false # URL PostgreSQL managé (ne jamais la committer)
+        sync: false
       - key: ADMIN_INITIAL_EMAIL
-        sync: false # Compte principal initial, migré dans PostgreSQL
+        sync: false
       - key: ADMIN_INITIAL_PASSWORD
-        sync: false # Mot de passe fort initial (12 à 128 caractères)
+        sync: false
+      - key: ADMIN_INITIAL_NAME
+        sync: false
+      - key: ADMIN_INITIAL_PHONE
+        sync: false
       - key: ADMIN_MASTER_PASSWORD
-        sync: false # Code maître facultatif stocké uniquement dans l'environnement
-      - key: GEMINI_API_KEY
-        sync: false # À renseigner dans le dashboard Render si utilisé
+        sync: false

@@ -2,27 +2,46 @@
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 </div>
 
-# Run and deploy your AI Studio app
+# ELECTRO-MEN
 
-This contains everything you need to run your app locally.
+## Run locally
 
-View your app in AI Studio: https://ai.studio/apps/212dba6c-fd8c-4b5e-a447-37b6892d27bb
+Prerequisite: Node.js 24.22.1 (or a Vite-compatible Node.js version).
 
-## Run Locally
+1. Install dependencies with `npm ci`.
+2. Copy `.env.example` to `.env` and set `DATABASE_URL`, `ADMIN_INITIAL_EMAIL`, and `ADMIN_INITIAL_PASSWORD`.
+3. Start the development server with `npm run dev`.
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+The initial administrator email and password must be set together. The initial password must contain 12–128 characters. `ADMIN_MASTER_PASSWORD` is optional and, when set, must contain at least 12 characters. Secrets belong in environment variables, never in source control.
 
 ## PostgreSQL identity store
 
-All client, investor, and administrator accounts, roles, OTP challenges, and server-side sessions use the same PostgreSQL connection and `app_users`/`app_sessions` tables. There is no SQLite or in-memory fallback. Set `DATABASE_URL` before starting the server; startup fails explicitly if it is missing or the database cannot be initialized. PostgreSQL creates the schema and unique indexes at startup.
+Client, investor, and administrator accounts, roles, OTP challenges, sessions, administrator security settings, and operation inventory use PostgreSQL through `DATABASE_URL`. Supabase is supported because it provides PostgreSQL. Startup fails if the database cannot be initialized.
 
-On the first deployment, set `ADMIN_INITIAL_EMAIL` and `ADMIN_INITIAL_PASSWORD` (12–128 characters) to bootstrap the principal administrator if no principal account is migrated. The credentials are stored hashed in PostgreSQL; do not commit them. Existing client and investor JSON files and administrator records are imported once, then the legacy client/investor files are archived with a `.migrated` suffix. Import collisions stop startup instead of silently discarding an account. Investor password changes require the authenticated investor session.
+For a fresh database, set `ADMIN_INITIAL_EMAIL` and `ADMIN_INITIAL_PASSWORD` to bootstrap the principal administrator. Passwords are stored hashed. Changing these variables later does not reset an existing administrator password. Legacy account data is imported at startup.
 
-On Render, configure `DATABASE_URL`, `ADMIN_INITIAL_EMAIL`, and `ADMIN_INITIAL_PASSWORD` as secrets and connect `DATABASE_URL` to a managed PostgreSQL database. The application does not provide a production database URL. Other application content (such as products and operations) still uses local JSON files and is not included in this account-store migration.
+## Deploy to Render
+
+The root `render.yaml` configures a Node.js web service:
+
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+- Health check: `/api/health` (checks PostgreSQL availability)
+- Render supplies `PORT`; the server binds to `0.0.0.0`.
+
+Set these variables in Render's environment:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | Supabase/PostgreSQL connection string; use the connection string from Supabase **Connect**. |
+| `ADMIN_INITIAL_EMAIL` | Yes on a fresh database | Initial principal administrator email. |
+| `ADMIN_INITIAL_PASSWORD` | Yes on a fresh database | Initial password, 12–128 characters. |
+| `ADMIN_MASTER_PASSWORD` | Optional | Initial master code, at least 12 characters if set. |
+| `ADMIN_INITIAL_NAME` | Optional | Initial administrator display name. |
+| `ADMIN_INITIAL_PHONE` | Optional | Initial administrator phone. |
+
+`NODE_ENV` and `NODE_VERSION` are set by the Blueprint. Do not set `PORT` manually; Render provides it.
+
+## Persistence warning
+
+The identity store is in PostgreSQL, but products, operations, subscriptions, courses, categories, audit logs, administrator configuration, and uploaded files are still read from or written to local JSON files and `public/uploads`. Render's default filesystem is ephemeral, so runtime changes to those files can be lost on redeploy or restart. The recommended production design is to move structured application data into PostgreSQL and store uploaded media in Supabase Storage. A Render persistent disk is a paid, single-instance fallback, not a substitute for shared object storage or a database.

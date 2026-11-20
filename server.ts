@@ -4,8 +4,10 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { getServerPort } from './server/runtimeConfig.ts';
 import {
   closeInvestorStore,
+  checkUserStoreConnection,
   clearUserOtps,
   createArchiveRecord,
   createUser,
@@ -59,17 +61,7 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<unknown>) 
   };
 }
 
-function getPort(): number {
-  const portIndex = process.argv.indexOf('--port');
-  if (portIndex !== -1 && process.argv[portIndex + 1]) {
-    return parseInt(process.argv[portIndex + 1], 10);
-  }
-  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
-    return parseInt(process.env.PORT, 10);
-  }
-  return 3000;
-}
-const PORT = getPort();
+const PORT = getServerPort(process.argv, process.env);
 
 type LiveResource =
   | 'config'
@@ -2191,9 +2183,10 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
   return res.json({ success: true, message: `${record.label} restauré avec succès.` });
 }));
 
-app.get('/api/health', (_req: Request, res: Response) => {
+app.get('/api/health', asyncRoute(async (_req: Request, res: Response) => {
+  await checkUserStoreConnection();
   res.json({ success: true });
-});
+}));
 
 app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => {
   const config = loadConfig();
