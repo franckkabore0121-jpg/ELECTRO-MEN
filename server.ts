@@ -2993,6 +2993,10 @@ async function startServer() {
       .catch(next);
   });
 
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({ success: false, error: 'Route API introuvable.' });
+  });
+
   if (isProd) {
     app.use(express.static(distDir));
     app.use(express.static(publicDir));
