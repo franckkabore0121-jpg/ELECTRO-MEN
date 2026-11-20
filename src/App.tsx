@@ -981,7 +981,9 @@ export default function App() {
   const [adminLoginMode, setAdminLoginMode] = useState<'credentials' | 'pin'>('credentials');
   const [adminEmailInput, setAdminEmailInput] = useState('');
   const [adminPassInput, setAdminPassInput] = useState('');
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [adminPinInput, setAdminPinInput] = useState('');
+  const [showAdminPin, setShowAdminPin] = useState(false);
   const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
 
@@ -2704,14 +2706,27 @@ export default function App() {
                     <label className="text-[11px] text-slate-700 font-bold block">
                       Mot de Passe Personnel Administrateur :
                     </label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Votre mot de passe confidentiel..."
-                      value={adminPassInput}
-                      onChange={(e) => setAdminPassInput(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:border-red-500 outline-none"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAdminPassword ? 'text' : 'password'}
+                        required
+                        placeholder="Votre mot de passe confidentiel..."
+                        value={adminPassInput}
+                        onChange={(e) => setAdminPassInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 pr-10 text-xs text-slate-900 focus:border-red-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminPassword((visible) => !visible)}
+                        aria-label={showAdminPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                        aria-pressed={showAdminPassword}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 hover:text-slate-800"
+                      >
+                        <span className="material-symbols-outlined text-base">
+                          {showAdminPassword ? 'visibility_off' : 'visibility'}
+                        </span>
+                      </button>
+                    </div>
                     <span className="text-[10px] text-slate-400 block">
                       Deuxième admin pré-autorisé : <code>badrapare@gmail.com</code>
                     </span>
@@ -2722,15 +2737,28 @@ export default function App() {
                   <label className="text-[11px] text-[#b48c1e] font-bold uppercase block">
                     Code Secret Super-Administrateur :
                   </label>
-                  <input
-                    type="password"
-                    autoFocus
-                    required
-                    placeholder="Code maître secret..."
-                    value={adminPinInput}
-                    onChange={(e) => setAdminPinInput(e.target.value)}
-                    className="w-full bg-slate-50 border border-red-300 rounded-lg p-2.5 text-center font-mono text-base tracking-widest text-slate-900 focus:border-red-500 outline-none"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showAdminPin ? 'text' : 'password'}
+                      autoFocus
+                      required
+                      placeholder="Code maître secret..."
+                      value={adminPinInput}
+                      onChange={(e) => setAdminPinInput(e.target.value)}
+                      className="w-full bg-slate-50 border border-red-300 rounded-lg p-2.5 px-10 text-center font-mono text-base tracking-widest text-slate-900 focus:border-red-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPin((visible) => !visible)}
+                      aria-label={showAdminPin ? 'Masquer le code maître' : 'Afficher le code maître'}
+                      aria-pressed={showAdminPin}
+                      className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 hover:text-slate-800"
+                    >
+                      <span className="material-symbols-outlined text-base">
+                        {showAdminPin ? 'visibility_off' : 'visibility'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
 

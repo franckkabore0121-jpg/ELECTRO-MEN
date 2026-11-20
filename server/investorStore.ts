@@ -75,6 +75,78 @@ async function insertUser(client: Pick<PoolClient, 'query'>, user: StoredUser): 
   );
 }
 
+async function insertLegacyUser(client: Pick<PoolClient, 'query'>, user: StoredUser): Promise<void> {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO app_users (id, email_normalized, phone_normalized, role, payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     ON CONFLICT (email_normalized) DO UPDATE
+     SET phone_normalized = EXCLUDED.phone_normalized,
+         role = EXCLUDED.role,
+         payload = (app_users.payload - 'assignedPassword' - 'assignedPasswordPlainText')
+           || EXCLUDED.payload
+           || jsonb_build_object('id', app_users.id)
+     WHERE app_users.role = 'investor'
+       AND EXCLUDED.role IN ('admin_principal', 'admin_secondaire')
+     RETURNING id`,
+    [
+      user.id,
+      normalizeInvestorEmail(user.email),
+      normalizeInvestorPhone(user.phone),
+      user.role,
+      JSON.stringify(user)
+    ]
+  );
+  if (rows.length > 0) return;
+
+  const { rows: existingUsers } = await client.query<{ role: UserRole }>(
+    'SELECT role FROM app_users WHERE email_normalized = $1',
+    [normalizeInvestorEmail(user.email)]
+  );
+  const existingRole = existingUsers[0]?.role;
+  if (
+    (existingRole === 'admin_principal' || existingRole === 'admin_secondaire') &&
+    (user.role === 'client' || user.role === 'investor')
+  ) {
+    return;
+  }
+  throw new Error(
+    'Plusieurs comptes hérités de rôles incompatibles utilisent la même adresse e-mail ; corrigez ces doublons avant la migration.'
+  );
+}
+
+async function insertBootstrapAdmin(client: Pick<PoolClient, 'query'>, user: StoredUser): Promise<void> {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO app_users (id, email_normalized, phone_normalized, role, payload)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     ON CONFLICT (email_normalized) DO UPDATE
+     SET phone_normalized = EXCLUDED.phone_normalized,
+         role = 'admin_principal',
+         payload = (app_users.payload - 'assignedPassword' - 'assignedPasswordPlainText')
+           || EXCLUDED.payload
+           || jsonb_build_object('id', app_users.id)
+     WHERE app_users.role IN ('investor', 'admin_secondaire')
+     RETURNING id`,
+    [
+      user.id,
+      normalizeInvestorEmail(user.email),
+      normalizeInvestorPhone(user.phone),
+      user.role,
+      JSON.stringify(user)
+    ]
+  );
+  if (rows.length > 0) return;
+
+  const { rows: existingUsers } = await client.query<{ role: UserRole }>(
+    'SELECT role FROM app_users WHERE email_normalized = $1',
+    [normalizeInvestorEmail(user.email)]
+  );
+  if (existingUsers[0]?.role !== 'admin_principal') {
+    throw new Error(
+      'Impossible de créer l’administrateur principal : l’adresse configurée est déjà utilisée par un autre compte.'
+    );
+  }
+}
+
 function readLegacyUsers(filePath: string): StoredUser[] {
   try {
     const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
@@ -180,7 +252,7 @@ export async function initializeUserStore(options: {
           `SELECT COUNT(*)::text AS count FROM app_users WHERE role = 'investor'`
         );
         if (count.rows[0]?.count === '0') {
-          for (const user of rows) await insertUser(client, { ...user.payload, role: 'investor' });
+          for (const user of rows) await insertLegacyUser(client, { ...user.payload, role: 'investor' });
         }
       }
 
@@ -199,7 +271,7 @@ export async function initializeUserStore(options: {
         if (rows[0]?.count === '0') {
           for (const user of users) {
             try {
-              await insertUser(client, user);
+              await insertLegacyUser(client, user);
             } catch (error) {
               if ((error as { code?: string }).code !== '23505' || (error as { constraint?: string }).constraint !== 'app_users_pkey') {
                 throw error;
@@ -210,10 +282,20 @@ export async function initializeUserStore(options: {
       }
 
       if (options.bootstrapAdmin) {
-        const { rows } = await client.query<{ count: string }>(
+        const { rows: principals } = await client.query<{ count: string }>(
           `SELECT COUNT(*)::text AS count FROM app_users WHERE role = 'admin_principal'`
         );
-        if (rows[0]?.count === '0') await insertUser(client, options.bootstrapAdmin);
+        const { rows: matchingUsers } = await client.query<{ role: UserRole }>(
+          'SELECT role FROM app_users WHERE email_normalized = $1',
+          [normalizeInvestorEmail(options.bootstrapAdmin.email)]
+        );
+        if (
+          matchingUsers[0]?.role
+            ? matchingUsers[0].role !== 'admin_principal'
+            : principals[0]?.count === '0'
+        ) {
+          await insertBootstrapAdmin(client, options.bootstrapAdmin);
+        }
       }
 
       const { rows: principals } = await client.query<{ count: string }>(

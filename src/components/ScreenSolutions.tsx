@@ -77,6 +77,7 @@ export const ScreenSolutions: React.FC<ScreenSolutionsProps> = ({
     const nextParsed = parseVideoSource(formationsVideoUrl);
     setVideoSrc(nextParsed.cleanUrl);
     setHasError(false);
+    setIsMuted(true);
   }, [formationsVideoUrl]);
 
   // Reliable Autoplay compliant with modern mobile and desktop browser policies
@@ -86,19 +87,15 @@ export const ScreenSolutions: React.FC<ScreenSolutionsProps> = ({
     if (!vid) return;
 
     vid.defaultMuted = true;
-    vid.muted = isMuted;
+    vid.muted = true;
+    setIsMuted(true);
     const playPromise = vid.play();
     if (playPromise !== undefined) {
       playPromise
         .then(() => setIsPlaying(true))
-        .catch(() => {
-          // If browser policy blocked playback, mute explicitly and retry
-          vid.muted = true;
-          setIsMuted(true);
-          vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        });
+        .catch(() => setIsPlaying(false));
     }
-  }, [videoSrc, isMuted, parsed.isEmbed]);
+  }, [videoSrc, parsed.isEmbed]);
 
   const toggleSound = (e: React.MouseEvent) => {
     e.stopPropagation();
