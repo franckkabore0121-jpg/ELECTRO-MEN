@@ -34,6 +34,9 @@ Set these variables in Render's environment:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | Supabase/PostgreSQL connection string; use the connection string from Supabase **Connect**. |
+| `SUPABASE_URL` | Yes for media | The Supabase project URL. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes for media | Server-only Storage credential. Never expose it to Vite or commit it. |
+| `SUPABASE_STORAGE_BUCKET` | No | Storage bucket name; defaults to `media`. |
 | `ADMIN_INITIAL_EMAIL` | Yes on a fresh database | Initial principal administrator email. |
 | `ADMIN_INITIAL_PASSWORD` | Yes on a fresh database | Initial password, 12–128 characters. |
 | `ADMIN_MASTER_PASSWORD` | Optional | Initial master code, at least 12 characters if set. |
@@ -48,4 +51,24 @@ Accounts already use PostgreSQL. At startup, the server creates the application 
 
 The application tables are `app_products`, `app_operations`, `app_subscriptions`, `app_courses`, `app_course_categories`, `app_activities`, `app_documents`, `app_audit_logs`, `app_groups`, and `app_admin_config`. Import markers are stored in `app_data_migrations`; the pre-reset snapshot is stored in `app_backups`. Existing identity/session/security tables remain in use.
 
-Uploads under `public/uploads` are still written to the local filesystem, and bundled videos are read from `public/assets/videos` or `dist/assets/videos`. Render's default filesystem is ephemeral, so uploaded media can be lost on restart or redeploy. Move uploads to Supabase Storage (or another object store) before relying on them in production; keep deployed static assets in the build or an object store.
+## Supabase Storage for media
+
+Uploads and videos are stored in the public Supabase Storage bucket configured by `SUPABASE_STORAGE_BUCKET` (default `media`). Create that bucket in Supabase Storage and mark it **public** so the browser can read the returned public URLs. Keep write access private: uploads are sent by the authenticated admin API using `SUPABASE_SERVICE_ROLE_KEY`, which must remain server-side and must never use a `VITE_` variable name. Configure a 50 MiB file limit and allow `image/avif`, `image/gif`, `image/jpeg`, `image/png`, `image/webp`, `application/pdf`, `video/mp4`, `video/quicktime`, and `video/webm`.
+
+The server stores uploaded objects under `uploads/` and `videos/`. New uploads return their Supabase public URL. Existing `/uploads/<filename>` and `/assets/videos/<filename>` links are redirected to the matching Storage object after it has been migrated. If Storage credentials are absent, new uploads fail explicitly; the local filesystem is only a development fallback for old files and bundled videos. Render's filesystem is ephemeral, so do not depend on that fallback in production.
+
+The admin interface still retains its existing fallback: if `/api/upload` fails, files smaller than 3 MiB may be stored as base64 data URLs in application data. This behavior was intentionally left unchanged, so complete removal of media from PostgreSQL requires disabling that frontend fallback.
+
+To migrate files still present locally, copy the Storage variables into the local `.env`, create the public bucket first, and preview the transfer:
+
+```sh
+npm run migrate:media -- --dry-run
+```
+
+Then upload them:
+
+```sh
+npm run migrate:media
+```
+
+The script scans `public/uploads` and `public/assets/videos`, preserves relative filenames, validates file types and sizes, skips existing objects, and never deletes local originals. It can be rerun safely. After checking that migrated media loads from Supabase, deploy the same three Storage variables to Render. The repository's local media files may remain as source assets, but runtime uploads are not written to Render's disk.

@@ -60,12 +60,19 @@ import {
   writeApplicationData,
   type ApplicationDataKey
 } from './server/applicationStore.ts';
+import {
+  createMediaObjectKey,
+  getSupabaseStorage,
+  InvalidMediaUploadError,
+  MediaStorageConfigurationError,
+  parseBase64MediaUpload
+} from './server/supabaseStorage.ts';
 
 const app = express();
 
-function asyncRoute(handler: (req: Request, res: Response) => Promise<unknown>) {
+function asyncRoute(handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    void handler(req, res).catch(next);
+    void handler(req, res, next).catch(next);
   };
 }
 
@@ -152,7 +159,7 @@ app.use('/api/admin', (req: Request, res: Response, next: NextFunction) => {
     .catch(next);
 });
 
-// Legacy JSON import sources and local upload target
+// Legacy JSON import sources and local media fallback
 const DATA_DIR = path.resolve('data');
 const CONFIG_FILE = path.join(DATA_DIR, 'admin-config.json');
 const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
@@ -191,10 +198,22 @@ const liveResourceByFile = new Map<string, LiveResource>([
   [GROUPS_FILE, 'groups']
 ]);
 
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+app.get('/uploads/:filename', asyncRoute(async (req: Request, res: Response, next: NextFunction) => {
+  let storage;
+  try {
+    storage = getSupabaseStorage();
+  } catch (error) {
+    if (error instanceof MediaStorageConfigurationError) {
+      return res.status(503).json({ error: error.message });
+    }
+    throw error;
+  }
+  if (!storage) return next();
 
+  const objectKey = createMediaObjectKey('uploads', req.params.filename);
+  const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
+  res.redirect(302, data.publicUrl);
+}));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // =========================================================================
@@ -2524,34 +2543,79 @@ app.post('/api/admin/maintenance', asyncRoute(async (req: Request, res: Response
   res.json({ success: true, isMaintenanceMode: config.isMaintenanceMode });
 }));
 
-app.post('/api/upload', (req: Request, res: Response) => {
-  try {
-    const { filename, fileBase64, mimeType } = req.body;
-    if (!fileBase64 || typeof fileBase64 !== 'string') {
-      return res.status(400).json({ success: false, error: 'Données de fichier invalides.' });
-    }
-
-    const base64Data = fileBase64.includes(';base64,') ? fileBase64.split(';base64,').pop() || '' : fileBase64;
-    const buffer = Buffer.from(base64Data, 'base64');
-    const ext = filename ? path.extname(filename) : '';
-    const cleanExt = ext && ext.length < 8 ? ext : mimeType?.includes('video') ? '.mp4' : mimeType?.includes('pdf') ? '.pdf' : '.jpg';
-    const safeName = `media-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${cleanExt}`;
-    const targetPath = path.join(UPLOADS_DIR, safeName);
-
-    fs.writeFileSync(targetPath, buffer);
-    res.json({ success: true, url: `/uploads/${safeName}`, size: buffer.length, filename: safeName });
-  } catch (err) {
-    console.error('File upload error:', err);
-    res.status(500).json({ success: false, error: 'Échec de l’enregistrement du fichier.' });
+app.post('/api/upload', asyncRoute(async (req: Request, res: Response) => {
+  if (!(await hasAdminSession(req))) {
+    return res.status(401).json({ success: false, error: 'Authentification administrateur requise.' });
   }
-});
+
+  let storage;
+  try {
+    storage = getSupabaseStorage();
+  } catch (error) {
+    if (error instanceof MediaStorageConfigurationError) {
+      return res.status(503).json({ success: false, error: error.message });
+    }
+    throw error;
+  }
+  if (!storage) {
+    return res.status(503).json({
+      success: false,
+      error: 'Le stockage média Supabase n’est pas configuré sur le serveur.'
+    });
+  }
+
+  const { fileBase64, mimeType } = req.body;
+  let parsedUpload;
+  try {
+    parsedUpload = parseBase64MediaUpload(fileBase64, mimeType);
+  } catch (err) {
+    if (err instanceof InvalidMediaUploadError) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    throw err;
+  }
+  const filename = `media-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${parsedUpload.extension}`;
+  const folder = parsedUpload.contentType.startsWith('video/') ? 'videos' : 'uploads';
+  const objectKey = createMediaObjectKey(folder, filename);
+  const { error } = await storage.client.storage.from(storage.bucket).upload(objectKey, parsedUpload.buffer, {
+    cacheControl: '3600',
+    contentType: parsedUpload.contentType,
+    upsert: false
+  });
+  if (error) {
+    console.error('Supabase media upload failed:', error.message);
+    return res.status(502).json({ success: false, error: 'Échec de l’envoi du fichier vers Supabase Storage.' });
+  }
+
+  const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
+  return res.json({
+    success: true,
+    url: data.publicUrl,
+    size: parsedUpload.buffer.length,
+    filename
+  });
+}));
 
 // Dedicated streaming route for videos with HTTP Range support
-app.get('/assets/videos/:filename', (req: Request, res: Response) => {
+app.get('/assets/videos/:filename', asyncRoute(async (req: Request, res: Response) => {
+  let storage;
+  try {
+    storage = getSupabaseStorage();
+  } catch (error) {
+    if (error instanceof MediaStorageConfigurationError) {
+      return res.status(503).json({ error: error.message });
+    }
+    throw error;
+  }
+  if (storage) {
+    const objectKey = createMediaObjectKey('videos', req.params.filename);
+    const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
+    return res.redirect(302, data.publicUrl);
+  }
+
   const filename = path.basename(req.params.filename);
   const publicVideo = path.resolve('public/assets/videos', filename);
   const distVideo = path.resolve('dist/assets/videos', filename);
-
   const target = fs.existsSync(publicVideo) ? publicVideo : fs.existsSync(distVideo) ? distVideo : null;
   if (target) {
     res.setHeader('Content-Type', 'video/mp4');
@@ -2559,7 +2623,7 @@ app.get('/assets/videos/:filename', (req: Request, res: Response) => {
     return res.sendFile(target);
   }
   return res.status(404).json({ error: 'Fichier vidéo introuvable.' });
-});
+}));
 
 
 // Categories CRUD

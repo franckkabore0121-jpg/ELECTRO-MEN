@@ -7,6 +7,7 @@
     "dev": "tsx --env-file=.env server.ts",
     "build": "vite build",
     "start": "tsx server.ts",
+    "migrate:media": "tsx scripts/migrate-local-media-to-supabase.ts",
     "test": "vitest run",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
+    "@supabase/supabase-js": "^2.119.2",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.4.2",
