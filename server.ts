@@ -52,6 +52,14 @@ import {
   updateOperationInventory
 } from './server/investorStore.ts';
 import type { AdminSecuritySettings, ArchivedRecord, OperationInventory, StoredUser, UserRole } from './server/investorStore.ts';
+import {
+  appendApplicationRecord,
+  initializeApplicationStore,
+  readApplicationData,
+  saveApplicationBackup,
+  writeApplicationData,
+  type ApplicationDataKey
+} from './server/applicationStore.ts';
 
 const app = express();
 
@@ -144,7 +152,7 @@ app.use('/api/admin', (req: Request, res: Response, next: NextFunction) => {
     .catch(next);
 });
 
-// Storage directory for persistent server-side data & uploads
+// Legacy JSON import sources and local upload target
 const DATA_DIR = path.resolve('data');
 const CONFIG_FILE = path.join(DATA_DIR, 'admin-config.json');
 const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
@@ -159,6 +167,18 @@ const COURSE_CATEGORIES_FILE = path.join(DATA_DIR, 'course-categories.json');
 const AUDIT_LOGS_FILE = path.join(DATA_DIR, 'audit-logs.json');
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
 const UPLOADS_DIR = path.resolve('public/uploads');
+const dataKeyByFile = new Map<string, ApplicationDataKey>([
+  [CONFIG_FILE, 'admin-config'],
+  [OPERATIONS_FILE, 'operations'],
+  [SUBSCRIPTIONS_FILE, 'subscriptions'],
+  [ACTIVITIES_FILE, 'activities'],
+  [DOCUMENTS_FILE, 'documents'],
+  [GROUPS_FILE, 'groups'],
+  [COURSES_FILE, 'courses'],
+  [COURSE_CATEGORIES_FILE, 'course-categories'],
+  [AUDIT_LOGS_FILE, 'audit-logs'],
+  [PRODUCTS_FILE, 'products']
+]);
 const liveResourceByFile = new Map<string, LiveResource>([
   [CONFIG_FILE, 'config'],
   [OPERATIONS_FILE, 'operations'],
@@ -171,9 +191,6 @@ const liveResourceByFile = new Map<string, LiveResource>([
   [GROUPS_FILE, 'groups']
 ]);
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -184,28 +201,20 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 // DATA UTILITIES & STORAGE HELPERS
 // =========================================================================
 
-function readJson<T>(filePath: string, defaultValue: T): T {
-  try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(content);
-    }
-  } catch (err) {
-    console.error(`Error reading ${filePath}:`, err);
-  }
-  return defaultValue;
+function dataKeyForFile(filePath: string): ApplicationDataKey {
+  const key = dataKeyByFile.get(path.resolve(filePath));
+  if (!key) throw new Error(`Ressource de données non configurée : ${filePath}`);
+  return key;
 }
 
-function writeJson<T>(filePath: string, data: T): boolean {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    const resource = liveResourceByFile.get(path.resolve(filePath));
-    if (resource) broadcastDataChanged(resource);
-    return true;
-  } catch (err) {
-    console.error(`Error writing ${filePath}:`, err);
-    return false;
-  }
+async function readJson<T>(filePath: string, defaultValue: T): Promise<T> {
+  return readApplicationData(dataKeyForFile(filePath), defaultValue);
+}
+
+async function writeJson<T>(filePath: string, data: T): Promise<void> {
+  await writeApplicationData(dataKeyForFile(filePath), data);
+  const resource = liveResourceByFile.get(path.resolve(filePath));
+  if (resource) broadcastDataChanged(resource);
 }
 
 async function archiveItem(
@@ -233,10 +242,11 @@ function isRecordWithId(value: unknown): value is { id: string } {
   return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
 }
 
-function restoreJsonItem<T extends { id: string }>(filePath: string, value: T, defaultItems: T[] = []): boolean {
-  const items = readJson<T[]>(filePath, defaultItems);
+async function restoreJsonItem<T extends { id: string }>(filePath: string, value: T, defaultItems: T[] = []): Promise<boolean> {
+  const items = await readJson<T[]>(filePath, defaultItems);
   if (items.some((item) => item.id === value.id)) return false;
-  return writeJson(filePath, [value, ...items]);
+  await writeJson(filePath, [value, ...items]);
+  return true;
 }
 
 function verifyMasterCode(code: string, settings: AdminSecuritySettings): boolean {
@@ -636,16 +646,12 @@ const DEFAULT_CONFIG: AdminConfig = {
   activeTokens: {}
 };
 
-function loadConfig(): AdminConfig {
-  const cfg = readJson<AdminConfig>(CONFIG_FILE, DEFAULT_CONFIG);
-  if (!fs.existsSync(CONFIG_FILE)) {
-    writeJson(CONFIG_FILE, DEFAULT_CONFIG);
-  }
-  return cfg;
+async function loadConfig(): Promise<AdminConfig> {
+  return readJson<AdminConfig>(CONFIG_FILE, DEFAULT_CONFIG);
 }
 
-function saveConfig(config: AdminConfig): void {
-  writeJson(CONFIG_FILE, {
+async function saveConfig(config: AdminConfig): Promise<void> {
+  await writeJson(CONFIG_FILE, {
     ...config,
     admins: [],
     activeTokens: {},
@@ -654,11 +660,22 @@ function saveConfig(config: AdminConfig): void {
   });
 }
 
-loadConfig();
+function readLegacyAdminConfig(): AdminConfig {
+  if (!fs.existsSync(CONFIG_FILE)) return DEFAULT_CONFIG;
+  const parsed: unknown = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Le fichier historique admin-config.json ne contient pas un objet valide.');
+  }
+  const legacy = parsed as Partial<AdminConfig>;
+  return {
+    ...DEFAULT_CONFIG,
+    ...legacy,
+    admins: Array.isArray(legacy.admins) ? legacy.admins : []
+  };
+}
 
 // Record audit log helper
-function addServerAuditLog(author: string, actionType: string, description: string, entityType: string, targetId?: string) {
-  const logs = readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
+async function addServerAuditLog(author: string, actionType: string, description: string, entityType: string, targetId?: string): Promise<void> {
   const newLog: AuditAction = {
     id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     author,
@@ -668,8 +685,7 @@ function addServerAuditLog(author: string, actionType: string, description: stri
     entityType,
     targetId
   };
-  logs.unshift(newLog);
-  writeJson(AUDIT_LOGS_FILE, logs);
+  await appendApplicationRecord('audit-logs', newLog);
 }
 
 // =========================================================================
@@ -827,7 +843,7 @@ app.post('/api/auth/register-client', asyncRoute(async (req: Request, res: Respo
     throw error;
   }
 
-  addServerAuditLog(fullName, 'register_client', `Création du compte client ${fullName} (${cleanEmail})`, 'client', newClient.id);
+  await addServerAuditLog(fullName, 'register_client', `Création du compte client ${fullName} (${cleanEmail})`, 'client', newClient.id);
 
   return res.status(201).json({
     success: true,
@@ -959,7 +975,7 @@ app.post('/api/investor/register', async (req: Request, res: Response) => {
 
     await createInvestor(newInvestor);
     await establishInvestorSession(newInvestor, res);
-    addServerAuditLog(fullName, 'investor_application', `Nouvelle candidature investisseur : ${fullName} (${cleanEmail})`, 'investor', newInvestor.id);
+    await addServerAuditLog(fullName, 'investor_application', `Nouvelle candidature investisseur : ${fullName} (${cleanEmail})`, 'investor', newInvestor.id);
     try {
       broadcastPresenceUpdate();
     } catch {}
@@ -1078,7 +1094,7 @@ app.post('/api/investor/subscribe-shares', asyncRoute(async (req: Request, res: 
   }
 
   // 3. Mandatory check: operation exists, is published, is open
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const operation = operations.find((op) => op.id === operationId);
 
   if (!operation || operation.isPublished === false) {
@@ -1181,10 +1197,14 @@ app.post('/api/investor/subscribe-shares', asyncRoute(async (req: Request, res: 
   if (operation.targetAmount && operation.targetAmount > 0) {
     operation.percent = Math.min(100, Math.round((operation.collectedAmount / operation.targetAmount) * 100));
   }
-  const subs = readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
+  const subs = await readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
   subs.unshift(newSub);
-  if (!writeJson(SUBSCRIPTIONS_FILE, subs) || !writeJson(OPERATIONS_FILE, operations)) {
-    writeJson(SUBSCRIPTIONS_FILE, subs.filter((subscription) => subscription.id !== subId));
+  try {
+    await writeJson(SUBSCRIPTIONS_FILE, subs);
+    await writeJson(OPERATIONS_FILE, operations);
+  } catch (error) {
+    console.error('Échec de persistance de la souscription :', error);
+    await writeJson(SUBSCRIPTIONS_FILE, subs.filter((subscription) => subscription.id !== subId));
     await updateInvestor<ServerInvestorUser>(investor.id, (current) => ({
       ...current,
       sharesCount: Math.max(0, (current.sharesCount || 0) - count),
@@ -1195,7 +1215,7 @@ app.post('/api/investor/subscribe-shares', asyncRoute(async (req: Request, res: 
   }
   broadcastDataChanged('investors');
 
-  addServerAuditLog(
+  await addServerAuditLog(
     investor.name,
     'subscribe_shares',
     `Souscription de ${count} parts (${totalAmount.toLocaleString('fr-FR')} FCFA) pour "${operation.title}" - ${offer.title}`,
@@ -1219,7 +1239,7 @@ app.post('/api/investor/subscribe-shares', asyncRoute(async (req: Request, res: 
 // =========================================================================
 
 app.get('/api/operations', asyncRoute(async (_req: Request, res: Response) => {
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const inventories = new Map((await listOperationInventories()).map((item) => [item.operationId, item]));
   // Filter strictly published operations and published offers
   const publishedOps = operations
@@ -1233,17 +1253,17 @@ app.get('/api/operations', asyncRoute(async (_req: Request, res: Response) => {
   res.json({ operations: publishedOps });
 }));
 
-app.get('/api/activities', (_req: Request, res: Response) => {
-  const acts = readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
+app.get('/api/activities', asyncRoute(async (_req: Request, res: Response) => {
+  const acts = await readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
   const published = acts.filter((a) => a.isPublished !== false);
   res.json({ activities: published });
-});
+}));
 
-app.get('/api/documents', (_req: Request, res: Response) => {
-  const docs = readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
+app.get('/api/documents', asyncRoute(async (_req: Request, res: Response) => {
+  const docs = await readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
   const published = docs.filter((d) => d.isPublished !== false);
   res.json({ documents: published });
-});
+}));
 
 // =========================================================================
 // 6. ADMIN APIS (FULL CRUD & CONTROL OVER ALL ENTITIES)
@@ -1251,7 +1271,7 @@ app.get('/api/documents', (_req: Request, res: Response) => {
 
 // Operations CRUD
 app.get('/api/admin/operations', asyncRoute(async (_req: Request, res: Response) => {
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const inventories = new Map((await listOperationInventories()).map((item) => [item.operationId, item]));
   res.json({
     operations: operations.map((operation) => ({
@@ -1296,7 +1316,7 @@ app.post('/api/admin/operations', asyncRoute(async (req: Request, res: Response)
     return res.status(400).json({ success: false, error: 'Le nombre de parts disponibles doit être un entier positif.' });
   }
 
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const opId = typeof id === 'string' && id.trim() ? id.trim() : `op-${Date.now()}`;
   const published = isPublished !== undefined ? Boolean(isPublished) : offerStatus === 'Ouvert';
   const statusStr = offerStatus || (published ? 'Ouvert' : 'Brouillon');
@@ -1348,16 +1368,16 @@ app.post('/api/admin/operations', asyncRoute(async (req: Request, res: Response)
 
   operations.unshift(newOp);
   await initializeOperationInventory([{ operationId: opId, totalShares: shareLimit, committedShares: 0 }]);
-  writeJson(OPERATIONS_FILE, operations);
+  await writeJson(OPERATIONS_FILE, operations);
 
-  addServerAuditLog('Admin Principal', 'create_operation', `Création et publication de l'opération "${newOp.title}" (${statusStr})`, 'operation', opId);
+  await addServerAuditLog('Admin Principal', 'create_operation', `Création et publication de l'opération "${newOp.title}" (${statusStr})`, 'operation', opId);
   res.status(201).json({ success: true, operation: newOp });
 }));
 
-app.patch('/api/admin/operations/:id/status', (req: Request, res: Response) => {
+app.patch('/api/admin/operations/:id/status', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { offerStatus, isPublished } = req.body;
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const idx = operations.findIndex((op) => op.id === id);
 
   if (idx < 0) {
@@ -1366,16 +1386,16 @@ app.patch('/api/admin/operations/:id/status', (req: Request, res: Response) => {
 
   if (offerStatus) operations[idx].offerStatus = offerStatus;
   if (isPublished !== undefined) operations[idx].isPublished = Boolean(isPublished);
-  writeJson(OPERATIONS_FILE, operations);
+  await writeJson(OPERATIONS_FILE, operations);
 
-  addServerAuditLog('Admin Principal', 'update_operation_status', `Statut de l'opération "${operations[idx].title}" -> ${offerStatus || operations[idx].offerStatus}`, 'operation', id);
+  await addServerAuditLog('Admin Principal', 'update_operation_status', `Statut de l'opération "${operations[idx].title}" -> ${offerStatus || operations[idx].offerStatus}`, 'operation', id);
   res.json({ success: true, operation: operations[idx] });
-});
+}));
 
 app.put('/api/admin/operations/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const idx = operations.findIndex((op) => op.id === id);
 
   if (idx < 0) {
@@ -1401,15 +1421,15 @@ app.put('/api/admin/operations/:id', asyncRoute(async (req: Request, res: Respon
     availableShares: requestedLimit,
     offers: current.offers?.map((offer) => ({ ...offer, sharePrice: requestedPrice ?? offer.sharePrice }))
   };
-  writeJson(OPERATIONS_FILE, operations);
+  await writeJson(OPERATIONS_FILE, operations);
 
-  addServerAuditLog('Admin Principal', 'update_operation', `Mise à jour de l'opération "${operations[idx].title}"`, 'operation', id);
+  await addServerAuditLog('Admin Principal', 'update_operation', `Mise à jour de l'opération "${operations[idx].title}"`, 'operation', id);
   res.json({ success: true, operation: operations[idx] });
 }));
 
 app.delete('/api/admin/operations/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const target = operations.find((op) => op.id === id);
 
   if (!target) {
@@ -1418,21 +1438,23 @@ app.delete('/api/admin/operations/:id', asyncRoute(async (req: Request, res: Res
 
   const archiveId = await archiveItem('operation', target.id, target.title, target);
   const remaining = operations.filter((op) => op.id !== id);
-  if (!writeJson(OPERATIONS_FILE, remaining)) {
+  try {
+    await writeJson(OPERATIONS_FILE, remaining);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'L’opération n’a pas pu être archivée.' });
+    throw error;
   }
 
-  addServerAuditLog('Admin Principal', 'archive_operation', `Archivage de l'opération "${target.title}"`, 'operation', id);
+  await addServerAuditLog('Admin Principal', 'archive_operation', `Archivage de l'opération "${target.title}"`, 'operation', id);
   res.json({ success: true, message: `Opération "${target.title}" supprimée avec succès.` });
 }));
 
 // Offers inside Operation
-app.post('/api/admin/operations/:opId/offers', (req: Request, res: Response) => {
+app.post('/api/admin/operations/:opId/offers', asyncRoute(async (req: Request, res: Response) => {
   const { opId } = req.params;
   const { title, yieldStr, duration, risk, description, isOpen } = req.body;
 
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const op = operations.find((o) => o.id === opId);
   if (!op) {
     return res.status(404).json({ success: false, error: 'Opération parente introuvable.' });
@@ -1459,15 +1481,15 @@ app.post('/api/admin/operations/:opId/offers', (req: Request, res: Response) => 
 
   if (!op.offers) op.offers = [];
   op.offers.push(newOffer);
-  writeJson(OPERATIONS_FILE, operations);
+  await writeJson(OPERATIONS_FILE, operations);
 
-  addServerAuditLog('Admin Principal', 'add_offer', `Ajout de l'offre "${newOffer.title}" dans l'opération "${op.title}"`, 'offer', newOffer.id);
+  await addServerAuditLog('Admin Principal', 'add_offer', `Ajout de l'offre "${newOffer.title}" dans l'opération "${op.title}"`, 'offer', newOffer.id);
   res.status(201).json({ success: true, offer: newOffer });
-});
+}));
 
 app.delete('/api/admin/operations/:opId/offers/:offerId', asyncRoute(async (req: Request, res: Response) => {
   const { opId, offerId } = req.params;
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const op = operations.find((o) => o.id === opId);
   if (!op) {
     return res.status(404).json({ success: false, error: 'Opération introuvable.' });
@@ -1477,12 +1499,14 @@ app.delete('/api/admin/operations/:opId/offers/:offerId', asyncRoute(async (req:
   if (!offer) return res.status(404).json({ success: false, error: 'Offre introuvable.' });
   const archiveId = await archiveItem('offer', offer.id, offer.title, offer, opId);
   op.offers = (op.offers || []).filter((o) => o.id !== offerId);
-  if (!writeJson(OPERATIONS_FILE, operations)) {
+  try {
+    await writeJson(OPERATIONS_FILE, operations);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'L’offre n’a pas pu être archivée.' });
+    throw error;
   }
 
-  addServerAuditLog('Admin Principal', 'delete_offer', `Suppression de l'offre "${offer?.title || offerId}"`, 'offer', offerId);
+  await addServerAuditLog('Admin Principal', 'delete_offer', `Suppression de l'offre "${offer?.title || offerId}"`, 'offer', offerId);
   res.json({ success: true, message: 'Offre supprimée avec succès.' });
 }));
 
@@ -1500,21 +1524,21 @@ const DEFAULT_COURSE_CATEGORIES = [
 ];
 
 // =========================================================================
-// CATALOGUE PRODUITS CRUD (PERSISTANCE DANS DATA/PRODUCTS.JSON)
+// CATALOGUE PRODUITS CRUD (PERSISTANCE POSTGRESQL)
 // =========================================================================
 
-app.get('/api/products', (_req: Request, res: Response) => {
-  const products = readJson<any[]>(PRODUCTS_FILE, []);
+app.get('/api/products', asyncRoute(async (_req: Request, res: Response) => {
+  const products = await readJson<any[]>(PRODUCTS_FILE, []);
   res.json({ success: true, products });
-});
+}));
 
-app.post('/api/admin/products', (req: Request, res: Response) => {
+app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) => {
   const prod = req.body;
   if (!prod || !prod.name) {
     return res.status(400).json({ success: false, error: 'Nom de produit requis.' });
   }
 
-  const products = readJson<any[]>(PRODUCTS_FILE, []);
+  const products = await readJson<any[]>(PRODUCTS_FILE, []);
   const newProd = {
     ...prod,
     id: prod.id || `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -1523,52 +1547,54 @@ app.post('/api/admin/products', (req: Request, res: Response) => {
   };
 
   products.unshift(newProd);
-  writeJson(PRODUCTS_FILE, products);
-  addServerAuditLog('Admin Principal', 'create_product', `Ajout du produit "${newProd.name}" (${newProd.ref})`, 'product', newProd.id);
+  await writeJson(PRODUCTS_FILE, products);
+  await addServerAuditLog('Admin Principal', 'create_product', `Ajout du produit "${newProd.name}" (${newProd.ref})`, 'product', newProd.id);
   res.status(201).json({ success: true, product: newProd });
-});
+}));
 
-app.put('/api/admin/products/:id', (req: Request, res: Response) => {
+app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const updateData = req.body;
-  const products = readJson<any[]>(PRODUCTS_FILE, []);
+  const products = await readJson<any[]>(PRODUCTS_FILE, []);
   const idx = products.findIndex((p) => p.id === id);
 
   if (idx === -1) {
     const newProd = { ...updateData, id };
     products.push(newProd);
-    writeJson(PRODUCTS_FILE, products);
+    await writeJson(PRODUCTS_FILE, products);
     return res.json({ success: true, product: newProd });
   }
 
   products[idx] = { ...products[idx], ...updateData, id };
-  writeJson(PRODUCTS_FILE, products);
-  addServerAuditLog('Admin Principal', 'update_product', `Modification du produit "${products[idx].name}" (${products[idx].ref})`, 'product', id);
+  await writeJson(PRODUCTS_FILE, products);
+  await addServerAuditLog('Admin Principal', 'update_product', `Modification du produit "${products[idx].name}" (${products[idx].ref})`, 'product', id);
   res.json({ success: true, product: products[idx] });
-});
+}));
 
 app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const products = readJson<any[]>(PRODUCTS_FILE, []);
+  const products = await readJson<any[]>(PRODUCTS_FILE, []);
   const target = products.find((p) => p.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Produit introuvable.' });
   const archiveId = await archiveItem('product', target.id, target.name || target.title || id, target);
   const filtered = products.filter((p) => p.id !== id);
 
-  if (!writeJson(PRODUCTS_FILE, filtered)) {
+  try {
+    await writeJson(PRODUCTS_FILE, filtered);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'Le produit n’a pas pu être archivé.' });
+    throw error;
   }
-  addServerAuditLog('Admin Principal', 'archive_product', `Archivage du produit "${target.name}" (${target.ref})`, 'product', id);
+  await addServerAuditLog('Admin Principal', 'archive_product', `Archivage du produit "${target.name}" (${target.ref})`, 'product', id);
   res.json({ success: true, message: 'Produit déplacé dans la corbeille.' });
 }));
 
-app.get('/api/courses', (_req: Request, res: Response) => {
-  const courses = readJson<any[]>(COURSES_FILE, []);
+app.get('/api/courses', asyncRoute(async (_req: Request, res: Response) => {
+  const courses = await readJson<any[]>(COURSES_FILE, []);
   res.json({ success: true, courses });
-});
+}));
 
-app.post('/api/admin/courses', (req: Request, res: Response) => {
+app.post('/api/admin/courses', asyncRoute(async (req: Request, res: Response) => {
   const {
     title,
     domain,
@@ -1592,7 +1618,7 @@ app.post('/api/admin/courses', (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'Domaine pédagogique invalide (electronique, electrotechnique ou informatique).' });
   }
 
-  const courses = readJson<any[]>(COURSES_FILE, []);
+  const courses = await readJson<any[]>(COURSES_FILE, []);
   const initialStatus = status === 'draft' || status === 'suspended' ? status : 'published';
 
   const newCourse = {
@@ -1616,15 +1642,15 @@ app.post('/api/admin/courses', (req: Request, res: Response) => {
   };
 
   courses.unshift(newCourse);
-  writeJson(COURSES_FILE, courses);
+  await writeJson(COURSES_FILE, courses);
 
-  addServerAuditLog('Admin Principal', 'create_course', `Création de la formation "${newCourse.title}" (${newCourse.domain})`, 'course', newCourse.id);
+  await addServerAuditLog('Admin Principal', 'create_course', `Création de la formation "${newCourse.title}" (${newCourse.domain})`, 'course', newCourse.id);
   res.json({ success: true, course: newCourse });
-});
+}));
 
-app.put('/api/admin/courses/:id', (req: Request, res: Response) => {
+app.put('/api/admin/courses/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const courses = readJson<any[]>(COURSES_FILE, []);
+  const courses = await readJson<any[]>(COURSES_FILE, []);
   const idx = courses.findIndex((c) => c.id === id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Formation introuvable.' });
 
@@ -1636,55 +1662,57 @@ app.put('/api/admin/courses/:id', (req: Request, res: Response) => {
   };
 
   courses[idx] = updated;
-  writeJson(COURSES_FILE, courses);
+  await writeJson(COURSES_FILE, courses);
 
-  addServerAuditLog('Admin Principal', 'update_course', `Modification de la formation "${updated.title}"`, 'course', id);
+  await addServerAuditLog('Admin Principal', 'update_course', `Modification de la formation "${updated.title}"`, 'course', id);
   res.json({ success: true, course: updated });
-});
+}));
 
-app.patch('/api/admin/courses/:id/status', (req: Request, res: Response) => {
+app.patch('/api/admin/courses/:id/status', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status } = req.body;
   if (!['published', 'draft', 'suspended'].includes(status)) {
     return res.status(400).json({ success: false, error: 'Statut invalide.' });
   }
 
-  const courses = readJson<any[]>(COURSES_FILE, []);
+  const courses = await readJson<any[]>(COURSES_FILE, []);
   const idx = courses.findIndex((c) => c.id === id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Formation introuvable.' });
 
   courses[idx].status = status;
   courses[idx].isPublished = status === 'published';
-  writeJson(COURSES_FILE, courses);
+  await writeJson(COURSES_FILE, courses);
 
-  addServerAuditLog('Admin Principal', 'update_course_status', `Statut de la formation "${courses[idx].title}" changé en ${status}`, 'course', id);
+  await addServerAuditLog('Admin Principal', 'update_course_status', `Statut de la formation "${courses[idx].title}" changé en ${status}`, 'course', id);
   res.json({ success: true, course: courses[idx] });
-});
+}));
 
 app.delete('/api/admin/courses/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const courses = readJson<any[]>(COURSES_FILE, []);
+  const courses = await readJson<any[]>(COURSES_FILE, []);
   const target = courses.find((c) => c.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Formation introuvable.' });
 
   const archiveId = await archiveItem('course', target.id, target.title, target);
   const filtered = courses.filter((c) => c.id !== id);
-  if (!writeJson(COURSES_FILE, filtered)) {
+  try {
+    await writeJson(COURSES_FILE, filtered);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'La formation n’a pas pu être archivée.' });
+    throw error;
   }
 
-  addServerAuditLog('Admin Principal', 'archive_course', `Archivage de la formation "${target.title}"`, 'course', id);
+  await addServerAuditLog('Admin Principal', 'archive_course', `Archivage de la formation "${target.title}"`, 'course', id);
   res.json({ success: true, message: 'Formation supprimée avec succès.' });
 }));
 
 // Category Management API
-app.get('/api/course-categories', (_req: Request, res: Response) => {
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
+app.get('/api/course-categories', asyncRoute(async (_req: Request, res: Response) => {
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
   res.json({ categories });
-});
+}));
 
-app.post('/api/admin/course-categories', (req: Request, res: Response) => {
+app.post('/api/admin/course-categories', asyncRoute(async (req: Request, res: Response) => {
   const { label, domain } = req.body;
   if (!label || typeof label !== 'string' || !label.trim()) {
     return res.status(400).json({ success: false, error: 'Libellé de catégorie obligatoire.' });
@@ -1693,7 +1721,7 @@ app.post('/api/admin/course-categories', (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'Domaine invalide.' });
   }
 
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
   const newCat = {
     id: `cat-${domain.slice(0, 4)}-${Date.now()}`,
     label: label.trim(),
@@ -1702,16 +1730,16 @@ app.post('/api/admin/course-categories', (req: Request, res: Response) => {
   };
 
   categories.push(newCat);
-  writeJson(COURSE_CATEGORIES_FILE, categories);
+  await writeJson(COURSE_CATEGORIES_FILE, categories);
 
-  addServerAuditLog('Admin Principal', 'create_course_category', `Ajout de la catégorie de cours "${newCat.label}" (${domain})`, 'category', newCat.id);
+  await addServerAuditLog('Admin Principal', 'create_course_category', `Ajout de la catégorie de cours "${newCat.label}" (${domain})`, 'category', newCat.id);
   res.json({ success: true, category: newCat });
-});
+}));
 
-app.put('/api/admin/course-categories/:id', (req: Request, res: Response) => {
+app.put('/api/admin/course-categories/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { label, domain, isActive } = req.body;
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
   const idx = categories.findIndex((c) => c.id === id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Catégorie introuvable.' });
 
@@ -1719,25 +1747,26 @@ app.put('/api/admin/course-categories/:id', (req: Request, res: Response) => {
   if (domain && ['electronique', 'electrotechnique', 'informatique'].includes(domain)) categories[idx].domain = domain;
   if (typeof isActive === 'boolean') categories[idx].isActive = isActive;
 
-  writeJson(COURSE_CATEGORIES_FILE, categories);
-  addServerAuditLog('Admin Principal', 'update_course_category', `Mise à jour de la catégorie de cours "${categories[idx].label}"`, 'category', id);
+  await writeJson(COURSE_CATEGORIES_FILE, categories);
+  await addServerAuditLog('Admin Principal', 'update_course_category', `Mise à jour de la catégorie de cours "${categories[idx].label}"`, 'category', id);
   res.json({ success: true, category: categories[idx] });
-});
+}));
 
 app.delete('/api/admin/course-categories/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, DEFAULT_COURSE_CATEGORIES);
   const target = categories.find((c) => c.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Catégorie introuvable.' });
 
   const archiveId = await archiveItem('course-category', target.id, target.label, target);
   const filtered = categories.filter((c) => c.id !== id);
-  if (!writeJson(COURSE_CATEGORIES_FILE, filtered)) {
+  try {
+    await writeJson(COURSE_CATEGORIES_FILE, filtered);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'La catégorie n’a pas pu être archivée.' });
+    throw error;
   }
-
-  addServerAuditLog('Admin Principal', 'archive_course_category', `Archivage de la catégorie de cours "${target.label}"`, 'category', id);
+  await addServerAuditLog('Admin Principal', 'archive_course_category', `Archivage de la catégorie de cours "${target.label}"`, 'category', id);
   res.json({ success: true, message: 'Catégorie supprimée avec succès.' });
 }));
 
@@ -1786,7 +1815,7 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
       role: 'investor'
     };
     await createInvestor(investor);
-    addServerAuditLog('Admin Principal', 'create_investor', `Création du compte investisseur "${name}"`, 'investor', investor.id);
+    await addServerAuditLog('Admin Principal', 'create_investor', `Création du compte investisseur "${name}"`, 'investor', investor.id);
     broadcastDataChanged('investors');
     return res.status(201).json({ success: true, investor: publicInvestor(investor) });
   } catch (error) {
@@ -1838,7 +1867,7 @@ const handleUpdateInvestorStatus = async (req: Request, res: Response) => {
   }));
   if (!updatedInvestor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
 
-  addServerAuditLog('Admin Principal', 'update_investor_status', `Statut de ${inv.name} modifié : "${oldStatus}" -> "${status}"`, 'investor', inv.id);
+  await addServerAuditLog('Admin Principal', 'update_investor_status', `Statut de ${inv.name} modifié : "${oldStatus}" -> "${status}"`, 'investor', inv.id);
 
   try {
     broadcastPresenceUpdate();
@@ -1865,52 +1894,60 @@ app.delete('/api/admin/investors/:id', asyncRoute(async (req: Request, res: Resp
     return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
   }
 
-  addServerAuditLog('Admin Principal', 'archive_investor', `Archivage du compte investisseur de ${target.name}`, 'investor', id);
+  await addServerAuditLog('Admin Principal', 'archive_investor', `Archivage du compte investisseur de ${target.name}`, 'investor', id);
   broadcastDataChanged('investors');
   res.json({ success: true, message: `Compte investisseur de ${target.name} placé dans la corbeille.` });
 }));
 
 // Audit Logs Management
-app.get('/api/admin/audit-logs', (_req: Request, res: Response) => {
-  const logs = readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
+app.get('/api/admin/audit-logs', asyncRoute(async (_req: Request, res: Response) => {
+  const logs = await readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
   res.json({ auditLogs: logs });
-});
+}));
 
 app.delete('/api/admin/audit-logs/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const logs = readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
+  const logs = await readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
   const target = logs.find((log) => log.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Entrée du journal introuvable.' });
   const archiveId = await archiveItem('audit-log', target.id, target.description, target);
   const remaining = logs.filter((l) => l.id !== id);
-  if (!writeJson(AUDIT_LOGS_FILE, remaining)) {
+  try {
+    await writeJson(AUDIT_LOGS_FILE, remaining);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'L’entrée du journal n’a pas pu être archivée.' });
+    throw error;
   }
   res.json({ success: true, message: 'Entrée du journal supprimée.' });
 }));
 
 app.delete('/api/admin/audit-logs', asyncRoute(async (_req: Request, res: Response) => {
-  const logs = readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
+  const logs = await readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
   if (logs.length) {
     const archiveId = await archiveItem('audit-log-batch', `batch-${Date.now()}`, `${logs.length} entrées du journal`, logs);
-    if (!writeJson(AUDIT_LOGS_FILE, [])) {
+    try {
+      await writeJson(AUDIT_LOGS_FILE, []);
+    } catch (error) {
       await deleteArchiveRecord(archiveId);
-      return res.status(500).json({ success: false, error: 'Le journal n’a pas pu être archivé.' });
+      throw error;
     }
+  } else {
+    await writeJson(AUDIT_LOGS_FILE, []);
   }
   res.json({ success: true, message: 'Journal d’audit entièrement vidé.' });
 }));
 
 app.delete('/api/admin/subscriptions/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const subscriptions = readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
+  const subscriptions = await readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
   const target = subscriptions.find((subscription) => subscription.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Souscription introuvable.' });
   const archiveId = await archiveItem('subscription', target.id, `${target.investorName} — ${target.operationTitle || target.id}`, target);
-  if (!writeJson(SUBSCRIPTIONS_FILE, subscriptions.filter((subscription) => subscription.id !== id))) {
+  try {
+    await writeJson(SUBSCRIPTIONS_FILE, subscriptions.filter((subscription) => subscription.id !== id));
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'La souscription n’a pas pu être archivée.' });
+    throw error;
   }
   if (target.status !== 'rejected' && target.operationId) {
     await releaseOperationShares(target.operationId, target.shares);
@@ -1920,11 +1957,11 @@ app.delete('/api/admin/subscriptions/:id', asyncRoute(async (req: Request, res: 
 }));
 
 // Activities CRUD
-app.post('/api/admin/activities', (req: Request, res: Response) => {
+app.post('/api/admin/activities', asyncRoute(async (req: Request, res: Response) => {
   const { title, description, badge, sector, photoUrl } = req.body;
   if (!title) return res.status(400).json({ success: false, error: 'Titre requis.' });
 
-  const acts = readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
+  const acts = await readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
   const newAct: InvestorActivity = {
     id: `act-${Date.now()}`,
     title: title.trim(),
@@ -1936,32 +1973,34 @@ app.post('/api/admin/activities', (req: Request, res: Response) => {
     isPublished: true
   };
   acts.unshift(newAct);
-  writeJson(ACTIVITIES_FILE, acts);
+  await writeJson(ACTIVITIES_FILE, acts);
 
-  addServerAuditLog('Admin Principal', 'add_activity', `Publication activité "${newAct.title}"`, 'activity', newAct.id);
+  await addServerAuditLog('Admin Principal', 'add_activity', `Publication activité "${newAct.title}"`, 'activity', newAct.id);
   res.status(201).json({ success: true, activity: newAct });
-});
+}));
 
 app.delete('/api/admin/activities/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const acts = readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
+  const acts = await readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
   const target = acts.find((activity) => activity.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Activité introuvable.' });
   const archiveId = await archiveItem('activity', target.id, target.title, target);
   const remaining = acts.filter((a) => a.id !== id);
-  if (!writeJson(ACTIVITIES_FILE, remaining)) {
+  try {
+    await writeJson(ACTIVITIES_FILE, remaining);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'L’activité n’a pas pu être archivée.' });
+    throw error;
   }
   res.json({ success: true, message: 'Activité déplacée dans la corbeille.' });
 }));
 
 // Documents CRUD
-app.post('/api/admin/documents', (req: Request, res: Response) => {
+app.post('/api/admin/documents', asyncRoute(async (req: Request, res: Response) => {
   const { title, description, fileUrl, format, size } = req.body;
   if (!title) return res.status(400).json({ success: false, error: 'Titre requis.' });
 
-  const docs = readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
+  const docs = await readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
   const newDoc: InvestorDocument = {
     id: `doc-${Date.now()}`,
     title: title.trim(),
@@ -1973,22 +2012,24 @@ app.post('/api/admin/documents', (req: Request, res: Response) => {
     isPublished: true
   };
   docs.unshift(newDoc);
-  writeJson(DOCUMENTS_FILE, docs);
+  await writeJson(DOCUMENTS_FILE, docs);
 
-  addServerAuditLog('Admin Principal', 'add_document', `Publication document "${newDoc.title}"`, 'document', newDoc.id);
+  await addServerAuditLog('Admin Principal', 'add_document', `Publication document "${newDoc.title}"`, 'document', newDoc.id);
   res.status(201).json({ success: true, document: newDoc });
-});
+}));
 
 app.delete('/api/admin/documents/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const docs = readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
+  const docs = await readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
   const target = docs.find((document) => document.id === id);
   if (!target) return res.status(404).json({ success: false, error: 'Document introuvable.' });
   const archiveId = await archiveItem('document', target.id, target.title, target);
   const remaining = docs.filter((d) => d.id !== id);
-  if (!writeJson(DOCUMENTS_FILE, remaining)) {
+  try {
+    await writeJson(DOCUMENTS_FILE, remaining);
+  } catch (error) {
     await deleteArchiveRecord(archiveId);
-    return res.status(500).json({ success: false, error: 'Le document n’a pas pu être archivé.' });
+    throw error;
   }
   res.json({ success: true, message: 'Document déplacé dans la corbeille.' });
 }));
@@ -2002,15 +2043,15 @@ async function buildFullBackup() {
     exportDate: new Date().toISOString(),
     clients: (await listUsersByRole<ServerClientUser>('client')).map(({ passwordHash: _hash, passwordSalt: _salt, ...client }) => client),
     investors: (await listInvestors<ServerInvestorUser>()).map(publicInvestor),
-    operations: readJson(OPERATIONS_FILE, []),
-    subscriptions: readJson(SUBSCRIPTIONS_FILE, []),
-    activities: readJson(ACTIVITIES_FILE, []),
-    documents: readJson(DOCUMENTS_FILE, []),
-    groups: readJson(GROUPS_FILE, {}),
-    courses: readJson(COURSES_FILE, []),
-    courseCategories: readJson(COURSE_CATEGORIES_FILE, []),
-    products: readJson(PRODUCTS_FILE, []),
-    auditLogs: readJson(AUDIT_LOGS_FILE, [])
+    operations: await readJson(OPERATIONS_FILE, []),
+    subscriptions: await readJson(SUBSCRIPTIONS_FILE, []),
+    activities: await readJson(ACTIVITIES_FILE, []),
+    documents: await readJson(DOCUMENTS_FILE, []),
+    groups: await readJson(GROUPS_FILE, {}),
+    courses: await readJson(COURSES_FILE, []),
+    courseCategories: await readJson(COURSE_CATEGORIES_FILE, []),
+    products: await readJson(PRODUCTS_FILE, []),
+    auditLogs: await readJson(AUDIT_LOGS_FILE, [])
   };
 }
 
@@ -2032,21 +2073,21 @@ app.post('/api/admin/total-reset', asyncRoute(async (req: Request, res: Response
   // 1. Create safety backup before wipe
   const backup = await buildFullBackup();
   const backupName = `backup-pre-reset-${Date.now()}.json`;
-  writeJson(path.join(DATA_DIR, backupName), backup);
+  await saveApplicationBackup(backupName, backup);
 
   // 2. Wipe all business data
   await replaceUsersByRole('client', []);
   await replaceInvestors<ServerInvestorUser>([]);
-  writeJson(OPERATIONS_FILE, []);
-  writeJson(SUBSCRIPTIONS_FILE, []);
-  writeJson(ACTIVITIES_FILE, []);
-  writeJson(DOCUMENTS_FILE, []);
-  writeJson(GROUPS_FILE, {});
-  writeJson(COURSES_FILE, []);
-  writeJson(COURSE_CATEGORIES_FILE, []);
-  writeJson(PRODUCTS_FILE, []);
+  await writeJson(OPERATIONS_FILE, []);
+  await writeJson(SUBSCRIPTIONS_FILE, []);
+  await writeJson(ACTIVITIES_FILE, []);
+  await writeJson(DOCUMENTS_FILE, []);
+  await writeJson(GROUPS_FILE, {});
+  await writeJson(COURSES_FILE, []);
+  await writeJson(COURSE_CATEGORIES_FILE, []);
+  await writeJson(PRODUCTS_FILE, []);
   await clearUserOtps();
-  writeJson(AUDIT_LOGS_FILE, [
+  await writeJson(AUDIT_LOGS_FILE, [
     {
       id: `aud-reset-${Date.now()}`,
       author: 'Franck Kaboré (Super-Admin)',
@@ -2087,12 +2128,12 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
     case 'operation': {
       if (!isRecordWithId(payload)) break;
       const operation = payload as InvestmentOperation;
-      const subscriptions = readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
+      const subscriptions = await readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
       const committedShares = subscriptions
         .filter((subscription) => subscription.operationId === operation.id && subscription.status !== 'rejected')
         .reduce((total, subscription) => total + subscription.shares, 0);
       const totalShares = Math.max(operation.availableShares || 0, committedShares);
-      if (!restoreJsonItem(OPERATIONS_FILE, operation)) {
+      if (!await restoreJsonItem(OPERATIONS_FILE, operation)) {
         return res.status(409).json({ success: false, error: 'Une opération portant déjà cet identifiant existe.' });
       }
       await initializeOperationInventory([{ operationId: operation.id, totalShares, committedShares }]);
@@ -2101,30 +2142,31 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
     }
     case 'offer': {
       if (!isRecordWithId(payload) || !record.parentId) break;
-      const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+      const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
       const operation = operations.find((item) => item.id === record.parentId);
       if (!operation) return res.status(409).json({ success: false, error: 'Restaurez d’abord l’opération parente.' });
       if ((operation.offers || []).some((offer) => offer.id === payload.id)) {
         return res.status(409).json({ success: false, error: 'Une offre portant déjà cet identifiant existe.' });
       }
       operation.offers = [...(operation.offers || []), payload as InvestmentOffer];
-      restored = writeJson(OPERATIONS_FILE, operations);
+      await writeJson(OPERATIONS_FILE, operations);
+      restored = true;
       break;
     }
     case 'product':
-      restored = isRecordWithId(payload) && restoreJsonItem(PRODUCTS_FILE, payload);
+      restored = isRecordWithId(payload) && await restoreJsonItem(PRODUCTS_FILE, payload);
       break;
     case 'course':
-      restored = isRecordWithId(payload) && restoreJsonItem(COURSES_FILE, payload);
+      restored = isRecordWithId(payload) && await restoreJsonItem(COURSES_FILE, payload);
       break;
     case 'course-category':
-      restored = isRecordWithId(payload) && restoreJsonItem(COURSE_CATEGORIES_FILE, payload, DEFAULT_COURSE_CATEGORIES);
+      restored = isRecordWithId(payload) && await restoreJsonItem(COURSE_CATEGORIES_FILE, payload, DEFAULT_COURSE_CATEGORIES);
       break;
     case 'activity':
-      restored = isRecordWithId(payload) && restoreJsonItem(ACTIVITIES_FILE, payload);
+      restored = isRecordWithId(payload) && await restoreJsonItem(ACTIVITIES_FILE, payload);
       break;
     case 'document':
-      restored = isRecordWithId(payload) && restoreJsonItem(DOCUMENTS_FILE, payload);
+      restored = isRecordWithId(payload) && await restoreJsonItem(DOCUMENTS_FILE, payload);
       break;
     case 'subscription': {
       if (!isRecordWithId(payload)) break;
@@ -2134,23 +2176,24 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
           return res.status(409).json({ success: false, error: 'Le quota de parts de cette opération est désormais insuffisant.' });
         }
       }
-      restored = restoreJsonItem(SUBSCRIPTIONS_FILE, subscription);
+      restored = await restoreJsonItem(SUBSCRIPTIONS_FILE, subscription);
       if (!restored && subscription.status !== 'rejected' && subscription.operationId) {
         await releaseOperationShares(subscription.operationId, subscription.shares);
       }
       break;
     }
     case 'audit-log':
-      restored = isRecordWithId(payload) && restoreJsonItem(AUDIT_LOGS_FILE, payload);
+      restored = isRecordWithId(payload) && await restoreJsonItem(AUDIT_LOGS_FILE, payload);
       break;
     case 'audit-log-batch': {
       if (!Array.isArray(payload) || !payload.every(isRecordWithId)) break;
-      const logs = readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
+      const logs = await readJson<AuditAction[]>(AUDIT_LOGS_FILE, []);
       const existingIds = new Set(logs.map((log) => log.id));
       if (payload.some((log) => existingIds.has(log.id))) {
         return res.status(409).json({ success: false, error: 'Certaines entrées du lot existent déjà.' });
       }
-      restored = writeJson(AUDIT_LOGS_FILE, [...payload as AuditAction[], ...logs]);
+      await writeJson(AUDIT_LOGS_FILE, [...payload as AuditAction[], ...logs]);
+      restored = true;
       break;
     }
     case 'investor':
@@ -2189,7 +2232,7 @@ app.get('/api/health', asyncRoute(async (_req: Request, res: Response) => {
 }));
 
 app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => {
-  const config = loadConfig();
+  const config = await loadConfig();
   const security = await getAdminSecuritySettings();
   const admins = await listAdmins<ServerAdminUser>();
   res.json({
@@ -2205,7 +2248,7 @@ app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => 
 app.post('/api/auth/login', asyncRoute(async (req: Request, res: Response) => {
   const { email, password, masterPin } = req.body;
   const security = await getAdminSecuritySettings();
-  const customAdminUrl = security?.customAdminUrl || loadConfig().customAdminUrl;
+  const customAdminUrl = security?.customAdminUrl || (await loadConfig()).customAdminUrl;
 
   if (masterPin && typeof masterPin === 'string') {
     const principal = await findAdminByRole<ServerAdminUser>('admin_principal');
@@ -2301,7 +2344,7 @@ app.post('/api/auth/verify', asyncRoute(async (req: Request, res: Response) => {
         email: user.email,
         role: user.role
       },
-      customAdminUrl: (await getAdminSecuritySettings())?.customAdminUrl || loadConfig().customAdminUrl
+      customAdminUrl: (await getAdminSecuritySettings())?.customAdminUrl || (await loadConfig()).customAdminUrl
     });
   }
 
@@ -2453,33 +2496,33 @@ app.post('/api/admin/change-url', asyncRoute(async (req: Request, res: Response)
   res.json({ success: true, customAdminUrl: formatted });
 }));
 
-app.post('/api/admin/hero-video', (req: Request, res: Response) => {
+app.post('/api/admin/hero-video', asyncRoute(async (req: Request, res: Response) => {
   const { videoUrl } = req.body;
   if (!videoUrl || typeof videoUrl !== 'string') return res.status(400).json({ success: false, error: 'URL invalide.' });
 
-  const config = loadConfig();
+  const config = await loadConfig();
   config.heroVideoUrl = videoUrl.trim();
-  saveConfig(config);
+  await saveConfig(config);
   res.json({ success: true, heroVideoUrl: config.heroVideoUrl });
-});
+}));
 
-app.post('/api/admin/formations-video', (req: Request, res: Response) => {
+app.post('/api/admin/formations-video', asyncRoute(async (req: Request, res: Response) => {
   const { videoUrl } = req.body;
   if (!videoUrl || typeof videoUrl !== 'string') return res.status(400).json({ success: false, error: 'URL invalide.' });
 
-  const config = loadConfig();
+  const config = await loadConfig();
   config.formationsVideoUrl = videoUrl.trim();
-  saveConfig(config);
+  await saveConfig(config);
   res.json({ success: true, formationsVideoUrl: config.formationsVideoUrl });
-});
+}));
 
-app.post('/api/admin/maintenance', (req: Request, res: Response) => {
+app.post('/api/admin/maintenance', asyncRoute(async (req: Request, res: Response) => {
   const { isMaintenanceMode } = req.body;
-  const config = loadConfig();
+  const config = await loadConfig();
   config.isMaintenanceMode = Boolean(isMaintenanceMode);
-  saveConfig(config);
+  await saveConfig(config);
   res.json({ success: true, isMaintenanceMode: config.isMaintenanceMode });
-});
+}));
 
 app.post('/api/upload', (req: Request, res: Response) => {
   try {
@@ -2520,20 +2563,20 @@ app.get('/assets/videos/:filename', (req: Request, res: Response) => {
 
 
 // Categories CRUD
-app.get('/api/course-categories', (_req: Request, res: Response) => {
-  const categories = readJson(COURSE_CATEGORIES_FILE, [
+app.get('/api/course-categories', asyncRoute(async (_req: Request, res: Response) => {
+  const categories = await readJson(COURSE_CATEGORIES_FILE, [
     { id: 'electronique', name: 'Électronique & IoT', domain: 'electronique', isActive: true },
     { id: 'electrotechnique', name: 'Électrotechnique Industrielle & Puissance', domain: 'electrotechnique', isActive: true },
     { id: 'informatique', name: 'Informatique, Réseaux & Maintenance', domain: 'informatique', isActive: true }
   ]);
   res.json({ success: true, categories });
-});
+}));
 
-app.post('/api/admin/course-categories', (req: Request, res: Response) => {
+app.post('/api/admin/course-categories', asyncRoute(async (req: Request, res: Response) => {
   const { name, domain } = req.body;
   if (!name) return res.status(400).json({ success: false, error: 'Nom de catégorie requis.' });
 
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, []);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, []);
   const newCat = {
     id: `cat-${Date.now()}`,
     name: name.trim(),
@@ -2541,28 +2584,28 @@ app.post('/api/admin/course-categories', (req: Request, res: Response) => {
     isActive: true
   };
   categories.push(newCat);
-  writeJson(COURSE_CATEGORIES_FILE, categories);
+  await writeJson(COURSE_CATEGORIES_FILE, categories);
   res.status(201).json({ success: true, category: newCat });
-});
+}));
 
-app.put('/api/admin/course-categories/:id', (req: Request, res: Response) => {
+app.put('/api/admin/course-categories/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, []);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, []);
   const idx = categories.findIndex((c) => c.id === id);
   if (idx === -1) return res.status(404).json({ success: false, error: 'Catégorie introuvable.' });
 
   categories[idx] = { ...categories[idx], ...req.body };
-  writeJson(COURSE_CATEGORIES_FILE, categories);
+  await writeJson(COURSE_CATEGORIES_FILE, categories);
   res.json({ success: true, category: categories[idx] });
-});
+}));
 
-app.delete('/api/admin/course-categories/:id', (req: Request, res: Response) => {
+app.delete('/api/admin/course-categories/:id', asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const categories = readJson<any[]>(COURSE_CATEGORIES_FILE, []);
+  const categories = await readJson<any[]>(COURSE_CATEGORIES_FILE, []);
   const remaining = categories.filter((c) => c.id !== id);
-  writeJson(COURSE_CATEGORIES_FILE, remaining);
+  await writeJson(COURSE_CATEGORIES_FILE, remaining);
   res.json({ success: true, message: 'Catégorie supprimée.' });
-});
+}));
 
 // =========================================================================
 // REAL-TIME USER PRESENCE TRACKING & STREAMING (ACTIVE SESSIONS)
@@ -2735,19 +2778,19 @@ app.get('/api/presence/stream', (req: Request, res: Response) => {
 });
 
 // Endpoint: Admin disconnects a session
-app.post('/api/admin/disconnect-session', (req: Request, res: Response) => {
+app.post('/api/admin/disconnect-session', asyncRoute(async (req: Request, res: Response) => {
   const { sessionId } = req.body;
   if (sessionId) {
     const target = activeSessions.get(sessionId);
     activeSessions.delete(sessionId);
     broadcastPresenceUpdate();
     if (target) {
-      addServerAuditLog('Admin Principal', 'disconnect_session', `Déconnexion forcée de la session de ${target.userName} (${target.ip})`, 'system', sessionId);
+      await addServerAuditLog('Admin Principal', 'disconnect_session', `Déconnexion forcée de la session de ${target.userName} (${target.ip})`, 'system', sessionId);
     }
     return res.json({ success: true, message: 'Session déconnectée.' });
   }
   res.status(400).json({ success: false, error: 'Session ID requis' });
-});
+}));
 
 // =========================================================================
 // SERVER START & VITE SPA INTEGRATION
@@ -2761,7 +2804,6 @@ const apiErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
 app.use(apiErrorHandler);
 
 async function startServer() {
-  const config = loadConfig();
   const initialEmail = process.env.ADMIN_INITIAL_EMAIL?.trim().toLowerCase();
   const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
   if (Boolean(initialEmail) !== Boolean(initialPassword)) {
@@ -2787,21 +2829,22 @@ async function startServer() {
         };
       })()
     : undefined;
-  const legacyAdmins: ServerAdminUser[] = config.admins.map((admin) => {
-    if (!admin.assignedPasswordPlainText) return admin;
-    const { assignedPasswordPlainText, ...legacyAdmin } = admin;
-    return {
-      ...legacyAdmin,
-      ...hashPasswordSecure(assignedPasswordPlainText),
-      passwordAlgorithm: 'pbkdf2-sha512'
-    };
-  });
   await initializeUserStore({
     legacyInvestorFile: INVESTORS_FILE,
     legacyClientFile: CLIENTS_FILE,
-    legacyAdmins: legacyAdmins as StoredUser[],
+    legacyAdmins: () => readLegacyAdminConfig().admins.map((admin) => {
+      if (!admin.assignedPasswordPlainText) return admin;
+      const { assignedPasswordPlainText, ...legacyAdmin } = admin;
+      return {
+        ...legacyAdmin,
+        ...hashPasswordSecure(assignedPasswordPlainText),
+        passwordAlgorithm: 'pbkdf2-sha512'
+      };
+    }) as StoredUser[],
     bootstrapAdmin
   });
+  await initializeApplicationStore(DATA_DIR, DEFAULT_CONFIG);
+  const config = await loadConfig();
   if (process.env.ADMIN_MASTER_PASSWORD && process.env.ADMIN_MASTER_PASSWORD.length < 12) {
     throw new Error('ADMIN_MASTER_PASSWORD doit comporter au moins 12 caractères.');
   }
@@ -2843,8 +2886,8 @@ async function startServer() {
     }));
   }
 
-  const operations = readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
-  const subscriptions = readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
+  const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
+  const subscriptions = await readJson<ShareSubscription[]>(SUBSCRIPTIONS_FILE, []);
   const normalizedOperations = operations.map((operation) => {
     const sharePrice = Number(operation.sharePrice) || Number(operation.offers?.[0]?.sharePrice) || 0;
     const availableShares = Number.isSafeInteger(operation.availableShares) && (operation.availableShares || 0) > 0
@@ -2867,9 +2910,9 @@ async function startServer() {
     committedShares: operation.subscribedShares || 0
   })));
   if (JSON.stringify(operations) !== JSON.stringify(normalizedOperations)) {
-    writeJson(OPERATIONS_FILE, normalizedOperations);
+    await writeJson(OPERATIONS_FILE, normalizedOperations);
   }
-  saveConfig({ ...config, admins: [], activeTokens: {}, masterPasswordHash: '', masterPasswordHint: '' });
+  await saveConfig({ ...config, admins: [], activeTokens: {}, masterPasswordHash: '', masterPasswordHint: '' });
   const isProd = process.env.NODE_ENV === 'production';
   const distDir = path.resolve('dist');
   const publicDir = path.resolve('public');
@@ -2903,7 +2946,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 ELECTRO-MEN Full-Stack Server active on http://0.0.0.0:${PORT} (${isProd ? 'production' : 'development'})`);
-    console.log(`🔐 Admin URL : ${loadConfig().customAdminUrl}`);
+    console.log(`🔐 Admin URL : ${config.customAdminUrl}`);
   });
 }
 

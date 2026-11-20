@@ -42,6 +42,10 @@ Set these variables in Render's environment:
 
 `NODE_ENV` and `NODE_VERSION` are set by the Blueprint. Do not set `PORT` manually; Render provides it.
 
-## Persistence warning
+## Application data and persistence
 
-The identity store is in PostgreSQL, but products, operations, subscriptions, courses, categories, audit logs, administrator configuration, and uploaded files are still read from or written to local JSON files and `public/uploads`. Render's default filesystem is ephemeral, so runtime changes to those files can be lost on redeploy or restart. The recommended production design is to move structured application data into PostgreSQL and store uploaded media in Supabase Storage. A Render persistent disk is a paid, single-instance fallback, not a substitute for shared object storage or a database.
+Accounts already use PostgreSQL. At startup, the server creates the application tables and, under a PostgreSQL advisory lock, imports each recognized legacy `data/*.json` resource only when its target table is empty. A migration marker records the result, including empty files, so deleted collections are not re-imported on later restarts. After migration, CRUD uses PostgreSQL; production requests do not read or write those JSON files. Legacy clients and investors are imported into `app_users`.
+
+The application tables are `app_products`, `app_operations`, `app_subscriptions`, `app_courses`, `app_course_categories`, `app_activities`, `app_documents`, `app_audit_logs`, `app_groups`, and `app_admin_config`. Import markers are stored in `app_data_migrations`; the pre-reset snapshot is stored in `app_backups`. Existing identity/session/security tables remain in use.
+
+Uploads under `public/uploads` are still written to the local filesystem, and bundled videos are read from `public/assets/videos` or `dist/assets/videos`. Render's default filesystem is ephemeral, so uploaded media can be lost on restart or redeploy. Move uploads to Supabase Storage (or another object store) before relying on them in production; keep deployed static assets in the build or an object store.

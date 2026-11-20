@@ -45,6 +45,10 @@ function getPool(): Pool {
   return pool;
 }
 
+export function getDatabasePool(): Pool {
+  return getPool();
+}
+
 export async function checkUserStoreConnection(): Promise<void> {
   await getPool().query('SELECT 1');
 }
@@ -152,27 +156,29 @@ async function insertBootstrapAdmin(client: Pick<PoolClient, 'query'>, user: Sto
 }
 
 function readLegacyUsers(filePath: string): StoredUser[] {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (user): user is StoredUser =>
-        typeof user === 'object' &&
-        user !== null &&
-        typeof (user as StoredUser).id === 'string' &&
-        typeof (user as StoredUser).email === 'string' &&
-        typeof (user as StoredUser).phone === 'string'
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    return [];
+  for (const candidate of [filePath, `${filePath}.migrated`]) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(candidate, 'utf8'));
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (user): user is StoredUser =>
+          typeof user === 'object' &&
+          user !== null &&
+          typeof (user as StoredUser).id === 'string' &&
+          typeof (user as StoredUser).email === 'string' &&
+          typeof (user as StoredUser).phone === 'string'
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
+  return [];
 }
 
 export async function initializeUserStore(options: {
   legacyInvestorFile: string;
   legacyClientFile: string;
-  legacyAdmins: StoredUser[];
+  legacyAdmins: () => StoredUser[];
   bootstrapAdmin?: StoredUser;
 }): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
@@ -242,6 +248,16 @@ export async function initializeUserStore(options: {
         committed_shares INTEGER NOT NULL DEFAULT 0 CHECK (committed_shares >= 0)
       )
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_data_migrations (
+        resource_key TEXT PRIMARY KEY,
+        source_file TEXT NOT NULL,
+        source_present BOOLEAN NOT NULL,
+        imported_count INTEGER NOT NULL DEFAULT 0,
+        explicitly_written BOOLEAN NOT NULL DEFAULT FALSE,
+        completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
 
     const client = await pool.connect();
     try {
@@ -260,18 +276,26 @@ export async function initializeUserStore(options: {
         }
       }
 
-      const legacySets: Array<{ role: UserRole; users: StoredUser[] }> = [
-        { role: 'client', users: readLegacyUsers(options.legacyClientFile).map((user) => ({ ...user, role: 'client' })) },
-        { role: 'investor', users: readLegacyUsers(options.legacyInvestorFile).map((user) => ({ ...user, role: 'investor' })) },
-        { role: 'admin_principal', users: options.legacyAdmins.filter((user) => user.role === 'admin_principal') },
-        { role: 'admin_secondaire', users: options.legacyAdmins.filter((user) => user.role === 'admin_secondaire') }
+      const legacySets: Array<{ role: UserRole; filePath: string }> = [
+        { role: 'client', filePath: options.legacyClientFile },
+        { role: 'investor', filePath: options.legacyInvestorFile }
       ];
 
-      for (const { role, users } of legacySets) {
+      for (const { role, filePath } of legacySets) {
+        const migrationKey = `legacy-${role}`;
+        const { rows: migration } = await client.query(
+          'SELECT 1 FROM app_data_migrations WHERE resource_key = $1',
+          [migrationKey]
+        );
+        if (migration.length > 0) continue;
+
         const { rows } = await client.query<{ count: string }>(
           'SELECT COUNT(*)::text AS count FROM app_users WHERE role = $1',
           [role]
         );
+        const users = rows[0]?.count === '0'
+          ? readLegacyUsers(filePath).map((user) => ({ ...user, role }))
+          : [];
         if (rows[0]?.count === '0') {
           for (const user of users) {
             try {
@@ -283,6 +307,38 @@ export async function initializeUserStore(options: {
             }
           }
         }
+        await client.query(
+          `INSERT INTO app_data_migrations (resource_key, source_file, source_present, imported_count)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (resource_key) DO NOTHING`,
+          [migrationKey, filePath, existsSync(filePath) || existsSync(`${filePath}.migrated`), users.length]
+        );
+      }
+
+      const { rows: adminMigration } = await client.query(
+        'SELECT 1 FROM app_data_migrations WHERE resource_key = $1',
+        ['legacy-admins']
+      );
+      if (adminMigration.length === 0) {
+        let legacyAdmins: StoredUser[] | undefined;
+        for (const role of ['admin_principal', 'admin_secondaire'] as const) {
+          const { rows } = await client.query<{ count: string }>(
+            'SELECT COUNT(*)::text AS count FROM app_users WHERE role = $1',
+            [role]
+          );
+          if (rows[0]?.count !== '0') continue;
+
+          legacyAdmins ??= options.legacyAdmins();
+          for (const user of legacyAdmins.filter((candidate) => candidate.role === role)) {
+            await insertLegacyUser(client, user);
+          }
+        }
+        await client.query(
+          `INSERT INTO app_data_migrations (resource_key, source_file, source_present, imported_count)
+           VALUES ('legacy-admins', 'admin-config.json', $1, $2)
+           ON CONFLICT (resource_key) DO NOTHING`,
+          [Boolean(legacyAdmins?.length), legacyAdmins?.length ?? 0]
+        );
       }
 
       if (options.bootstrapAdmin) {
