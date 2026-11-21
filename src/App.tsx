@@ -2377,6 +2377,7 @@ export default function App() {
             onSetFundRequestProcessing={handleSetFundRequestProcessing}
             profitDistributions={profitDistributions}
             onDeleteInvestor={handleAdminDeleteInvestor}
+            onCreateInvestor={handleAdminCreateInvestor}
             onDeleteSubscription={handleAdminDeleteSubscription}
             onDeleteFundRequest={handleAdminDeleteFundRequest}
             onDeleteProject={handleAdminDeleteProject}
