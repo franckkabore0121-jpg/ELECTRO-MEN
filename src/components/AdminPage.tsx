@@ -132,7 +132,23 @@ export interface AdminPageProps {
 
   profitDistributions?: ProfitDistribution[];
   onDeleteInvestor?: (investorId: string) => void;
-  onCreateInvestor?: (data: { email: string; password: string }) => Promise<void>;
+  onCreateInvestor?: (data: {
+    email: string;
+    password: string;
+    lastName?: string;
+    firstName?: string;
+    phone?: string;
+    totalInvested?: number;
+    sharesCount?: number;
+    dividendsEarned?: number;
+  }) => Promise<void>;
+  onUpdateInvestor?: (investorId: string, data: Partial<RegisteredInvestor>) => Promise<void>;
+  onResetInvestorPassword?: (investorId: string, password: string) => Promise<void>;
+  onUpdateInvestorSubscription?: (
+    investorId: string,
+    subscriptionId: string,
+    data: Partial<ShareSubscription>
+  ) => Promise<void>;
   onDeleteSubscription?: (subId: string) => void;
   onDeleteFundRequest?: (reqId: string) => void;
   onDeleteProject?: (projectId: string) => void;
@@ -220,6 +236,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   profitDistributions = [],
   onDeleteInvestor,
   onCreateInvestor,
+  onUpdateInvestor,
+  onResetInvestorPassword,
+  onUpdateInvestorSubscription,
   onDeleteSubscription,
   onDeleteFundRequest,
   onDeleteProject,
@@ -666,10 +685,35 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [newProjOfferTitle, setNewProjOfferTitle] = useState('Parts Ordinaires Standard');
   const [newProjOfferDesc, setNewProjOfferDesc] = useState('Souscription ouverte avec attribution directe de parts certifiées.');
   const [editingOperation, setEditingOperation] = useState<{ id: string; sharePrice: string; availableShares: string } | null>(null);
-  const [newInvestor, setNewInvestor] = useState({ email: '', password: '' });
+  const [investorProvisioningMode, setInvestorProvisioningMode] = useState<'existing' | 'new'>('existing');
+  const [newInvestor, setNewInvestor] = useState({
+    email: '',
+    password: '',
+    passwordConfirm: '',
+    lastName: '',
+    firstName: '',
+    phone: '',
+    totalInvested: '0',
+    sharesCount: '0',
+    dividendsEarned: '0'
+  });
   const [investorCreateError, setInvestorCreateError] = useState<string | null>(null);
   const [investorCreateMessage, setInvestorCreateMessage] = useState<string | null>(null);
   const [isCreatingInvestor, setIsCreatingInvestor] = useState(false);
+  const [expandedInvestorId, setExpandedInvestorId] = useState<string | null>(null);
+  const [investorDetail, setInvestorDetail] = useState<{ investor: RegisteredInvestor; subscriptions: ShareSubscription[] } | null>(null);
+  const [investorDetailLoading, setInvestorDetailLoading] = useState(false);
+  const [investorDetailError, setInvestorDetailError] = useState<string | null>(null);
+  const [investorEdit, setInvestorEdit] = useState<RegisteredInvestor | null>(null);
+  const [investorEditError, setInvestorEditError] = useState<string | null>(null);
+  const [investorEditMessage, setInvestorEditMessage] = useState<string | null>(null);
+  const [investorResetPassword, setInvestorResetPassword] = useState('');
+  const [investorPasswordError, setInvestorPasswordError] = useState<string | null>(null);
+  const [investorPasswordMessage, setInvestorPasswordMessage] = useState<string | null>(null);
+  const [investorManagementLoading, setInvestorManagementLoading] = useState(false);
+  const [editingInvestorSubscription, setEditingInvestorSubscription] = useState<ShareSubscription | null>(null);
+  const [subscriptionEditError, setSubscriptionEditError] = useState<string | null>(null);
+  const [subscriptionEditMessage, setSubscriptionEditMessage] = useState<string | null>(null);
   const [archives, setArchives] = useState<AdminArchive[]>([]);
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
@@ -830,15 +874,148 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     if (!onCreateInvestor) return;
     setInvestorCreateError(null);
     setInvestorCreateMessage(null);
+    if (newInvestor.password !== newInvestor.passwordConfirm) {
+      setInvestorCreateError('La confirmation du mot de passe ne correspond pas.');
+      return;
+    }
     setIsCreatingInvestor(true);
     try {
-      await onCreateInvestor(newInvestor);
-      setNewInvestor({ email: '', password: '' });
-      setInvestorCreateMessage('Accès activé. Les informations, l’identifiant, les parts et l’historique existants sont conservés.');
+      const request = investorProvisioningMode === 'new'
+        ? {
+            email: newInvestor.email,
+            password: newInvestor.password,
+            lastName: newInvestor.lastName,
+            firstName: newInvestor.firstName,
+            phone: newInvestor.phone,
+            totalInvested: Number(newInvestor.totalInvested),
+            sharesCount: Number(newInvestor.sharesCount),
+            dividendsEarned: Number(newInvestor.dividendsEarned)
+          }
+        : { email: newInvestor.email, password: newInvestor.password };
+      await onCreateInvestor(request);
+      setNewInvestor({
+        email: '',
+        password: '',
+        passwordConfirm: '',
+        lastName: '',
+        firstName: '',
+        phone: '',
+        totalInvested: '0',
+        sharesCount: '0',
+        dividendsEarned: '0'
+      });
+      setInvestorCreateMessage(investorProvisioningMode === 'new'
+        ? 'Compte investisseur créé. Transmettez-lui son adresse e-mail et son mot de passe provisoire.'
+        : 'Accès activé. Les informations, l’identifiant, les parts et l’historique existants sont conservés.');
     } catch (error) {
       setInvestorCreateError(error instanceof Error ? error.message : 'La création du compte investisseur a échoué.');
     } finally {
       setIsCreatingInvestor(false);
+    }
+  };
+
+  const handleToggleInvestorDetails = async (investorId: string) => {
+    if (expandedInvestorId === investorId) {
+      setExpandedInvestorId(null);
+      setInvestorDetail(null);
+      setInvestorEdit(null);
+      setEditingInvestorSubscription(null);
+      return;
+    }
+    setExpandedInvestorId(investorId);
+    setInvestorDetail(null);
+    setEditingInvestorSubscription(null);
+    setInvestorEditError(null);
+    setInvestorDetailError(null);
+    setInvestorDetailLoading(true);
+    try {
+      const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.investor || !Array.isArray(data.subscriptions)) {
+        throw new Error(data.error || 'Impossible de charger le dossier investisseur.');
+      }
+      setInvestorDetail({ investor: data.investor, subscriptions: data.subscriptions });
+      setInvestorEdit(data.investor);
+    } catch (error) {
+      setInvestorDetailError(error instanceof Error ? error.message : 'Impossible de charger le dossier investisseur.');
+    } finally {
+      setInvestorDetailLoading(false);
+    }
+  };
+
+  const handleSaveInvestor = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!investorDetail || !investorEdit || !onUpdateInvestor) return;
+    setInvestorManagementLoading(true);
+    setInvestorEditError(null);
+    setInvestorEditMessage(null);
+    try {
+      await onUpdateInvestor(investorDetail.investor.id, investorEdit);
+      const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorDetail.investor.id)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.investor || !Array.isArray(data.subscriptions)) {
+        throw new Error(data.error || 'Le dossier a été mis à jour mais son actualisation a échoué.');
+      }
+      setInvestorDetail({ investor: data.investor, subscriptions: data.subscriptions });
+      setInvestorEdit(data.investor);
+      setInvestorEditMessage('Profil et données financières enregistrés.');
+    } catch (error) {
+      setInvestorEditError(error instanceof Error ? error.message : 'La mise à jour du dossier a échoué.');
+    } finally {
+      setInvestorManagementLoading(false);
+    }
+  };
+
+  const handleResetInvestorPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!investorDetail || !onResetInvestorPassword) return;
+    setInvestorManagementLoading(true);
+    setInvestorPasswordError(null);
+    setInvestorPasswordMessage(null);
+    try {
+      await onResetInvestorPassword(investorDetail.investor.id, investorResetPassword);
+      setInvestorResetPassword('');
+      setInvestorPasswordMessage('Mot de passe réinitialisé; l’investisseur devra se reconnecter.');
+    } catch (error) {
+      setInvestorPasswordError(error instanceof Error ? error.message : 'La réinitialisation du mot de passe a échoué.');
+    } finally {
+      setInvestorManagementLoading(false);
+    }
+  };
+
+  const handleSaveInvestorSubscription = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!investorDetail || !editingInvestorSubscription || !onUpdateInvestorSubscription) return;
+    setInvestorManagementLoading(true);
+    setSubscriptionEditError(null);
+    setSubscriptionEditMessage(null);
+    try {
+      await onUpdateInvestorSubscription(
+        investorDetail.investor.id,
+        editingInvestorSubscription.id,
+        editingInvestorSubscription
+      );
+      const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorDetail.investor.id)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.investor || !Array.isArray(data.subscriptions)) {
+        throw new Error(data.error || 'La souscription a été modifiée mais son actualisation a échoué.');
+      }
+      setInvestorDetail({ investor: data.investor, subscriptions: data.subscriptions });
+      setEditingInvestorSubscription(null);
+      setSubscriptionEditMessage('Historique de souscription actualisé.');
+    } catch (error) {
+      setSubscriptionEditError(error instanceof Error ? error.message : 'La mise à jour de la souscription a échoué.');
+    } finally {
+      setInvestorManagementLoading(false);
     }
   };
 
@@ -3935,17 +4112,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           {isPrincipal && onCreateInvestor && (
             <form onSubmit={handleCreateInvestor} className="p-4 rounded-2xl bg-white border border-cyan-200 shadow-xs space-y-3">
               <div>
-                <h3 className="font-syne text-sm font-bold text-slate-900">Activer l’accès d’un investisseur existant</h3>
-                <p className="text-[11px] text-slate-500">Saisissez l’adresse déjà présente dans son dossier. Son identifiant, son profil, ses parts et son historique ne seront pas remplacés. Le mot de passe est haché côté serveur.</p>
+                <h3 className="font-syne text-sm font-bold text-slate-900">Créer ou activer un compte investisseur</h3>
+                <p className="text-[11px] text-slate-500">Un dossier existant est activé avec son email d’origine sans remplacer son historique. Un nouveau dossier reprend les champs de l’inscription publique; le mot de passe est haché côté serveur.</p>
               </div>
+              <select value={investorProvisioningMode} onChange={(event) => setInvestorProvisioningMode(event.target.value as 'existing' | 'new')} className="rounded-lg border border-slate-300 p-2 text-xs">
+                <option value="existing">Activer un investisseur déjà enregistré</option>
+                <option value="new">Créer un nouveau dossier investisseur</option>
+              </select>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input required type="email" autoComplete="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder="Adresse e-mail déjà enregistrée" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                {investorProvisioningMode === 'new' && (
+                  <>
+                    <input required type="text" maxLength={60} value={newInvestor.firstName} onChange={(event) => setNewInvestor({ ...newInvestor, firstName: event.target.value })} placeholder="Prénom" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                    <input required type="text" maxLength={60} value={newInvestor.lastName} onChange={(event) => setNewInvestor({ ...newInvestor, lastName: event.target.value })} placeholder="Nom" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                    <input required type="tel" value={newInvestor.phone} onChange={(event) => setNewInvestor({ ...newInvestor, phone: event.target.value })} placeholder="Téléphone" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                  </>
+                )}
+                <input required type="email" autoComplete="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder={investorProvisioningMode === 'existing' ? 'Adresse e-mail déjà enregistrée' : 'Adresse e-mail'} className="rounded-lg border border-slate-300 p-2 text-xs" />
                 <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (12+ caractères)" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.passwordConfirm} onChange={(event) => setNewInvestor({ ...newInvestor, passwordConfirm: event.target.value })} placeholder="Confirmer le mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                {investorProvisioningMode === 'new' && (
+                  <>
+                    <label className="text-[11px] text-slate-600">Montant déjà investi (FCFA)<input type="number" min="0" step="1" value={newInvestor.totalInvested} onChange={(event) => setNewInvestor({ ...newInvestor, totalInvested: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs" /></label>
+                    <label className="text-[11px] text-slate-600">Parts déjà détenues<input type="number" min="0" step="1" value={newInvestor.sharesCount} onChange={(event) => setNewInvestor({ ...newInvestor, sharesCount: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs" /></label>
+                    <label className="text-[11px] text-slate-600">Dividendes déjà perçus (FCFA)<input type="number" min="0" step="1" value={newInvestor.dividendsEarned} onChange={(event) => setNewInvestor({ ...newInvestor, dividendsEarned: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs" /></label>
+                  </>
+                )}
               </div>
               {investorCreateError && <p role="alert" className="text-xs font-semibold text-red-700">{investorCreateError}</p>}
               {investorCreateMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorCreateMessage}</p>}
               <button type="submit" disabled={isCreatingInvestor} className="rounded-xl bg-cyan-700 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
-                {isCreatingInvestor ? 'Activation…' : 'Activer l’accès'}
+                {isCreatingInvestor ? 'Enregistrement…' : investorProvisioningMode === 'new' ? 'Créer le compte' : 'Activer l’accès'}
               </button>
             </form>
           )}
@@ -3975,7 +4171,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               ) : (
                 registeredInvestors.map((inv) => (
-                  <div key={inv.id} className="p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div key={inv.id}>
+                  <div className="p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900 text-xs">{inv.name}</span>
@@ -4011,6 +4208,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         {inv.email} • {inv.phone} • Mot de passe protégé (non visible)
                       </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleInvestorDetails(inv.id)}
+                      className="px-2 py-1 rounded bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold text-[10px] cursor-pointer"
+                    >
+                      {expandedInvestorId === inv.id ? 'Fermer le dossier' : 'Dossier complet'}
+                    </button>
 
                     {isPrincipal && (
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -4090,6 +4295,123 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         )}
                       </div>
                     )}
+                  </div>
+                  {expandedInvestorId === inv.id && (
+                    <div className="px-4 pb-4 space-y-4">
+                      {investorDetailLoading ? (
+                        <p className="text-xs text-slate-500">Chargement du dossier et de l’historique…</p>
+                      ) : investorDetailError ? (
+                        <p role="alert" className="text-xs font-semibold text-red-700">{investorDetailError}</p>
+                      ) : investorDetail && investorDetail.investor.id === inv.id ? (
+                        <>
+                          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 rounded-xl border border-slate-200 bg-white p-3 text-[10px]">
+                            <div><span className="text-slate-500">Identifiant</span><strong className="block break-all text-slate-900">{investorDetail.investor.id}</strong></div>
+                            <div><span className="text-slate-500">Profil</span><strong className="block text-slate-900">{investorDetail.investor.firstName || ''} {investorDetail.investor.lastName || ''} · {investorDetail.investor.email}</strong></div>
+                            <div><span className="text-slate-500">Téléphone / création</span><strong className="block text-slate-900">{investorDetail.investor.phone} · {investorDetail.investor.createdAt}</strong></div>
+                            <div><span className="text-slate-500">Statut</span><strong className="block text-slate-900">{investorDetail.investor.status} · {investorDetail.investor.statusReason || 'Aucun motif enregistré'}</strong></div>
+                            <div><span className="text-slate-500">Montant investi</span><strong className="block text-slate-900">{(investorDetail.investor.totalInvested || 0).toLocaleString('fr-FR')} FCFA</strong></div>
+                            <div><span className="text-slate-500">Parts détenues</span><strong className="block text-slate-900">{investorDetail.investor.sharesCount || 0}</strong></div>
+                            <div><span className="text-slate-500">Dividendes perçus</span><strong className="block text-slate-900">{(investorDetail.investor.dividendsEarned || 0).toLocaleString('fr-FR')} FCFA</strong></div>
+                          </section>
+
+                          {isPrincipal && investorEdit && (
+                            <form onSubmit={handleSaveInvestor} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                              <h4 className="text-xs font-bold text-slate-900">Modifier le profil et le portefeuille</h4>
+                              <p className="text-[10px] text-slate-500">Les totaux de portefeuille sont conservés indépendamment des lignes d’historique; corrigez aussi les souscriptions ci-dessous si nécessaire.</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                <label className="text-[10px] text-slate-600">Prénom<input required value={investorEdit.firstName || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, firstName: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Nom<input required value={investorEdit.lastName || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, lastName: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Email<input required type="email" value={investorEdit.email} onChange={(event) => setInvestorEdit({ ...investorEdit, email: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Téléphone<input required type="tel" value={investorEdit.phone} onChange={(event) => setInvestorEdit({ ...investorEdit, phone: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Montant investi (FCFA)<input required type="number" min="0" step="1" value={investorEdit.totalInvested} onChange={(event) => setInvestorEdit({ ...investorEdit, totalInvested: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Parts détenues<input required type="number" min="0" step="1" value={investorEdit.sharesCount} onChange={(event) => setInvestorEdit({ ...investorEdit, sharesCount: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Dividendes (FCFA)<input required type="number" min="0" step="1" value={investorEdit.dividendsEarned} onChange={(event) => setInvestorEdit({ ...investorEdit, dividendsEarned: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                <label className="text-[10px] text-slate-600">Statut
+                                  <select value={investorEdit.status} onChange={(event) => setInvestorEdit({ ...investorEdit, status: event.target.value as RegisteredInvestor['status'] })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs">
+                                    <option value="demande_non_soumise">Non soumis</option>
+                                    <option value="en_attente">En attente</option>
+                                    <option value="approuve">Approuvé</option>
+                                    <option value="refuse">Refusé</option>
+                                    <option value="suspendu">Suspendu</option>
+                                    <option value="bloque">Bloqué</option>
+                                  </select>
+                                </label>
+                                <label className="text-[10px] text-slate-600 sm:col-span-2">Motif du statut<input value={investorEdit.statusReason || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, statusReason: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                              </div>
+                              {investorEditError && <p role="alert" className="text-xs font-semibold text-red-700">{investorEditError}</p>}
+                              {investorEditMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorEditMessage}</p>}
+                              <button type="submit" disabled={investorManagementLoading} className="rounded-lg bg-cyan-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
+                                Enregistrer les modifications
+                              </button>
+                            </form>
+                          )}
+
+                          {isPrincipal && onResetInvestorPassword && (
+                            <form onSubmit={handleResetInvestorPassword} className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                              <h4 className="text-xs font-bold text-slate-900">Réinitialiser le mot de passe</h4>
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={investorResetPassword} onChange={(event) => setInvestorResetPassword(event.target.value)} placeholder="Nouveau mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 p-2 text-xs" />
+                                <button type="submit" disabled={investorManagementLoading} className="rounded-lg bg-amber-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Réinitialiser</button>
+                              </div>
+                              {investorPasswordError && <p role="alert" className="text-xs font-semibold text-red-700">{investorPasswordError}</p>}
+                              {investorPasswordMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorPasswordMessage}</p>}
+                            </form>
+                          )}
+
+                          <section className="rounded-xl border border-slate-200 p-3 space-y-2">
+                            <h4 className="text-xs font-bold text-slate-900">Historique complet des souscriptions ({investorDetail.subscriptions.length})</h4>
+                            {investorDetail.subscriptions.length === 0 ? (
+                              <p className="text-xs text-slate-500">Aucune souscription reliée à ce compte.</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="w-full min-w-[620px] text-left text-[10px]">
+                                  <thead><tr className="border-b text-slate-500"><th className="p-2">Opération / offre</th><th className="p-2">Parts</th><th className="p-2">Prix unitaire</th><th className="p-2">Montant</th><th className="p-2">Statut / paiement</th><th className="p-2">Dates</th>{isPrincipal && onUpdateInvestorSubscription && <th className="p-2">Action</th>}</tr></thead>
+                                  <tbody>{investorDetail.subscriptions.map((subscription) => (
+                                    <tr key={subscription.id} className="border-b border-slate-100">
+                                      <td className="p-2">{subscription.operationTitle || subscription.offerTitle || subscription.id}</td>
+                                      <td className="p-2">{subscription.shares}</td>
+                                      <td className="p-2">{(subscription.sharePrice || 0).toLocaleString('fr-FR')} FCFA</td>
+                                      <td className="p-2">{(subscription.totalAmount || 0).toLocaleString('fr-FR')} FCFA</td>
+                                      <td className="p-2">{subscription.status}{subscription.paymentMethod ? ` · ${subscription.paymentMethod}` : ''}</td>
+                                      <td className="p-2">Demandée : {subscription.requestedAt}{subscription.approvedAt ? ` · Validée : ${subscription.approvedAt}` : ''}{subscription.paidAt ? ` · Payée : ${subscription.paidAt}` : ''}</td>
+                                      {isPrincipal && onUpdateInvestorSubscription && <td className="p-2"><button type="button" onClick={() => { setEditingInvestorSubscription(subscription); setSubscriptionEditError(null); setSubscriptionEditMessage(null); }} className="rounded bg-cyan-50 px-2 py-1 font-bold text-cyan-800">Modifier</button></td>}
+                                    </tr>
+                                  ))}</tbody>
+                                </table>
+                              </div>
+                            )}
+                            {subscriptionEditMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{subscriptionEditMessage}</p>}
+                            {isPrincipal && onUpdateInvestorSubscription && editingInvestorSubscription && (
+                              <form onSubmit={handleSaveInvestorSubscription} className="mt-3 rounded-lg bg-slate-50 p-3 space-y-2">
+                                <h5 className="text-[11px] font-bold text-slate-800">Modifier la souscription {editingInvestorSubscription.id}</h5>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                  <label className="text-[10px] text-slate-600">Parts<input required type="number" min="1" step="1" value={editingInvestorSubscription.shares} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, shares: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                  <label className="text-[10px] text-slate-600">Prix unitaire (FCFA)<input required type="number" min="1" step="1" value={editingInvestorSubscription.sharePrice} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, sharePrice: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                  <label className="text-[10px] text-slate-600">Montant total (FCFA)<input required type="number" min="0" step="1" value={editingInvestorSubscription.totalAmount} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, totalAmount: Number(event.target.value) })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                  <label className="text-[10px] text-slate-600">Statut
+                                    <select value={editingInvestorSubscription.status} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, status: event.target.value as ShareSubscription['status'] })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs">
+                                      <option value="pending_admin">pending_admin</option>
+                                      <option value="approved_pending_payment">approved_pending_payment</option>
+                                      <option value="paid_and_issued">paid_and_issued</option>
+                                      <option value="rejected">rejected</option>
+                                    </select>
+                                  </label>
+                                  <label className="text-[10px] text-slate-600">Date de validation<input value={editingInvestorSubscription.approvedAt || ''} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, approvedAt: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                  <label className="text-[10px] text-slate-600">Date de paiement<input value={editingInvestorSubscription.paidAt || ''} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, paidAt: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                  <label className="text-[10px] text-slate-600">Moyen de paiement<input value={editingInvestorSubscription.paymentMethod || ''} onChange={(event) => setEditingInvestorSubscription({ ...editingInvestorSubscription, paymentMethod: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
+                                </div>
+                                {subscriptionEditError && <p role="alert" className="text-xs font-semibold text-red-700">{subscriptionEditError}</p>}
+                                <div className="flex gap-2">
+                                  <button type="submit" disabled={investorManagementLoading} className="rounded bg-cyan-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Enregistrer l’historique</button>
+                                  <button type="button" onClick={() => setEditingInvestorSubscription(null)} className="rounded bg-slate-200 px-3 py-2 text-[10px] font-bold text-slate-800">Annuler</button>
+                                </div>
+                              </form>
+                            )}
+                          </section>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
                   </div>
                 ))
               )}

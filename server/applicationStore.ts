@@ -383,6 +383,47 @@ export async function appendApplicationRecord<T extends { id: string }>(
   }
 }
 
+export async function updateApplicationRecord<T extends { id: string }>(
+  key: CollectionKey,
+  id: string,
+  update: (record: T) => T
+): Promise<T | undefined> {
+  const pool = getDatabasePool();
+  const { table } = collections[key];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`electromen-data-${key}`]);
+    const result = await client.query<{ payload: T }>(
+      `SELECT payload FROM ${table} WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (!result.rows[0]) {
+      await client.query('COMMIT');
+      return undefined;
+    }
+    const updated = update(result.rows[0].payload);
+    if (updated.id !== id) {
+      throw new Error(`L’identifiant d’un enregistrement de ${key} ne peut pas être modifié.`);
+    }
+    await client.query(
+      `UPDATE ${table} SET payload = $2::jsonb WHERE id = $1`,
+      [id, JSON.stringify(updated)]
+    );
+    await client.query(
+      'UPDATE app_data_migrations SET explicitly_written = TRUE WHERE resource_key = $1',
+      [key]
+    );
+    await client.query('COMMIT');
+    return updated;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function saveApplicationBackup(id: string, value: unknown): Promise<void> {
   await getDatabasePool().query(
     'INSERT INTO app_backups (id, payload) VALUES ($1, $2::jsonb)',

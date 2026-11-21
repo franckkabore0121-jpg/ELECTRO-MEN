@@ -777,6 +777,8 @@ export default function App() {
               const formatted: RegisteredInvestor[] = serverList.map((si: any) => ({
                 id: si.id,
                 name: si.name || `${si.firstName || ''} ${si.lastName || ''}`.trim(),
+                firstName: si.firstName,
+                lastName: si.lastName,
                 email: si.email,
                 phone: si.phone,
                 status: si.status || 'en_attente',
@@ -1728,6 +1730,12 @@ export default function App() {
   const handleAdminCreateInvestor = async (data: {
     email: string;
     password: string;
+    lastName?: string;
+    firstName?: string;
+    phone?: string;
+    totalInvested?: number;
+    sharesCount?: number;
+    dividendsEarned?: number;
   }) => {
     const response = await fetch('/api/admin/investors', {
       method: 'POST',
@@ -1744,6 +1752,8 @@ export default function App() {
       {
         id: investor.id,
         name: investor.name,
+        firstName: investor.firstName,
+        lastName: investor.lastName,
         email: investor.email,
         phone: investor.phone,
         status: investor.status,
@@ -1756,6 +1766,78 @@ export default function App() {
       },
       ...previous.filter((item) => item.id !== investor.id)
     ]);
+  };
+
+  const handleAdminUpdateInvestor = async (investorId: string, data: Partial<RegisteredInvestor>) => {
+    const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        status: data.status,
+        statusReason: data.statusReason,
+        totalInvested: data.totalInvested,
+        sharesCount: data.sharesCount,
+        dividendsEarned: data.dividendsEarned
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success || !result.investor) {
+      throw new Error(result.error || 'La mise à jour du dossier investisseur a échoué.');
+    }
+    const investor = result.investor;
+    setRegisteredInvestors((previous) => previous.map((item) => item.id === investor.id ? {
+      ...item,
+      ...investor,
+      totalInvested: investor.totalInvested || 0,
+      sharesCount: investor.sharesCount || 0,
+      dividendsEarned: investor.dividendsEarned || 0
+    } : item));
+  };
+
+  const handleAdminResetInvestorPassword = async (investorId: string, password: string) => {
+    const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}/password`, {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'La réinitialisation du mot de passe a échoué.');
+    }
+  };
+
+  const handleAdminUpdateInvestorSubscription = async (
+    investorId: string,
+    subscriptionId: string,
+    data: Partial<ShareSubscription>
+  ) => {
+    const response = await fetch(
+      `/api/admin/investors/${encodeURIComponent(investorId)}/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shares: data.shares,
+          sharePrice: data.sharePrice,
+          totalAmount: data.totalAmount,
+          status: data.status,
+          approvedAt: data.approvedAt,
+          paidAt: data.paidAt,
+          paymentMethod: data.paymentMethod
+        })
+      }
+    );
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'La mise à jour de la souscription a échoué.');
+    }
   };
 
   const handleAdminDeleteSubscription = (subId: string) => {
@@ -2378,6 +2460,9 @@ export default function App() {
             profitDistributions={profitDistributions}
             onDeleteInvestor={handleAdminDeleteInvestor}
             onCreateInvestor={handleAdminCreateInvestor}
+            onUpdateInvestor={handleAdminUpdateInvestor}
+            onResetInvestorPassword={handleAdminResetInvestorPassword}
+            onUpdateInvestorSubscription={handleAdminUpdateInvestorSubscription}
             onDeleteSubscription={handleAdminDeleteSubscription}
             onDeleteFundRequest={handleAdminDeleteFundRequest}
             onDeleteProject={handleAdminDeleteProject}

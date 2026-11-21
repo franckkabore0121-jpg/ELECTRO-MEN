@@ -7,6 +7,8 @@ export type InvestorStatus = 'demande_non_soumise' | 'en_attente' | 'approuve' |
 export interface RegisteredInvestor {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   phone: string;
   email: string;
   status: InvestorStatus;
@@ -30,12 +32,22 @@ export interface InvestorMessage {
 
 interface InvestorSubscriptionHistory {
   id: string;
+  investorId?: string;
+  investorName?: string;
+  investorEmail?: string;
+  investorPhone?: string;
+  operationId?: string;
   operationTitle?: string;
+  offerId?: string;
   offerTitle?: string;
   shares: number;
+  sharePrice?: number;
   totalAmount: number;
   status: string;
   requestedAt: string;
+  approvedAt?: string;
+  paidAt?: string;
+  paymentMethod?: string;
 }
 
 interface ScreenBourseIRProps {
@@ -112,6 +124,12 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [subscriptionHistory, setSubscriptionHistory] = useState<InvestorSubscriptionHistory[]>([]);
   const [subscriptionHistoryLoading, setSubscriptionHistoryLoading] = useState(false);
   const [subscriptionHistoryError, setSubscriptionHistoryError] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const rememberInvestorAccount = () => {
     setHasSeenInvestorAccount(true);
@@ -370,6 +388,37 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       setLoginError('La connexion est momentanément indisponible. Veuillez réessayer.');
     } finally {
       setLoginLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordChangeError(null);
+    setPasswordChangeMessage(null);
+    if (newPassword !== confirmNewPassword) {
+      setPasswordChangeError('La confirmation du nouveau mot de passe ne correspond pas.');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const response = await fetch('/api/investor/change-password', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Le changement de mot de passe a échoué.');
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setPasswordChangeMessage(result.message || 'Votre mot de passe a été modifié.');
+    } catch (error) {
+      setPasswordChangeError(error instanceof Error ? error.message : 'Le changement de mot de passe a échoué.');
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -1447,6 +1496,23 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                 </div>
               </div>
 
+              <form onSubmit={handleChangePassword} className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
+                <div>
+                  <h3 className="font-syne text-sm font-bold text-slate-900">Sécurité du compte</h3>
+                  <p className="text-[11px] text-slate-500">Vérifiez votre mot de passe actuel pour en choisir un nouveau (12 caractères minimum).</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input required type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Mot de passe actuel" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                  <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Nouveau mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                  <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={confirmNewPassword} onChange={(event) => setConfirmNewPassword(event.target.value)} placeholder="Confirmer le nouveau mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                </div>
+                {passwordChangeError && <p role="alert" className="text-xs font-semibold text-red-700">{passwordChangeError}</p>}
+                {passwordChangeMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{passwordChangeMessage}</p>}
+                <button type="submit" disabled={isChangingPassword} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                  {isChangingPassword ? 'Modification…' : 'Changer mon mot de passe'}
+                </button>
+              </form>
+
               <section className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="font-syne text-sm font-bold text-slate-900">Historique de mes souscriptions</h3>
@@ -1467,8 +1533,15 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                             {subscription.operationTitle || subscription.offerTitle || 'Souscription de parts'}
                           </p>
                           <p className="text-[10px] text-slate-500">
-                            {subscription.requestedAt} • {subscription.shares} part(s)
+                            {subscription.requestedAt} • {subscription.shares} part(s) • Prix unitaire : {(subscription.sharePrice || 0).toLocaleString('fr-FR')} FCFA
                           </p>
+                          {(subscription.approvedAt || subscription.paidAt || subscription.paymentMethod) && (
+                            <p className="text-[10px] text-slate-500">
+                              {subscription.approvedAt ? `Validée : ${subscription.approvedAt} ` : ''}
+                              {subscription.paidAt ? `Payée : ${subscription.paidAt} ` : ''}
+                              {subscription.paymentMethod ? `• ${subscription.paymentMethod}` : ''}
+                            </p>
+                          )}
                         </div>
                         <div className="sm:text-right">
                           <p className="text-xs font-bold text-slate-900">

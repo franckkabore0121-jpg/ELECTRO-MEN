@@ -641,6 +641,8 @@ export async function updateInvestor<T extends InvestorIdentity>(
     }
 
     const updated = update(rows[0].payload);
+    const previousEmail = normalizeInvestorEmail(rows[0].payload.email);
+    const updatedEmail = normalizeInvestorEmail(updated.email);
     await client.query(
       `UPDATE app_users
        SET email_normalized = $2, phone_normalized = $3, payload = $4::jsonb
@@ -652,6 +654,25 @@ export async function updateInvestor<T extends InvestorIdentity>(
         JSON.stringify(updated)
       ]
     );
+    if (previousEmail !== updatedEmail) {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['electromen-data-subscriptions']);
+      await client.query(
+        `UPDATE app_subscriptions
+         SET payload = jsonb_set(
+           jsonb_set(payload, '{investorEmail}', to_jsonb($2::text), true),
+           '{investor_email}', to_jsonb($2::text), true
+         )
+         WHERE NULLIF(btrim(payload->>'investorId'), '') IS NULL
+           AND NULLIF(btrim(payload->>'investor_id'), '') IS NULL
+           AND NULLIF(btrim(payload->>'userId'), '') IS NULL
+           AND NULLIF(btrim(payload->>'user_id'), '') IS NULL
+           AND (
+             lower(btrim(payload->>'investorEmail')) = $1
+             OR lower(btrim(payload->>'investor_email')) = $1
+           )`,
+        [previousEmail, updatedEmail]
+      );
+    }
     await client.query('COMMIT');
     return updated;
   } catch (error) {

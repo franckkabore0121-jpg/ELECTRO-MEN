@@ -58,6 +58,7 @@ import {
   readApplicationData,
   readInvestorSubscriptions,
   saveApplicationBackup,
+  updateApplicationRecord,
   writeApplicationData,
   type ApplicationDataKey
 } from './server/applicationStore.ts';
@@ -573,6 +574,8 @@ export interface ShareSubscription {
   status: 'pending_admin' | 'approved_pending_payment' | 'paid_and_issued' | 'rejected';
   adminPasswordCode?: string;
   requestedAt: string;
+  approvedAt?: string;
+  paidAt?: string;
   paymentMethod?: string;
 }
 
@@ -1821,20 +1824,96 @@ app.get('/api/admin/investors', asyncRoute(async (req: Request, res: Response) =
 
 app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) => {
   if (!await hasPrincipalAdminSession(req)) {
-    return res.status(403).json({ success: false, error: 'Seul l’administrateur principal peut activer un accès investisseur.' });
+    return res.status(403).json({ success: false, error: 'Seul l’administrateur principal peut créer ou activer un accès investisseur.' });
   }
-  const { email, password } = req.body || {};
+  const { lastName, firstName, email, phone, password } = req.body || {};
   if (typeof email !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, error: 'Veuillez renseigner l’adresse e-mail et le mot de passe.' });
   }
   const cleanEmail = email.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
-  }
   if (password.length < 12 || password.length > 128) {
     return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
   }
 
+  if (lastName !== undefined || firstName !== undefined || phone !== undefined) {
+    if (typeof lastName !== 'string' || typeof firstName !== 'string' || typeof phone !== 'string') {
+      return res.status(400).json({ success: false, error: 'Le nom, le prénom et le téléphone sont obligatoires pour créer un investisseur.' });
+    }
+    const identityCheck = validateRealIdentity(lastName, firstName, cleanEmail, phone);
+    if (!identityCheck.valid) {
+      return res.status(400).json({ success: false, error: identityCheck.error });
+    }
+    if (await findInvestorByEmail<ServerInvestorUser>(cleanEmail)) {
+      return res.status(409).json({
+        success: false,
+        error: 'Un investisseur existe déjà avec cette adresse. Utilisez le mode activation pour conserver son dossier.'
+      });
+    }
+
+    const numberField = (value: unknown): number | null => {
+      if (value === undefined || value === null || value === '') return 0;
+      const parsed = typeof value === 'number' ? value : Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < 0) {
+        return null;
+      }
+      return parsed;
+    };
+    const totalInvested = numberField(req.body.totalInvested);
+    const sharesCount = numberField(req.body.sharesCount);
+    const dividendsEarned = numberField(req.body.dividendsEarned);
+    if (totalInvested === null || sharesCount === null || dividendsEarned === null) {
+      return res.status(400).json({ success: false, error: 'Les montants et le nombre de parts doivent être des entiers positifs ou nuls.' });
+    }
+
+    const { hash, salt } = hashInvestorPassword(password);
+    const cleanLastName = lastName.trim();
+    const cleanFirstName = firstName.trim();
+    const fullName = `${cleanFirstName} ${cleanLastName}`;
+    const investor: ServerInvestorUser = {
+      id: crypto.randomUUID(),
+      lastName: cleanLastName,
+      firstName: cleanFirstName,
+      name: fullName,
+      email: cleanEmail,
+      phone: phone.trim(),
+      passwordHash: hash,
+      passwordSalt: salt,
+      passwordAlgorithm: INVESTOR_PASSWORD_ALGORITHM,
+      status: 'en_attente',
+      statusReason: 'Compte créé par l’administrateur, en attente de validation.',
+      statusUpdatedAt: new Date().toLocaleDateString('fr-FR'),
+      isVerified: false,
+      createdAt: new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }),
+      totalInvested,
+      sharesCount,
+      dividendsEarned,
+      role: 'investor'
+    };
+    try {
+      await createInvestor(investor);
+    } catch (error) {
+      const conflictMessage = investorConflictMessage(error);
+      if (conflictMessage) return res.status(409).json({ success: false, error: conflictMessage });
+      throw error;
+    }
+    await addServerAuditLog(
+      'Admin Principal',
+      'create_investor',
+      `Création du compte investisseur ${fullName} (${cleanEmail}).`,
+      'investor',
+      investor.id
+    );
+    broadcastDataChanged('investors');
+    return res.status(201).json({
+      success: true,
+      message: 'Compte investisseur créé. Il pourra se connecter avec le mot de passe fourni.',
+      investor: publicInvestor(investor)
+    });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
+  }
   const existingInvestor = await findInvestorByEmail<ServerInvestorUser>(cleanEmail);
   if (!existingInvestor) {
     return res.status(404).json({
@@ -1865,6 +1944,209 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
     message: 'Accès activé. Le profil, l’identifiant et les parts existants ont été conservés.',
     investor: publicInvestor(updatedInvestor)
   });
+}));
+
+app.get('/api/admin/investors/:id', asyncRoute(async (req: Request, res: Response) => {
+  if (!await hasAdminSession(req)) {
+    return res.status(401).json({ success: false, error: 'Authentification administrateur requise.' });
+  }
+  const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
+  if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+  const legacyIdentity = investor as ServerInvestorUser & {
+    investorId?: unknown;
+    investor_id?: unknown;
+    userId?: unknown;
+    user_id?: unknown;
+  };
+  const legacyIds = [
+    legacyIdentity.investorId,
+    legacyIdentity.investor_id,
+    legacyIdentity.userId,
+    legacyIdentity.user_id
+  ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  const subscriptions = await readInvestorSubscriptions<ShareSubscription>({
+    id: investor.id,
+    email: investor.email,
+    legacyIds
+  });
+  return res.json({ success: true, investor: publicInvestor(investor), subscriptions });
+}));
+
+app.patch('/api/admin/investors/:id', asyncRoute(async (req: Request, res: Response) => {
+  if (!await hasPrincipalAdminSession(req)) {
+    return res.status(403).json({ success: false, error: 'Une session Super-Administrateur est requise pour modifier un investisseur.' });
+  }
+  const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
+  if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+
+  const body = req.body || {};
+  const nextLastName = body.lastName === undefined ? investor.lastName : body.lastName;
+  const nextFirstName = body.firstName === undefined ? investor.firstName : body.firstName;
+  const nextEmail = body.email === undefined ? investor.email : body.email;
+  const nextPhone = body.phone === undefined ? investor.phone : body.phone;
+  const nextStatus = body.status === undefined ? investor.status : body.status;
+  if (
+    typeof nextLastName !== 'string' ||
+    typeof nextFirstName !== 'string' ||
+    typeof nextEmail !== 'string' ||
+    typeof nextPhone !== 'string'
+  ) {
+    return res.status(400).json({ success: false, error: 'Les champs d’identité doivent être des textes valides.' });
+  }
+  const identityCheck = validateRealIdentity(nextLastName, nextFirstName, nextEmail, nextPhone);
+  if (!identityCheck.valid) return res.status(400).json({ success: false, error: identityCheck.error });
+  if (body.statusReason !== undefined && (typeof body.statusReason !== 'string' || body.statusReason.length > 500)) {
+    return res.status(400).json({ success: false, error: 'Le motif du statut doit être un texte de 500 caractères maximum.' });
+  }
+  const validStatuses: InvestorStatus[] = ['demande_non_soumise', 'en_attente', 'approuve', 'refuse', 'suspendu', 'bloque'];
+  if (!validStatuses.includes(nextStatus)) {
+    return res.status(400).json({ success: false, error: 'Statut investisseur invalide.' });
+  }
+  const parseAmount = (value: unknown, current: number): number | null => {
+    if (value === undefined) return Number.isSafeInteger(current) && current >= 0 ? current : 0;
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
+  const totalInvested = parseAmount(body.totalInvested, investor.totalInvested);
+  const sharesCount = parseAmount(body.sharesCount, investor.sharesCount);
+  const dividendsEarned = parseAmount(body.dividendsEarned, investor.dividendsEarned);
+  if (totalInvested === null || sharesCount === null || dividendsEarned === null) {
+    return res.status(400).json({ success: false, error: 'Les montants et le nombre de parts doivent être des entiers positifs ou nuls.' });
+  }
+
+  try {
+    const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => ({
+      ...current,
+      lastName: nextLastName.trim(),
+      firstName: nextFirstName.trim(),
+      name: `${nextFirstName.trim()} ${nextLastName.trim()}`,
+      email: nextEmail.trim().toLowerCase(),
+      phone: nextPhone.trim(),
+      status: nextStatus,
+      statusReason: typeof body.statusReason === 'string'
+        ? body.statusReason.trim()
+        : nextStatus === current.status
+          ? current.statusReason
+          : `Statut mis à jour en "${nextStatus}" par l'administrateur.`,
+      statusUpdatedAt: nextStatus === current.status ? current.statusUpdatedAt : new Date().toLocaleDateString('fr-FR'),
+      totalInvested,
+      sharesCount,
+      dividendsEarned
+    }));
+    if (!updatedInvestor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+    if (investor.email.trim().toLowerCase() !== updatedInvestor.email.trim().toLowerCase()) {
+      await deleteInvestorSessions(updatedInvestor.id);
+    }
+    await addServerAuditLog(
+      'Admin Principal',
+      'update_investor',
+      `Mise à jour du profil et du portefeuille de ${updatedInvestor.name}.`,
+      'investor',
+      updatedInvestor.id
+    );
+    broadcastDataChanged('investors');
+    return res.json({ success: true, investor: publicInvestor(updatedInvestor) });
+  } catch (error) {
+    const conflictMessage = investorConflictMessage(error);
+    if (conflictMessage) return res.status(409).json({ success: false, error: conflictMessage });
+    throw error;
+  }
+}));
+
+app.put('/api/admin/investors/:id/password', asyncRoute(async (req: Request, res: Response) => {
+  if (!await hasPrincipalAdminSession(req)) {
+    return res.status(403).json({ success: false, error: 'Une session Super-Administrateur est requise pour réinitialiser un mot de passe.' });
+  }
+  const { password } = req.body || {};
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
+  }
+  const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
+  if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+  const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => withInvestorPassword(current, password));
+  if (!updatedInvestor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+  await deleteInvestorSessions(updatedInvestor.id);
+  await addServerAuditLog(
+    'Admin Principal',
+    'reset_investor_password',
+    `Réinitialisation du mot de passe de ${updatedInvestor.email}; sessions existantes révoquées.`,
+    'investor',
+    updatedInvestor.id
+  );
+  return res.json({ success: true, message: 'Mot de passe réinitialisé; l’investisseur devra se reconnecter.' });
+}));
+
+app.patch('/api/admin/investors/:id/subscriptions/:subscriptionId', asyncRoute(async (req: Request, res: Response) => {
+  if (!await hasPrincipalAdminSession(req)) {
+    return res.status(403).json({ success: false, error: 'Une session Super-Administrateur est requise pour modifier un historique de souscription.' });
+  }
+  const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
+  if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+  const legacyIdentity = investor as ServerInvestorUser & {
+    investorId?: unknown;
+    investor_id?: unknown;
+    userId?: unknown;
+    user_id?: unknown;
+  };
+  const legacyIds = [
+    legacyIdentity.investorId,
+    legacyIdentity.investor_id,
+    legacyIdentity.userId,
+    legacyIdentity.user_id
+  ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  const subscriptions = await readInvestorSubscriptions<ShareSubscription>({
+    id: investor.id,
+    email: investor.email,
+    legacyIds
+  });
+  const target = subscriptions.find((item) => item.id === req.params.subscriptionId);
+  if (!target) return res.status(404).json({ success: false, error: 'Souscription introuvable pour cet investisseur.' });
+
+  const body = req.body || {};
+  const shares = body.shares === undefined ? target.shares : Number(body.shares);
+  const sharePrice = body.sharePrice === undefined ? target.sharePrice : Number(body.sharePrice);
+  const totalAmount = body.totalAmount === undefined ? target.totalAmount : Number(body.totalAmount);
+  const validStatuses: ShareSubscription['status'][] = ['pending_admin', 'approved_pending_payment', 'paid_and_issued', 'rejected'];
+  const status = body.status === undefined ? target.status : body.status;
+  if (
+    !Number.isSafeInteger(shares) || shares < 1 ||
+    !Number.isSafeInteger(sharePrice) || sharePrice < 1 ||
+    !Number.isSafeInteger(totalAmount) || totalAmount < 0 ||
+    !validStatuses.includes(status)
+  ) {
+    return res.status(400).json({ success: false, error: 'Parts, prix, montant ou statut de souscription invalide.' });
+  }
+  for (const field of ['approvedAt', 'paidAt', 'paymentMethod'] as const) {
+    if (body[field] !== undefined && (typeof body[field] !== 'string' || body[field].length > 120)) {
+      return res.status(400).json({ success: false, error: `Le champ ${field} est invalide.` });
+    }
+  }
+
+  const updatedSubscription = await updateApplicationRecord<ShareSubscription>(
+    'subscriptions',
+    target.id,
+    (current) => ({
+      ...current,
+      shares,
+      sharePrice,
+      totalAmount,
+      status,
+      ...(body.approvedAt !== undefined ? { approvedAt: body.approvedAt.trim() || undefined } : {}),
+      ...(body.paidAt !== undefined ? { paidAt: body.paidAt.trim() || undefined } : {}),
+      ...(body.paymentMethod !== undefined ? { paymentMethod: body.paymentMethod.trim() || undefined } : {})
+    })
+  );
+  if (!updatedSubscription) return res.status(404).json({ success: false, error: 'Souscription introuvable.' });
+  await addServerAuditLog(
+    'Admin Principal',
+    'update_investor_subscription',
+    `Mise à jour de la souscription ${updatedSubscription.id} pour ${investor.email}.`,
+    'investor',
+    investor.id
+  );
+  broadcastDataChanged('investors');
+  broadcastDataChanged('subscriptions');
+  return res.json({ success: true, subscription: updatedSubscription });
 }));
 
 app.get('/api/investor/status/:idOrEmail', asyncRoute(async (req: Request, res: Response) => {

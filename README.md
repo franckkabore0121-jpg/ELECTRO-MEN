@@ -53,9 +53,19 @@ The application tables are `app_products`, `app_operations`, `app_subscriptions`
 
 ## Existing investor accounts
 
-Investor profiles and portfolio totals are stored in `app_users.payload` with `role = 'investor'`. To activate an existing investor, sign in at `/electromen-gestion`, use the exact email already on that investor's record, and set a password of 12–128 characters. The principal-admin-only `POST /api/admin/investors` endpoint updates only the password hash fields on the matched row; it preserves the investor ID, email, phone, profile, status, shares, and totals. No SQL migration or destructive data rewrite is needed.
+Investor profiles and portfolio totals are stored in `app_users.payload` with `role = 'investor'`. From the administrator's **Investisseurs** tab, choose one of these actions:
 
-Investor sign-in uses `POST /api/investor/login` with email and password. The server verifies the password hash and issues an HttpOnly session cookie. `GET /api/investor/me` returns the authenticated profile, while `GET /api/investor/subscriptions` returns only history matched to that session's email or investor/user ID aliases. Email is used only when a history row has no investor/user ID; rows with conflicting IDs are excluded for manual review. Do not query or expose all subscription payloads to investor clients.
+- **Activate an existing investor:** use the exact email already on that investor's record and enter a 12–128 character password. The principal-admin-only `POST /api/admin/investors` endpoint updates only password hash fields on the matched row; it preserves the investor ID, email, phone, profile, status, totals, and history.
+- **Create a new investor:** provide the same identity fields as public registration (first name, last name, email, phone) and a 12–128 character initial password. Initial invested amount, share count, and dividends may be entered if these values were recorded outside the application. The new account starts with `en_attente` status.
+- **Manage an investor:** open **Dossier complet** to review identity, status, portfolio totals, and subscription history. The principal administrator can edit the profile/totals through `PATCH /api/admin/investors/:id`, correct an attached history row through `PATCH /api/admin/investors/:id/subscriptions/:subscriptionId`, and reset a password through `PUT /api/admin/investors/:id/password`. Resetting a password revokes the investor's existing sessions. Passwords are never returned by these endpoints.
+
+Investors can change their own password in their dashboard. `POST /api/investor/change-password` requires the existing authenticated session and the current password; the server stores only a PBKDF2 hash.
+
+No schema migration is required: investor records and profile totals remain in `app_users`, and subscription history remains in `app_subscriptions`. When an administrator changes an investor's email, the application updates only subscription rows with no investor/user ID whose legacy email matches the old address, and does so in the same PostgreSQL transaction as the profile update. Rows with IDs are left intact and continue to be matched by ID. Do not run manual `UPDATE`, `INSERT`, or `DELETE` statements to create or link accounts.
+
+Investor sign-in uses `POST /api/investor/login` with email and password. The server verifies the password hash and issues an HttpOnly session cookie. `GET /api/investor/me` returns the authenticated profile, while `GET /api/investor/subscriptions` returns only history matched to that session's email or investor/user ID aliases. Email is used only when a history row has no investor/user ID; rows with conflicting IDs are excluded. The admin-only detail endpoint uses the same identity matching rules. Do not query or expose all subscription payloads to investor clients.
+
+Wallet balances, cash transactions, and detailed dividend distributions that the current interface stores in browser `localStorage` are not part of the PostgreSQL investor dossier and are not synchronized across devices. The dossier's `totalInvested`, `sharesCount`, and `dividendsEarned` are PostgreSQL profile totals; keep separately recorded local cash histories intact and reconcile them explicitly before attempting any future migration.
 
 Before provisioning, these read-only Supabase SQL checks can confirm the existing record and history. Replace the sample email/ID with the values from the investor's old record; do not run manual `UPDATE`, `INSERT`, or `DELETE` statements to create the account.
 
@@ -73,8 +83,10 @@ SELECT id, payload->>'investorId' AS investor_id,
        payload->>'totalAmount' AS total_amount
 FROM app_subscriptions
 WHERE lower(btrim(payload->>'investorEmail')) = lower(btrim('investor@example.com'))
+   OR lower(btrim(payload->>'investor_email')) = lower(btrim('investor@example.com'))
    OR payload->>'investorId' = 'legacy-investor-id'
    OR payload->>'investor_id' = 'legacy-investor-id'
+   OR payload->>'userId' = 'legacy-investor-id'
    OR payload->>'user_id' = 'legacy-investor-id'
 ORDER BY position ASC, id ASC;
 ```

@@ -359,9 +359,14 @@ export type SubscriptionStatus =
 
 export interface ShareSubscription {
   id: string;
+  investorId?: string;
   investorName: string;
   investorEmail: string;
   investorPhone: string;
+  operationId?: string;
+  operationTitle?: string;
+  offerId?: string;
+  offerTitle?: string;
   shares: number;
   sharePrice: number;
   totalAmount: number;
