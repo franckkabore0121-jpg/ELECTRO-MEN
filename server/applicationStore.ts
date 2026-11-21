@@ -255,6 +255,49 @@ export async function readApplicationData<T>(key: ApplicationDataKey, defaultVal
   return result.rows[0]?.payload ?? defaultValue;
 }
 
+export async function readInvestorSubscriptions<T>(
+  identity: { id: string; email: string; legacyIds?: readonly string[] }
+): Promise<T[]> {
+  const investorIds = [...new Set([identity.id, ...(identity.legacyIds ?? [])]
+    .filter((id) => typeof id === 'string' && id.trim().length > 0))];
+  const email = identity.email.trim().toLowerCase();
+  const { rows } = await getDatabasePool().query<{ payload: T }>(
+    `WITH investor_subscriptions AS (
+       SELECT id, position, payload,
+         NULLIF(btrim(payload->>'investorId'), '') AS investor_id,
+         NULLIF(btrim(payload->>'investor_id'), '') AS legacy_investor_id,
+         NULLIF(btrim(payload->>'userId'), '') AS user_id,
+         NULLIF(btrim(payload->>'user_id'), '') AS legacy_user_id
+       FROM app_subscriptions
+     )
+     SELECT payload
+     FROM investor_subscriptions
+     WHERE (investor_id IS NULL OR investor_id = ANY($1::text[]))
+       AND (legacy_investor_id IS NULL OR legacy_investor_id = ANY($1::text[]))
+       AND (user_id IS NULL OR user_id = ANY($1::text[]))
+       AND (legacy_user_id IS NULL OR legacy_user_id = ANY($1::text[]))
+       AND (
+         investor_id = ANY($1::text[])
+         OR legacy_investor_id = ANY($1::text[])
+         OR user_id = ANY($1::text[])
+         OR legacy_user_id = ANY($1::text[])
+         OR (
+           investor_id IS NULL
+           AND legacy_investor_id IS NULL
+           AND user_id IS NULL
+           AND legacy_user_id IS NULL
+           AND (
+             lower(btrim(payload->>'investorEmail')) = $2
+             OR lower(btrim(payload->>'investor_email')) = $2
+           )
+         )
+       )
+     ORDER BY position ASC, id ASC`,
+    [investorIds, email]
+  );
+  return rows.map((row) => row.payload);
+}
+
 export async function writeApplicationData<T>(key: ApplicationDataKey, value: T): Promise<void> {
   const pool = getDatabasePool();
   if (isCollectionKey(key)) {

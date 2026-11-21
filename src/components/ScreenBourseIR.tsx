@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { InvestmentProject, ShareSubscription, InvestorProfile, InvestorActivity, InvestorDocument } from '../data/mockData.ts';
+import { InvestmentProject, InvestorProfile, InvestorActivity, InvestorDocument } from '../data/mockData.ts';
 import { validatePersonData } from '../utils/validation.ts';
 
 export type InvestorStatus = 'demande_non_soumise' | 'en_attente' | 'approuve' | 'refuse' | 'suspendu' | 'bloque';
@@ -28,18 +28,25 @@ export interface InvestorMessage {
   replyToId?: string;
 }
 
+interface InvestorSubscriptionHistory {
+  id: string;
+  operationTitle?: string;
+  offerTitle?: string;
+  shares: number;
+  totalAmount: number;
+  status: string;
+  requestedAt: string;
+}
+
 interface ScreenBourseIRProps {
   currentProfile?: InvestorProfile | null;
+  onInvestorSessionChange?: (investor: InvestorProfile | null) => void;
   onOpenPdfContract: (investorData: { name: string; phone: string; shares: number; total: number; id: string }) => void;
   onGoTab: (tab: any) => void;
   onRequestSubscription: (data: { name: string; email: string; phone: string; shares: number; total: number }) => string;
-  subscriptions: ShareSubscription[];
   onOpenPayment: (subId: string) => void;
   onOpenWallet: (action?: 'depot' | 'retrait' | 'history') => void;
   onOpenEmailInbox: () => void;
-  // Investor Accounts shared with admin
-  registeredInvestors?: RegisteredInvestor[];
-  onRegisterInvestor?: (investor: RegisteredInvestor) => void;
   // External synchronized messaging
   messages?: InvestorMessage[];
   onSendMessage?: (text: string, senderName: string, isOfficial?: boolean) => void;
@@ -51,14 +58,12 @@ interface ScreenBourseIRProps {
 
 export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   currentProfile,
+  onInvestorSessionChange,
   onOpenPdfContract,
   onRequestSubscription,
-  subscriptions,
   onOpenPayment,
   onOpenWallet,
   onOpenEmailInbox,
-  registeredInvestors = [],
-  onRegisterInvestor,
   messages: externalMessages,
   onSendMessage: externalOnSendMessage,
   isMessagingOpen = true,
@@ -98,12 +103,15 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [regError, setRegError] = useState<string | null>(null);
 
   // Login Form State
-  const [loginPhone, setLoginPhone] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
   const [activeInvestor, setActiveInvestor] = useState<RegisteredInvestor | null>(null);
+  const [subscriptionHistory, setSubscriptionHistory] = useState<InvestorSubscriptionHistory[]>([]);
+  const [subscriptionHistoryLoading, setSubscriptionHistoryLoading] = useState(false);
+  const [subscriptionHistoryError, setSubscriptionHistoryError] = useState<string | null>(null);
 
   const rememberInvestorAccount = () => {
     setHasSeenInvestorAccount(true);
@@ -114,28 +122,6 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
     }
   };
 
-  // Synchronize activeInvestor dynamically with registeredInvestors prop in real-time
-  useEffect(() => {
-    if (!activeInvestor) return;
-
-    const matched = registeredInvestors.find(
-      (inv) =>
-        inv.id === activeInvestor.id ||
-        inv.email.toLowerCase() === activeInvestor.email.toLowerCase()
-    );
-
-    if (matched) {
-      if (
-        matched.status !== activeInvestor.status ||
-        matched.sharesCount !== activeInvestor.sharesCount ||
-        matched.totalInvested !== activeInvestor.totalInvested
-      ) {
-        const updated: RegisteredInvestor = { ...activeInvestor, ...matched };
-        setActiveInvestor(updated);
-      }
-    }
-  }, [registeredInvestors, activeInvestor?.id, activeInvestor?.status]);
-
   useEffect(() => {
     let isMounted = true;
     fetch('/api/investor/me', { credentials: 'same-origin' })
@@ -145,6 +131,14 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
         if (res.ok && data.success && data.investor) {
           setActiveInvestor(data.investor);
           setIsLoggedIn(true);
+          onInvestorSessionChange?.({
+            id: data.investor.id,
+            name: data.investor.name,
+            email: data.investor.email,
+            phone: data.investor.phone,
+            isVerified: Boolean(data.investor.isVerified),
+            registeredDate: data.investor.createdAt || ''
+          });
           rememberInvestorAccount();
         } else {
           setActiveInvestor(null);
@@ -164,6 +158,42 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || !activeInvestor) {
+      setSubscriptionHistory([]);
+      setSubscriptionHistoryError(null);
+      setSubscriptionHistoryLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    setSubscriptionHistoryLoading(true);
+    setSubscriptionHistoryError(null);
+    fetch('/api/investor/subscriptions', { credentials: 'same-origin' })
+      .then(async (response) => {
+        const data = await response.json() as {
+          success?: boolean;
+          error?: string;
+          subscriptions?: InvestorSubscriptionHistory[];
+        };
+        if (!response.ok || !data.success || !Array.isArray(data.subscriptions)) {
+          throw new Error(data.error || 'Impossible de charger votre historique de souscriptions.');
+        }
+        if (isActive) setSubscriptionHistory(data.subscriptions);
+      })
+      .catch((error: unknown) => {
+        if (!isActive) return;
+        setSubscriptionHistoryError(error instanceof Error ? error.message : 'Le chargement de votre historique a échoué.');
+      })
+      .finally(() => {
+        if (isActive) setSubscriptionHistoryLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isLoggedIn, activeInvestor?.id]);
 
   // Real-time polling of approved status from server API
   useEffect(() => {
@@ -249,26 +279,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       return;
     }
 
-    const normalizePhone = (phone: string) => {
-      const digits = phone.replace(/\D/g, '');
-      return digits.length === 8 ? `226${digits}` : digits;
-    };
     const normalizedEmail = regEmail.trim().toLowerCase();
-    const normalizedPhone = normalizePhone(regPhone);
-    const duplicate = registeredInvestors.find(
-      (investor) =>
-        investor.email.trim().toLowerCase() === normalizedEmail ||
-        normalizePhone(investor.phone) === normalizedPhone
-    );
-    if (duplicate) {
-      setRegError(
-        duplicate.email.trim().toLowerCase() === normalizedEmail
-          ? 'Un compte investisseur existe déjà avec cette adresse e-mail.'
-          : 'Un compte investisseur existe déjà avec ce numéro de téléphone.'
-      );
-      return;
-    }
-
     setRegLoading(true);
 
     try {
@@ -306,8 +317,15 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       };
       setActiveInvestor(investor);
       setIsLoggedIn(true);
+      onInvestorSessionChange?.({
+        id: investor.id,
+        name: investor.name,
+        email: investor.email,
+        phone: investor.phone,
+        isVerified: Boolean(data.investor.isVerified),
+        registeredDate: investor.createdAt
+      });
       rememberInvestorAccount();
-      onRegisterInvestor?.(investor);
       setRegPassword('');
       setRegPasswordConfirm('');
     } catch {
@@ -328,17 +346,25 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: loginPhone.trim(),
-          email: loginEmail.trim()
+          email: loginEmail.trim(),
+          password: loginPassword
         })
       });
       const data = await res.json();
       if (!res.ok || !data.success || !data.investor) {
-        setLoginError(data.error || 'Aucun compte trouvé avec ce numéro et cet email.');
+        setLoginError(data.error || 'Adresse e-mail ou mot de passe incorrect.');
         return;
       }
       setActiveInvestor(data.investor);
       setIsLoggedIn(true);
+      onInvestorSessionChange?.({
+        id: data.investor.id,
+        name: data.investor.name,
+        email: data.investor.email,
+        phone: data.investor.phone,
+        isVerified: Boolean(data.investor.isVerified),
+        registeredDate: data.investor.createdAt || ''
+      });
       rememberInvestorAccount();
     } catch {
       setLoginError('La connexion est momentanément indisponible. Veuillez réessayer.');
@@ -357,9 +383,10 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       setIsLoggedIn(false);
       setActiveInvestor(null);
       setAuthMode('login');
-      setLoginPhone('');
       setLoginEmail('');
+      setLoginPassword('');
       setLoginError(null);
+      onInvestorSessionChange?.(null);
     } catch {
       window.alert('La déconnexion n’a pas pu être confirmée. Veuillez réessayer.');
     }
@@ -388,6 +415,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
 
     const currentInv = activeInvestor;
     setSubmittingSub(true);
+    let createdSubscription: InvestorSubscriptionHistory | undefined;
 
     try {
       const response = await fetch('/api/investor/subscribe-shares', {
@@ -402,16 +430,33 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
           amount: selectedShares * selectedSharePrice
         })
       });
-      const result = await response.json();
+      const result = await response.json() as {
+        success?: boolean;
+        error?: string;
+        subscription?: InvestorSubscriptionHistory;
+      };
       if (!response.ok || !result.success) {
         alert(result.error || 'La souscription a échoué. Veuillez réessayer.');
         return;
       }
+      if (!result.subscription || typeof result.subscription.id !== 'string') {
+        alert('Le serveur n’a pas renvoyé la souscription enregistrée. Veuillez actualiser votre espace.');
+        return;
+      }
+      createdSubscription = result.subscription;
     } catch {
       alert('Le serveur est momentanément indisponible. Votre souscription n’a pas été enregistrée.');
       return;
     } finally {
       setSubmittingSub(false);
+    }
+
+    if (createdSubscription) {
+      const newSubscription = createdSubscription;
+      setSubscriptionHistory((previous) => [
+        newSubscription,
+        ...previous.filter((item) => item.id !== newSubscription.id)
+      ]);
     }
 
     // Update local investor stats
@@ -728,28 +773,31 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
             <form onSubmit={handleLogin} className="space-y-3.5 text-xs">
               <div>
                 <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
-                  Numéro de téléphone
+                  Adresse e-mail
                 </label>
                 <input
-                  type="tel"
+                  type="email"
                   required
-                  value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value)}
-                  placeholder="Votre numéro de téléphone"
+                  autoComplete="username"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="nom@exemple.com"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
                 />
               </div>
 
               <div>
                 <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
-                  Adresse e-mail
+                  Mot de passe
                 </label>
                 <input
-                  type="email"
+                  type="password"
                   required
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="nom@exemple.com"
+                  maxLength={128}
+                  autoComplete="current-password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="Votre mot de passe"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
                 />
               </div>
@@ -1398,6 +1446,49 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                   </button>
                 </div>
               </div>
+
+              <section className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-syne text-sm font-bold text-slate-900">Historique de mes souscriptions</h3>
+                  <span className="text-[10px] text-slate-500">{subscriptionHistory.length} opération(s)</span>
+                </div>
+                {subscriptionHistoryLoading ? (
+                  <p className="text-xs text-slate-500">Chargement de votre historique…</p>
+                ) : subscriptionHistoryError ? (
+                  <p role="alert" className="text-xs font-semibold text-red-700">{subscriptionHistoryError}</p>
+                ) : subscriptionHistory.length === 0 ? (
+                  <p className="text-xs text-slate-500">Aucune souscription enregistrée pour ce compte.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {subscriptionHistory.map((subscription) => (
+                      <li key={subscription.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-3 first:pt-0 last:pb-0">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {subscription.operationTitle || subscription.offerTitle || 'Souscription de parts'}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            {subscription.requestedAt} • {subscription.shares} part(s)
+                          </p>
+                        </div>
+                        <div className="sm:text-right">
+                          <p className="text-xs font-bold text-slate-900">
+                            {(subscription.totalAmount || 0).toLocaleString('fr-FR')} FCFA
+                          </p>
+                          <p className="text-[10px] text-cyan-800">
+                            {subscription.status === 'paid_and_issued'
+                              ? 'Parts attribuées'
+                              : subscription.status === 'approved_pending_payment'
+                                ? 'En attente de paiement'
+                                : subscription.status === 'rejected'
+                                  ? 'Refusée'
+                                  : 'En attente de validation'}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
           )}
 

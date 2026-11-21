@@ -804,14 +804,6 @@ export default function App() {
     };
   }, []);
 
-  const handleRegisterInvestor = (inv: RegisteredInvestor) => {
-    setRegisteredInvestors((prev) => {
-      const filtered = prev.filter((i) => i.id !== inv.id && i.email.toLowerCase() !== inv.email.toLowerCase());
-      return [inv, ...filtered];
-    });
-  };
-
-
   // Audit Logs & Rollback System
   const [auditLogs, setAuditLogs] = useState<AuditAction[]>(() => {
     try {
@@ -1734,10 +1726,7 @@ export default function App() {
   };
 
   const handleAdminCreateInvestor = async (data: {
-    firstName: string;
-    lastName: string;
     email: string;
-    phone: string;
     password: string;
   }) => {
     const response = await fetch('/api/admin/investors', {
@@ -2256,18 +2245,16 @@ export default function App() {
         {currentTab === 'bourse' && (
           <ScreenBourseIR
             currentProfile={currentProfile}
+            onInvestorSessionChange={setCurrentProfile}
             onOpenPdfContract={handleOpenPdfContract}
             onGoTab={(tab) => setCurrentTab(tab)}
             onRequestSubscription={handleRequestSubscription}
-            subscriptions={subscriptions}
             onOpenPayment={handleOpenPayment}
             onOpenWallet={(action = 'depot') => {
               setWalletDefaultAction(action);
               setIsWalletOpen(true);
             }}
             onOpenEmailInbox={() => setIsEmailsOpen(true)}
-            registeredInvestors={registeredInvestors}
-            onRegisterInvestor={handleRegisterInvestor}
             messages={investorMessages}
             onSendMessage={handleSendInvestorMessage}
             isMessagingOpen={isInvestorChatOpen}

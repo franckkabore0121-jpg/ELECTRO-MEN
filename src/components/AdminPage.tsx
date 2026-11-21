@@ -132,7 +132,7 @@ export interface AdminPageProps {
 
   profitDistributions?: ProfitDistribution[];
   onDeleteInvestor?: (investorId: string) => void;
-  onCreateInvestor?: (data: { firstName: string; lastName: string; email: string; phone: string; password: string }) => Promise<void>;
+  onCreateInvestor?: (data: { email: string; password: string }) => Promise<void>;
   onDeleteSubscription?: (subId: string) => void;
   onDeleteFundRequest?: (reqId: string) => void;
   onDeleteProject?: (projectId: string) => void;
@@ -666,8 +666,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [newProjOfferTitle, setNewProjOfferTitle] = useState('Parts Ordinaires Standard');
   const [newProjOfferDesc, setNewProjOfferDesc] = useState('Souscription ouverte avec attribution directe de parts certifiées.');
   const [editingOperation, setEditingOperation] = useState<{ id: string; sharePrice: string; availableShares: string } | null>(null);
-  const [newInvestor, setNewInvestor] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
+  const [newInvestor, setNewInvestor] = useState({ email: '', password: '' });
   const [investorCreateError, setInvestorCreateError] = useState<string | null>(null);
+  const [investorCreateMessage, setInvestorCreateMessage] = useState<string | null>(null);
   const [isCreatingInvestor, setIsCreatingInvestor] = useState(false);
   const [archives, setArchives] = useState<AdminArchive[]>([]);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -828,10 +829,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     event.preventDefault();
     if (!onCreateInvestor) return;
     setInvestorCreateError(null);
+    setInvestorCreateMessage(null);
     setIsCreatingInvestor(true);
     try {
       await onCreateInvestor(newInvestor);
-      setNewInvestor({ firstName: '', lastName: '', email: '', phone: '', password: '' });
+      setNewInvestor({ email: '', password: '' });
+      setInvestorCreateMessage('Accès activé. Les informations, l’identifiant, les parts et l’historique existants sont conservés.');
     } catch (error) {
       setInvestorCreateError(error instanceof Error ? error.message : 'La création du compte investisseur a échoué.');
     } finally {
@@ -3932,19 +3935,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           {isPrincipal && onCreateInvestor && (
             <form onSubmit={handleCreateInvestor} className="p-4 rounded-2xl bg-white border border-cyan-200 shadow-xs space-y-3">
               <div>
-                <h3 className="font-syne text-sm font-bold text-slate-900">Créer un compte investisseur</h3>
-                <p className="text-[11px] text-slate-500">Le mot de passe initial est haché côté serveur et n’est jamais renvoyé à l’interface.</p>
+                <h3 className="font-syne text-sm font-bold text-slate-900">Activer l’accès d’un investisseur existant</h3>
+                <p className="text-[11px] text-slate-500">Saisissez l’adresse déjà présente dans son dossier. Son identifiant, son profil, ses parts et son historique ne seront pas remplacés. Le mot de passe est haché côté serveur.</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                <input required value={newInvestor.firstName} onChange={(event) => setNewInvestor({ ...newInvestor, firstName: event.target.value })} placeholder="Prénom" className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required value={newInvestor.lastName} onChange={(event) => setNewInvestor({ ...newInvestor, lastName: event.target.value })} placeholder="Nom" className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required type="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder="Adresse e-mail" className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required type="tel" value={newInvestor.phone} onChange={(event) => setNewInvestor({ ...newInvestor, phone: event.target.value })} placeholder="Téléphone" className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required type="password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe (12+ caractères)" className="rounded-lg border border-slate-300 p-2 text-xs" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input required type="email" autoComplete="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder="Adresse e-mail déjà enregistrée" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (12+ caractères)" className="rounded-lg border border-slate-300 p-2 text-xs" />
               </div>
               {investorCreateError && <p role="alert" className="text-xs font-semibold text-red-700">{investorCreateError}</p>}
+              {investorCreateMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorCreateMessage}</p>}
               <button type="submit" disabled={isCreatingInvestor} className="rounded-xl bg-cyan-700 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
-                {isCreatingInvestor ? 'Création…' : 'Créer le compte'}
+                {isCreatingInvestor ? 'Activation…' : 'Activer l’accès'}
               </button>
             </form>
           )}

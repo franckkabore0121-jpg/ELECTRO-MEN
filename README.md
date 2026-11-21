@@ -51,6 +51,34 @@ Accounts already use PostgreSQL. At startup, the server creates the application 
 
 The application tables are `app_products`, `app_operations`, `app_subscriptions`, `app_courses`, `app_course_categories`, `app_activities`, `app_documents`, `app_audit_logs`, `app_groups`, and `app_admin_config`. Import markers are stored in `app_data_migrations`; the pre-reset snapshot is stored in `app_backups`. Existing identity/session/security tables remain in use.
 
+## Existing investor accounts
+
+Investor profiles and portfolio totals are stored in `app_users.payload` with `role = 'investor'`. To activate an existing investor, sign in at `/electromen-gestion`, use the exact email already on that investor's record, and set a password of 12–128 characters. The principal-admin-only `POST /api/admin/investors` endpoint updates only the password hash fields on the matched row; it preserves the investor ID, email, phone, profile, status, shares, and totals. No SQL migration or destructive data rewrite is needed.
+
+Investor sign-in uses `POST /api/investor/login` with email and password. The server verifies the password hash and issues an HttpOnly session cookie. `GET /api/investor/me` returns the authenticated profile, while `GET /api/investor/subscriptions` returns only history matched to that session's email or investor/user ID aliases. Email is used only when a history row has no investor/user ID; rows with conflicting IDs are excluded for manual review. Do not query or expose all subscription payloads to investor clients.
+
+Before provisioning, these read-only Supabase SQL checks can confirm the existing record and history. Replace the sample email/ID with the values from the investor's old record; do not run manual `UPDATE`, `INSERT`, or `DELETE` statements to create the account.
+
+```sql
+SELECT id, email_normalized, payload->>'name' AS name,
+       payload->>'sharesCount' AS shares_count,
+       payload->>'totalInvested' AS total_invested
+FROM app_users
+WHERE role = 'investor'
+  AND email_normalized = lower(btrim('investor@example.com'));
+
+SELECT id, payload->>'investorId' AS investor_id,
+       payload->>'investorEmail' AS investor_email,
+       payload->>'shares' AS shares,
+       payload->>'totalAmount' AS total_amount
+FROM app_subscriptions
+WHERE lower(btrim(payload->>'investorEmail')) = lower(btrim('investor@example.com'))
+   OR payload->>'investorId' = 'legacy-investor-id'
+   OR payload->>'investor_id' = 'legacy-investor-id'
+   OR payload->>'user_id' = 'legacy-investor-id'
+ORDER BY position ASC, id ASC;
+```
+
 ## Supabase Storage for media
 
 Uploads and videos are stored in the public Supabase Storage bucket configured by `SUPABASE_STORAGE_BUCKET` (default `media`). Create that bucket in Supabase Storage and mark it **public** so the browser can read the returned public URLs. Keep write access private: uploads are sent by the authenticated admin API using `SUPABASE_SERVICE_ROLE_KEY`, which must remain server-side and must never use a `VITE_` variable name. Configure a 50 MiB file limit and allow `image/avif`, `image/gif`, `image/jpeg`, `image/png`, `image/webp`, `application/pdf`, `video/mp4`, `video/quicktime`, and `video/webm`.

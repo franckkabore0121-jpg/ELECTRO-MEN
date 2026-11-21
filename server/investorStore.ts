@@ -729,6 +729,10 @@ export async function deleteOtherInvestorSessions(investorId: string, currentTok
   );
 }
 
+export async function deleteInvestorSessions(investorId: string): Promise<void> {
+  await getPool().query('DELETE FROM app_sessions WHERE user_id = $1', [investorId]);
+}
+
 export async function createUser<T extends StoredUser>(user: T): Promise<void> {
   await insertUser(getPool(), user);
 }

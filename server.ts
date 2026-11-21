@@ -16,6 +16,7 @@ import {
   createInvestorSession,
   createUserSession,
   deleteInvestor,
+  deleteInvestorSessions,
   deleteUser,
   deleteOtherInvestorSessions,
   deleteInvestorSession,
@@ -24,7 +25,6 @@ import {
   findArchiveRecord,
   findInvestorByEmail,
   findInvestorByIdentifier,
-  findInvestorByPhoneAndEmail,
   findInvestorBySession,
   findUserByEmail,
   findUserById,
@@ -56,10 +56,17 @@ import {
   appendApplicationRecord,
   initializeApplicationStore,
   readApplicationData,
+  readInvestorSubscriptions,
   saveApplicationBackup,
   writeApplicationData,
   type ApplicationDataKey
 } from './server/applicationStore.ts';
+import {
+  INVESTOR_PASSWORD_ALGORITHM,
+  hashInvestorPassword,
+  verifyInvestorPassword,
+  withInvestorPassword
+} from './server/investorAuth.ts';
 import {
   createMediaObjectKey,
   getSupabaseStorage,
@@ -271,7 +278,7 @@ async function restoreJsonItem<T extends { id: string }>(filePath: string, value
 function verifyMasterCode(code: string, settings: AdminSecuritySettings): boolean {
   if (!settings.masterPasswordHash || !settings.masterPasswordSalt) return false;
   try {
-    const submittedHash = crypto.pbkdf2Sync(code, settings.masterPasswordSalt, INVESTOR_PBKDF2_ITERATIONS, 64, 'sha512');
+    const submittedHash = crypto.pbkdf2Sync(code, settings.masterPasswordSalt, MASTER_CODE_PBKDF2_ITERATIONS, 64, 'sha512');
     const storedHash = Buffer.from(settings.masterPasswordHash, 'hex');
     return storedHash.length === submittedHash.length && crypto.timingSafeEqual(storedHash, submittedHash);
   } catch {
@@ -307,7 +314,7 @@ const INVESTOR_SESSION_COOKIE = 'electromen_investor_session';
 const CLIENT_SESSION_COOKIE = 'electromen_client_session';
 const ADMIN_SESSION_COOKIE = 'electromen_admin_session';
 const INVESTOR_SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
-const INVESTOR_PBKDF2_ITERATIONS = 310000;
+const MASTER_CODE_PBKDF2_ITERATIONS = 310000;
 
 function getRequestCookie(req: Request, name: string): string | null {
   const cookie = req.headers.cookie;
@@ -328,34 +335,14 @@ function setHttpOnlySessionCookie(res: Response, name: string, token: string, ma
   res.setHeader('Set-Cookie', `${name}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure}`);
 }
 
-function hashInvestorPassword(password: string): { hash: string; salt: string } {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, INVESTOR_PBKDF2_ITERATIONS, 64, 'sha512').toString('hex');
-  return { hash, salt };
-}
-
-function verifyInvestorPassword(password: string, investor: ServerInvestorUser): boolean {
-  try {
-    const iterations = investor.passwordAlgorithm === 'pbkdf2-sha512-v2' ? INVESTOR_PBKDF2_ITERATIONS : 100000;
-    const testHash = crypto.pbkdf2Sync(password, investor.passwordSalt, iterations, 64, 'sha512');
-    const storedHash = Buffer.from(investor.passwordHash, 'hex');
-    if (storedHash.length === testHash.length && crypto.timingSafeEqual(testHash, storedHash)) {
-      return true;
-    }
-
-    if (investor.assignedPassword) {
-      const provided = Buffer.from(password);
-      const legacy = Buffer.from(investor.assignedPassword);
-      return provided.length === legacy.length && crypto.timingSafeEqual(provided, legacy);
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
 function publicInvestor(investor: ServerInvestorUser) {
-  const { passwordHash: _passwordHash, passwordSalt: _passwordSalt, assignedPassword: _assignedPassword, ...safeInvestor } = investor;
+  const {
+    passwordHash: _passwordHash,
+    passwordSalt: _passwordSalt,
+    assignedPassword: _assignedPassword,
+    assignedPasswordPlainText: _assignedPasswordPlainText,
+    ...safeInvestor
+  } = investor;
   return safeInvestor;
 }
 
@@ -509,8 +496,9 @@ export interface ServerInvestorUser extends StoredUser {
   phone: string;
   passwordHash: string;
   passwordSalt: string;
-  passwordAlgorithm?: 'pbkdf2-sha512-v2';
+  passwordAlgorithm?: typeof INVESTOR_PASSWORD_ALGORITHM;
   assignedPassword?: string;
+  assignedPasswordPlainText?: string;
   status: InvestorStatus;
   statusReason?: string;
   statusUpdatedAt: string;
@@ -1015,24 +1003,17 @@ app.post('/api/investor/register', async (req: Request, res: Response) => {
 });
 
 app.post('/api/investor/login', async (req: Request, res: Response) => {
-  const { phone, email } = req.body || {};
-  if (
-    typeof phone !== 'string' ||
-    typeof email !== 'string' ||
-    !phone.trim() ||
-    !email.trim()
-  ) {
-    return res.status(400).json({ success: false, error: 'Veuillez renseigner votre numéro de téléphone et votre adresse e-mail.' });
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password || password.length > 128) {
+    return res.status(400).json({ success: false, error: 'Veuillez renseigner une adresse e-mail et un mot de passe valides.' });
   }
 
-  const cleanPhone = phone.trim();
   const cleanEmail = email.trim().toLowerCase();
-  const phoneDigits = cleanPhone.replace(/\D/g, '');
-  if (phoneDigits.length < 8 || phoneDigits.length > 15 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ success: false, error: 'Le numéro de téléphone ou l’adresse e-mail est invalide.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
   }
 
-  const attemptKey = `investor:${phoneDigits}:${cleanEmail}`;
+  const attemptKey = `investor:${cleanEmail}`;
   const rateLimit = checkRateLimit(attemptKey);
   if (!rateLimit.allowed) {
     return res.status(429).json({
@@ -1042,18 +1023,34 @@ app.post('/api/investor/login', async (req: Request, res: Response) => {
   }
 
   try {
-    const investor = await findInvestorByPhoneAndEmail<ServerInvestorUser>(cleanPhone, cleanEmail);
-    if (!investor) {
+    const investor = await findInvestorByEmail<ServerInvestorUser>(cleanEmail);
+    if (!investor || !verifyInvestorPassword(password, investor)) {
       recordFailedAttempt(attemptKey);
-      return res.status(401).json({ success: false, error: 'Aucun compte trouvé avec ce numéro et cet email.' });
+      return res.status(401).json({ success: false, error: 'Adresse e-mail ou mot de passe incorrect.' });
     }
     if (investor.status === 'bloque' || investor.status === 'suspendu') {
       return res.status(403).json({ success: false, error: 'Ce compte investisseur est temporairement suspendu. Contactez l’administrateur.' });
     }
 
     recordSuccessfulAttempt(attemptKey);
-    await establishInvestorSession(investor, res);
-    return res.json({ success: true, investor: publicInvestor(investor) });
+    let authenticatedInvestor = investor;
+    if (
+      investor.passwordAlgorithm !== INVESTOR_PASSWORD_ALGORITHM ||
+      investor.assignedPassword !== undefined ||
+      investor.assignedPasswordPlainText !== undefined
+    ) {
+      const upgradedInvestor = await updateInvestor<ServerInvestorUser>(
+        investor.id,
+        (current) => withInvestorPassword(current, password)
+      );
+      if (!upgradedInvestor) {
+        return res.status(500).json({ success: false, error: 'La mise à jour sécurisée du compte a échoué.' });
+      }
+      authenticatedInvestor = upgradedInvestor;
+    }
+
+    await establishInvestorSession(authenticatedInvestor, res);
+    return res.json({ success: true, investor: publicInvestor(authenticatedInvestor) });
   } catch (error) {
     console.error('Investor login failed:', error);
     return res.status(500).json({ success: false, error: 'La connexion est momentanément indisponible.' });
@@ -1070,6 +1067,32 @@ app.get('/api/investor/me', async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'La vérification de session a échoué.' });
   }
 });
+
+app.get('/api/investor/subscriptions', asyncRoute(async (req: Request, res: Response) => {
+  const investor = await getAuthenticatedInvestor(req);
+  if (!investor) {
+    return res.status(401).json({ success: false, error: 'Session expirée. Veuillez vous reconnecter.' });
+  }
+
+  const legacyIdentity = investor as ServerInvestorUser & {
+    investorId?: unknown;
+    investor_id?: unknown;
+    userId?: unknown;
+    user_id?: unknown;
+  };
+  const legacyIds = [
+    legacyIdentity.investorId,
+    legacyIdentity.investor_id,
+    legacyIdentity.userId,
+    legacyIdentity.user_id
+  ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  const subscriptions = await readInvestorSubscriptions<ShareSubscription>({
+    id: investor.id,
+    email: investor.email,
+    legacyIds
+  });
+  return res.json({ success: true, subscriptions });
+}));
 
 app.post('/api/investor/logout', async (req: Request, res: Response) => {
   try {
@@ -1798,50 +1821,50 @@ app.get('/api/admin/investors', asyncRoute(async (req: Request, res: Response) =
 
 app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) => {
   if (!await hasPrincipalAdminSession(req)) {
-    return res.status(403).json({ success: false, error: 'Seul l’administrateur principal peut créer un compte investisseur.' });
+    return res.status(403).json({ success: false, error: 'Seul l’administrateur principal peut activer un accès investisseur.' });
   }
-  const { lastName, firstName, email, phone, password } = req.body || {};
-  if ([lastName, firstName, email, phone, password].some((value) => typeof value !== 'string')) {
-    return res.status(400).json({ success: false, error: 'Veuillez renseigner tous les champs obligatoires.' });
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ success: false, error: 'Veuillez renseigner l’adresse e-mail et le mot de passe.' });
   }
-  const identityCheck = validateRealIdentity(lastName, firstName, email, phone);
-  if (!identityCheck.valid) return res.status(400).json({ success: false, error: identityCheck.error });
+  const cleanEmail = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
+  }
   if (password.length < 12 || password.length > 128) {
     return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
   }
-  try {
-    const cleanEmail = email.trim().toLowerCase();
-    const { hash, salt } = hashInvestorPassword(password);
-    const name = `${firstName.trim()} ${lastName.trim()}`;
-    const investor: ServerInvestorUser = {
-      id: crypto.randomUUID(),
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      name,
-      email: cleanEmail,
-      phone: phone.trim(),
-      passwordHash: hash,
-      passwordSalt: salt,
-      passwordAlgorithm: 'pbkdf2-sha512-v2',
-      status: 'approuve',
-      statusReason: 'Compte créé et approuvé par l’administrateur.',
-      statusUpdatedAt: new Date().toLocaleDateString('fr-FR'),
-      isVerified: true,
-      createdAt: new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }),
-      totalInvested: 0,
-      sharesCount: 0,
-      dividendsEarned: 0,
-      role: 'investor'
-    };
-    await createInvestor(investor);
-    await addServerAuditLog('Admin Principal', 'create_investor', `Création du compte investisseur "${name}"`, 'investor', investor.id);
-    broadcastDataChanged('investors');
-    return res.status(201).json({ success: true, investor: publicInvestor(investor) });
-  } catch (error) {
-    const conflictMessage = investorConflictMessage(error);
-    if (conflictMessage) return res.status(409).json({ success: false, error: conflictMessage });
-    throw error;
+
+  const existingInvestor = await findInvestorByEmail<ServerInvestorUser>(cleanEmail);
+  if (!existingInvestor) {
+    return res.status(404).json({
+      success: false,
+      error: 'Aucun investisseur existant ne correspond à cette adresse. Utilisez l’adresse déjà enregistrée dans son dossier.'
+    });
   }
+
+  const updatedInvestor = await updateInvestor<ServerInvestorUser>(
+    existingInvestor.id,
+    (current) => withInvestorPassword(current, password)
+  );
+  if (!updatedInvestor) {
+    return res.status(404).json({ success: false, error: 'Le compte investisseur n’existe plus.' });
+  }
+  await deleteInvestorSessions(updatedInvestor.id);
+
+  await addServerAuditLog(
+    'Admin Principal',
+    'provision_investor_account',
+    `Activation de l’accès investisseur pour ${updatedInvestor.email}; dossier et portefeuille existants conservés.`,
+    'investor',
+    updatedInvestor.id
+  );
+  broadcastDataChanged('investors');
+  return res.json({
+    success: true,
+    message: 'Accès activé. Le profil, l’identifiant et les parts existants ont été conservés.',
+    investor: publicInvestor(updatedInvestor)
+  });
 }));
 
 app.get('/api/investor/status/:idOrEmail', asyncRoute(async (req: Request, res: Response) => {
@@ -1852,13 +1875,6 @@ app.get('/api/investor/status/:idOrEmail', asyncRoute(async (req: Request, res: 
   }
   return res.json({ success: true, investor: publicInvestor(sessionInvestor) });
 }));
-
-app.post('/api/admin/investors', (_req: Request, res: Response) =>
-  res.status(410).json({
-    success: false,
-    error: 'La création d’un compte investisseur doit passer par le formulaire sécurisé d’inscription.'
-  })
-);
 
 const handleUpdateInvestorStatus = async (req: Request, res: Response) => {
   if (!await hasPrincipalAdminSession(req)) {
