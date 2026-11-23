@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx --env-file=.env server.ts",
+    "dev": "tsx server.ts",
     "build": "vite build",
     "start": "tsx server.ts",
     "migrate:media": "tsx scripts/migrate-local-media-to-supabase.ts",

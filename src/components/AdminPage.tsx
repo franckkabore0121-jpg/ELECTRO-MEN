@@ -24,8 +24,19 @@ import {
   ELECTROTECHNIQUE_GROUPS,
   MarketplaceBoutique
 } from '../data/mockData.ts';
-import { RegisteredInvestor, InvestorMessage } from './ScreenBourseIR.tsx';
+import {
+  BoutiqueSector,
+  InvestorMessage,
+  RegisteredInvestor,
+  ShareAllocation
+} from './ScreenBourseIR.tsx';
 import { ExportProductsModal } from './ExportProductsModal.tsx';
+import {
+  ADMIN_PERMISSION_DEFINITIONS,
+  ALL_ADMIN_PERMISSIONS,
+  AdminPermission,
+  DEFAULT_SECONDARY_ADMIN_PERMISSIONS
+} from '../data/adminPermissions.ts';
 
 export type AdminRole = 'admin_principal' | 'admin_secondaire' | 'utilisateur';
 
@@ -48,6 +59,7 @@ export interface AdminUser {
   email: string;
   phone: string;
   role: AdminRole;
+  permissions?: AdminPermission[];
   isProtected?: boolean;
   addedDate: string;
 }
@@ -64,6 +76,7 @@ export interface AdminArchive {
 export interface AdminPageProps {
   currentAdminRole: AdminRole;
   currentAdminName: string;
+  currentAdminPermissions?: AdminPermission[];
 
   adminCustomUrl: string;
   onChangeAdminCustomUrl: (newUrl: string) => void | Promise<void>;
@@ -79,8 +92,8 @@ export interface AdminPageProps {
   onChangeFormationsVideoUrl?: (newUrl: string) => void;
 
   products: Product[];
-  onUpdateProduct: (p: Product) => void;
-  onAddProduct: (p: Product) => void;
+  onUpdateProduct: (p: Product) => void | Promise<void>;
+  onAddProduct: (p: Product) => void | Promise<void>;
   onDeleteProduct: (id: string) => void;
 
   courses: Course[];
@@ -89,9 +102,9 @@ export interface AdminPageProps {
   onDeleteCourse: (id: string) => void;
 
   subscriptions: ShareSubscription[];
-  onApproveSubscription: (id: string, code?: string) => void;
-  onForceValidateSubscription: (id: string) => void;
-  onRejectSubscription: (id: string) => void;
+  onApproveSubscription: (id: string, code?: string) => void | Promise<void>;
+  onForceValidateSubscription: (id: string) => void | Promise<void>;
+  onRejectSubscription: (id: string) => void | Promise<void>;
   projects: InvestmentProject[];
   onUpdateProject: (p: InvestmentProject) => void;
   onAddProject: (p: InvestmentProject) => void;
@@ -112,7 +125,10 @@ export interface AdminPageProps {
   isInvestorChatOpen?: boolean;
   onToggleInvestorChat?: () => void;
   investorMessages?: InvestorMessage[];
-  onSendAdminMessage?: (text: string) => void;
+  onSendAdminMessage?: (
+    text: string,
+    voice?: { audioUrl: string; audioDuration?: number }
+  ) => void | Promise<void>;
 
   auditLogs: AuditAction[];
   onAddAuditLog: (action: Omit<AuditAction, 'id'>) => void;
@@ -121,14 +137,23 @@ export interface AdminPageProps {
 
   isMaintenanceMode?: boolean;
   onToggleMaintenanceMode?: (active: boolean) => void;
-  onDistributeProfits?: (projectName: string, totalAmount: number, notes?: string, sector?: 'Électronique' | 'Électrotechnique' | 'Informatique', period?: string, companyAmount?: number) => void;
+  onDistributeProfits?: (
+    projectName: string,
+    totalAmount: number,
+    notes?: string,
+    sector?: BoutiqueSector,
+    period?: string,
+    companyAmount?: number,
+    operationId?: string,
+    idempotencyKey?: string
+  ) => boolean | void | Promise<boolean | void>;
   customGroups?: Record<string, { id: string; label: string }[]>;
   onAddCustomGroup?: (domain: 'electronique' | 'electrotechnique' | 'informatique', group: { id: string; label: string }) => void;
 
   fundRequests?: FundOperationRequest[];
-  onConfirmFundRequest?: (reqId: string) => void;
-  onRejectFundRequest?: (reqId: string, reason: string) => void;
-  onSetFundRequestProcessing?: (reqId: string) => void;
+  onConfirmFundRequest?: (reqId: string) => void | Promise<void>;
+  onRejectFundRequest?: (reqId: string, reason: string) => void | Promise<void>;
+  onSetFundRequestProcessing?: (reqId: string) => void | Promise<void>;
 
   profitDistributions?: ProfitDistribution[];
   onDeleteInvestor?: (investorId: string) => void;
@@ -141,6 +166,7 @@ export interface AdminPageProps {
     totalInvested?: number;
     sharesCount?: number;
     dividendsEarned?: number;
+    shareAllocations?: ShareAllocation[];
   }) => Promise<void>;
   onUpdateInvestor?: (investorId: string, data: Partial<RegisteredInvestor>) => Promise<void>;
   onResetInvestorPassword?: (investorId: string, password: string) => Promise<void>;
@@ -182,6 +208,7 @@ export interface AdminPageProps {
 export const AdminPage: React.FC<AdminPageProps> = ({
   currentAdminRole,
   currentAdminName,
+  currentAdminPermissions = [],
   adminCustomUrl,
   onChangeAdminCustomUrl,
   onChangeAdminMasterPassword,
@@ -305,6 +332,51 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   }, [activeTab]);
 
   const isPrincipal = currentAdminRole === 'admin_principal';
+  const hasPerm = (perm: AdminPermission): boolean =>
+    isPrincipal || (currentAdminRole === 'admin_secondaire' && currentAdminPermissions.includes(perm));
+  const canViewRealtime = hasPerm('view_realtime');
+
+  const allAdminTabs: Array<{
+    id: 'dashboard' | 'realtime' | 'market' | 'academy' | 'logistique' | 'content' | 'investors' | 'subscriptions' | 'funds' | 'roles' | 'archives' | 'seo' | 'audit';
+    label: string;
+    icon: string;
+    visible: boolean;
+  }> = [
+    { id: 'dashboard', label: 'Tableau de Bord', icon: 'dashboard', visible: true },
+    { id: 'realtime', label: 'En Direct (Temps Réel)', icon: 'sensors', visible: canViewRealtime },
+    { id: 'market', label: 'Produits (3 Rayons)', icon: 'inventory_2', visible: hasPerm('manage_products') || hasPerm('delete_products') },
+    { id: 'academy', label: 'Formations (3 Domaines)', icon: 'school', visible: hasPerm('manage_courses') || hasPerm('delete_courses') },
+    { id: 'logistique', label: 'Frais Livraison', icon: 'local_shipping', visible: hasPerm('manage_delivery') },
+    { id: 'content', label: 'Vidéos & Médias', icon: 'video_settings', visible: hasPerm('manage_content') },
+    {
+      id: 'investors',
+      label: 'Investisseurs & Messagerie',
+      icon: 'forum',
+      visible:
+        hasPerm('manage_investors') ||
+        hasPerm('manage_investors_password') ||
+        hasPerm('manage_content') ||
+        hasPerm('manage_subscriptions')
+    },
+    {
+      id: 'subscriptions',
+      label: 'Projets & Souscriptions',
+      icon: 'verified_user',
+      visible: hasPerm('manage_subscriptions') || hasPerm('manage_operations') || hasPerm('manage_content')
+    },
+    { id: 'funds', label: 'Dépôts & Retraits', icon: 'account_balance', visible: hasPerm('manage_funds') || hasPerm('manage_wallet_adjust') },
+    { id: 'roles', label: 'Rôles & Sécurité', icon: 'key', visible: isPrincipal },
+    { id: 'archives', label: 'Corbeille / Archives', icon: 'delete', visible: isPrincipal || hasPerm('view_audit') },
+    { id: 'seo', label: 'Domaine & SEO', icon: 'travel_explore', visible: isPrincipal },
+    { id: 'audit', label: 'Journal Audit', icon: 'history', visible: hasPerm('view_audit') }
+  ];
+  const allowedAdminTabs = allAdminTabs.filter((tab) => tab.visible);
+
+  useEffect(() => {
+    if (!allowedAdminTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, currentAdminRole, currentAdminPermissions]);
 
   // Real-Time Connected Users State (Real-time SSE & Presence Stream)
   interface LiveUserPresence {
@@ -343,13 +415,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [realtimeConnected, setRealtimeConnected] = useState<boolean>(false);
   const [disconnectingSid, setDisconnectingSid] = useState<string | null>(null);
 
-  // Synchronize connected users via SSE and backup polling
+  // Synchronize connected users via SSE and backup polling (only if allowed)
   useEffect(() => {
+    if (!canViewRealtime) {
+      setLiveUsers([]);
+      setRealtimeConnected(false);
+      return;
+    }
+
     let eventSource: EventSource | null = null;
     let pollInterval: any = null;
 
     const fetchSnapshot = () => {
-      fetch('/api/presence/online-users')
+      fetch('/api/presence/online-users', { credentials: 'same-origin' })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (data && Array.isArray(data.sessions)) {
@@ -391,7 +469,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       if (eventSource) eventSource.close();
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, []);
+  }, [canViewRealtime]);
 
   const handleDisconnectSession = async (sessionId: string) => {
     if (!confirm("Voulez-vous forcer la déconnexion de cette session utilisateur ?")) return;
@@ -492,8 +570,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [newZoneDelay, setNewZoneDelay] = useState('24h à 48h');
   const [newZoneKeywords, setNewZoneKeywords] = useState('');
 
-  // Investor Chat Admin Message state
+  // Investor Chat Admin Message & Voice Note state
   const [adminChatText, setAdminChatText] = useState('');
+  const [isSendingAdminChat, setIsSendingAdminChat] = useState(false);
+  const [isRecordingAdminVoice, setIsRecordingAdminVoice] = useState(false);
+  const [adminRecordingSeconds, setAdminRecordingSeconds] = useState(0);
+  const [adminVoiceError, setAdminVoiceError] = useState<string | null>(null);
+  const [adminVoiceDraft, setAdminVoiceDraft] = useState<{ audioUrl: string; audioDuration: number } | null>(null);
+  const adminMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const adminVoiceStreamRef = useRef<MediaStream | null>(null);
+  const adminVoiceChunksRef = useRef<Blob[]>([]);
+  const adminVoiceTimerRef = useRef<number | null>(null);
+  const adminVoiceCancelledRef = useRef(false);
+  const adminVoiceStartRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (adminVoiceTimerRef.current !== null) {
+        window.clearInterval(adminVoiceTimerRef.current);
+      }
+      if (adminMediaRecorderRef.current && adminMediaRecorderRef.current.state !== 'inactive') {
+        adminVoiceCancelledRef.current = true;
+        try {
+          adminMediaRecorderRef.current.stop();
+        } catch {}
+      }
+      if (adminVoiceStreamRef.current) {
+        adminVoiceStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   // Total reset is authorized by the active administrator session.
   const [isTotalResetModalOpen, setIsTotalResetModalOpen] = useState(false);
@@ -523,12 +629,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Profit Distribution Modal State
   const [isDistributeModalOpen, setIsDistributeModalOpen] = useState(false);
-  const [distSector, setDistSector] = useState<'Électronique' | 'Électrotechnique' | 'Informatique'>('Électronique');
+  const [distSector, setDistSector] = useState<BoutiqueSector>('Électronique');
+  const [distOperationId, setDistOperationId] = useState<string>('');
   const [distPeriod, setDistPeriod] = useState('3ème Trimestre 2026');
-  const [distProjectName, setDistProjectName] = useState('Phase 1 : Ligne Industrielle CMS');
+  const [distProjectName, setDistProjectName] = useState('');
   const [distAmount, setDistAmount] = useState<number>(70000);
   const [distCompanyAmount, setDistCompanyAmount] = useState<number>(30000);
   const [distNotes, setDistNotes] = useState('Distribution directe des bénéfices validés');
+  const [isDistributingProfit, setIsDistributingProfit] = useState(false);
+  const [profitDistIdempotencyKey, setProfitDistIdempotencyKey] = useState<string>('');
+  const [profitDistError, setProfitDistError] = useState<string | null>(null);
+
+  // Per-item anti-double-click action locks
+  const [processingSubIds, setProcessingSubIds] = useState<Record<string, boolean>>({});
+  const [processingFundIds, setProcessingFundIds] = useState<Record<string, boolean>>({});
 
   // Custom Category / Group Creation State
   const [isAddGroupModalOpen, setIsAddGroupModalOpen] = useState(false);
@@ -558,19 +672,65 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [newDocUrl, setNewDocUrl] = useState('');
 
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [secondaryAdminPermissions, setSecondaryAdminPermissions] = useState<AdminPermission[]>([]);
+  const [savingAdminPermId, setSavingAdminPermId] = useState<string | null>(null);
+  const [adminPermFeedback, setAdminPermFeedback] = useState<string | null>(null);
+  const [adminPermDrafts, setAdminPermDrafts] = useState<Record<string, AdminPermission[]>>({});
 
-  // Sync users from backend API
+  // Sync admin users from backend API (Principal Admin only)
   useEffect(() => {
     localStorage.removeItem('electromen_admin_users');
-    fetch('/api/admin/users')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setAdminUsers(data);
-        }
-      })
-      .catch(() => {});
-  }, []);
+    if (!isPrincipal) {
+      setAdminUsers([]);
+      return;
+    }
+    let active = true;
+    const refreshAdmins = () => {
+      fetch('/api/admin/users', { credentials: 'same-origin', cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (active && Array.isArray(data)) {
+            setAdminUsers(data);
+          }
+        })
+        .catch(() => {});
+    };
+    refreshAdmins();
+
+    const eventSource = new EventSource('/api/events/stream');
+    const onDataChanged = (event: Event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data);
+        if (data.resource === 'admins') refreshAdmins();
+      } catch {}
+    };
+    eventSource.addEventListener('DATA_CHANGED', onDataChanged);
+    return () => {
+      active = false;
+      eventSource.removeEventListener('DATA_CHANGED', onDataChanged);
+      eventSource.close();
+    };
+  }, [isPrincipal]);
+
+  // Synchronize selected operation & idempotency key when Profit Distribution modal opens or sector changes
+  const openProfitDistributionModal = () => {
+    const firstMatchingOp =
+      projects.find((p) => (p.sector || p.category) === distSector) || projects[0];
+    if (firstMatchingOp) {
+      const opSector = ((firstMatchingOp.sector || firstMatchingOp.category) as BoutiqueSector) || distSector;
+      if (['Électronique', 'Électrotechnique', 'Informatique'].includes(opSector)) {
+        setDistSector(opSector);
+      }
+      setDistOperationId(firstMatchingOp.id);
+      setDistProjectName(firstMatchingOp.title);
+    } else {
+      setDistOperationId('');
+      setDistProjectName('');
+    }
+    setProfitDistIdempotencyKey(`dist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    setProfitDistError(null);
+    setIsDistributeModalOpen(true);
+  };
 
   // Video Master Controls for Administrator (Accueil & Formations)
   const heroVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -714,11 +874,31 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [editingInvestorSubscription, setEditingInvestorSubscription] = useState<ShareSubscription | null>(null);
   const [subscriptionEditError, setSubscriptionEditError] = useState<string | null>(null);
   const [subscriptionEditMessage, setSubscriptionEditMessage] = useState<string | null>(null);
+  const [sessionTemporaryPasswords, setSessionTemporaryPasswords] = useState<Record<string, { password: string; updatedAt: string }>>({});
+  const [revealedTempPasswordKeys, setRevealedTempPasswordKeys] = useState<Record<string, boolean>>({});
+  const [showNewInvestorPassword, setShowNewInvestorPassword] = useState(false);
+  const [showResetInvestorPassword, setShowResetInvestorPassword] = useState(false);
+  const [newInvestorAllocations, setNewInvestorAllocations] = useState<ShareAllocation[]>([]);
+  const [allocationsTouched, setAllocationsTouched] = useState(false);
   const [archives, setArchives] = useState<AdminArchive[]>([]);
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
+  const generateProvisionalPassword = (): string => {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const array = new Uint32Array(14);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      crypto.getRandomValues(array);
+      return Array.from(array, (n) => alphabet[n % alphabet.length]).join('');
+    }
+    return `ELM-${Math.random().toString(36).slice(2, 8)}-${Date.now().toString(36).slice(-4)}!`;
+  };
+
   const handleCreateAndPublishOperation = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasPerm('manage_operations')) {
+      alert('Action restreinte : Vous ne disposez pas du droit de gestion des opérations.');
+      return;
+    }
     if (!newProjTitle.trim()) {
       alert("Veuillez saisir le titre de l'opération de financement.");
       return;
@@ -848,8 +1028,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     if (!isPrincipal) return;
     setMasterPasswordError(null);
     setMasterPasswordMessage(null);
-    if (masterPasswordInput.length < 12 || masterPasswordInput.length > 128) {
-      setMasterPasswordError('Le code maître doit comporter entre 12 et 128 caractères.');
+    if (masterPasswordInput.trim().length < 8 || masterPasswordInput.trim().length > 128) {
+      setMasterPasswordError('Le code maître doit comporter entre 8 et 128 caractères.');
       return;
     }
     if (masterPasswordInput !== masterPasswordConfirm) {
@@ -858,7 +1038,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
     setIsSavingMasterPassword(true);
     try {
-      await onChangeAdminMasterPassword(masterPasswordInput);
+      await onChangeAdminMasterPassword(masterPasswordInput.trim());
       setMasterPasswordInput('');
       setMasterPasswordConfirm('');
       setMasterPasswordMessage('Le code maître a été modifié. Le nouveau code est actif immédiatement.');
@@ -871,28 +1051,39 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   const handleCreateInvestor = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!onCreateInvestor) return;
+    if (!onCreateInvestor || !hasPerm('manage_investors')) return;
     setInvestorCreateError(null);
     setInvestorCreateMessage(null);
     if (newInvestor.password !== newInvestor.passwordConfirm) {
       setInvestorCreateError('La confirmation du mot de passe ne correspond pas.');
       return;
     }
+    const cleanEmail = newInvestor.email.trim().toLowerCase();
+    const submittedPassword = newInvestor.password;
     setIsCreatingInvestor(true);
     try {
       const request = investorProvisioningMode === 'new'
         ? {
-            email: newInvestor.email,
-            password: newInvestor.password,
+            email: cleanEmail,
+            password: submittedPassword,
             lastName: newInvestor.lastName,
             firstName: newInvestor.firstName,
             phone: newInvestor.phone,
             totalInvested: Number(newInvestor.totalInvested),
             sharesCount: Number(newInvestor.sharesCount),
-            dividendsEarned: Number(newInvestor.dividendsEarned)
+            dividendsEarned: Number(newInvestor.dividendsEarned),
+            ...(newInvestorAllocations.length > 0 ? { shareAllocations: newInvestorAllocations } : {})
           }
-        : { email: newInvestor.email, password: newInvestor.password };
+        : { email: cleanEmail, password: submittedPassword };
       await onCreateInvestor(request);
+      setSessionTemporaryPasswords((prev) => ({
+        ...prev,
+        [cleanEmail]: {
+          password: submittedPassword,
+          updatedAt: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        }
+      }));
+      setRevealedTempPasswordKeys((prev) => ({ ...prev, [cleanEmail]: true }));
       setNewInvestor({
         email: '',
         password: '',
@@ -904,9 +1095,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         sharesCount: '0',
         dividendsEarned: '0'
       });
+      setNewInvestorAllocations([]);
+      setShowNewInvestorPassword(false);
       setInvestorCreateMessage(investorProvisioningMode === 'new'
-        ? 'Compte investisseur créé. Transmettez-lui son adresse e-mail et son mot de passe provisoire.'
-        : 'Accès activé. Les informations, l’identifiant, les parts et l’historique existants sont conservés.');
+        ? `Compte investisseur créé pour ${cleanEmail}. Le mot de passe provisoire est disponible ci-dessous pour cette session uniquement.`
+        : `Accès activé pour ${cleanEmail}. Le mot de passe provisoire est disponible ci-dessous pour cette session uniquement.`);
     } catch (error) {
       setInvestorCreateError(error instanceof Error ? error.message : 'La création du compte investisseur a échoué.');
     } finally {
@@ -920,13 +1113,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       setInvestorDetail(null);
       setInvestorEdit(null);
       setEditingInvestorSubscription(null);
+      setAllocationsTouched(false);
       return;
     }
     setExpandedInvestorId(investorId);
     setInvestorDetail(null);
     setEditingInvestorSubscription(null);
     setInvestorEditError(null);
+    setInvestorEditMessage(null);
     setInvestorDetailError(null);
+    setInvestorPasswordError(null);
+    setInvestorPasswordMessage(null);
+    setShowResetInvestorPassword(false);
+    setAllocationsTouched(false);
     setInvestorDetailLoading(true);
     try {
       const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}`, {
@@ -948,12 +1147,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   const handleSaveInvestor = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!investorDetail || !investorEdit || !onUpdateInvestor) return;
+    if (!investorDetail || !investorEdit || !onUpdateInvestor || !hasPerm('manage_investors')) return;
     setInvestorManagementLoading(true);
     setInvestorEditError(null);
     setInvestorEditMessage(null);
     try {
-      await onUpdateInvestor(investorDetail.investor.id, investorEdit);
+      const hasAllocations = Array.isArray(investorEdit.shareAllocations) && investorEdit.shareAllocations.length > 0;
+      const payload: Partial<RegisteredInvestor> = {
+        ...investorEdit,
+        ...(hasAllocations || allocationsTouched ? { shareAllocations: investorEdit.shareAllocations || [] } : { shareAllocations: undefined })
+      };
+      await onUpdateInvestor(investorDetail.investor.id, payload);
       const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorDetail.investor.id)}`, {
         credentials: 'same-origin',
         cache: 'no-store'
@@ -964,6 +1168,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       }
       setInvestorDetail({ investor: data.investor, subscriptions: data.subscriptions });
       setInvestorEdit(data.investor);
+      setAllocationsTouched(false);
       setInvestorEditMessage('Profil et données financières enregistrés.');
     } catch (error) {
       setInvestorEditError(error instanceof Error ? error.message : 'La mise à jour du dossier a échoué.');
@@ -974,14 +1179,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   const handleResetInvestorPassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!investorDetail || !onResetInvestorPassword) return;
+    if (!investorDetail || !onResetInvestorPassword || !hasPerm('manage_investors_password')) return;
     setInvestorManagementLoading(true);
     setInvestorPasswordError(null);
     setInvestorPasswordMessage(null);
+    const submittedPassword = investorResetPassword;
+    const emailKey = investorDetail.investor.email.trim().toLowerCase();
     try {
-      await onResetInvestorPassword(investorDetail.investor.id, investorResetPassword);
+      await onResetInvestorPassword(investorDetail.investor.id, submittedPassword);
+      setSessionTemporaryPasswords((prev) => ({
+        ...prev,
+        [emailKey]: {
+          password: submittedPassword,
+          updatedAt: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        }
+      }));
+      setRevealedTempPasswordKeys((prev) => ({ ...prev, [emailKey]: true }));
       setInvestorResetPassword('');
-      setInvestorPasswordMessage('Mot de passe réinitialisé; l’investisseur devra se reconnecter.');
+      setInvestorDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              investor: {
+                ...prev.investor,
+                hasPasswordConfigured: true,
+                passwordAlgorithm: 'scrypt-v1',
+                passwordUpdatedAt: new Date().toISOString()
+              }
+            }
+          : prev
+      );
+      setInvestorPasswordMessage('Mot de passe réinitialisé; l’investisseur devra se reconnecter. Le mot de passe provisoire est affiché pour cette session uniquement.');
     } catch (error) {
       setInvestorPasswordError(error instanceof Error ? error.message : 'La réinitialisation du mot de passe a échoué.');
     } finally {
@@ -1338,60 +1566,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  // Safe Server-Backed Upload Helper
+  // Strict Server-Backed Upload Helper (no silent base64 client fallback)
   const uploadFileToServer = async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      setUploadStatus({ isUploading: true, message: `Téléversement de "${file.name}" en cours...` });
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const base64 = reader.result as string;
-          const res = await fetch('/api/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              filename: file.name,
-              fileBase64: base64,
-              mimeType: file.type
-            })
-          });
+    setUploadStatus({ isUploading: true, message: `Téléversement de "${file.name}" en cours...` });
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Erreur de lecture du fichier.'));
+        reader.readAsDataURL(file);
+      });
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.url) {
-              setUploadStatus({ isUploading: false, message: 'Fichier enregistré avec succès.' });
-              resolve(data.url);
-              return;
-            }
-          }
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          fileBase64: base64,
+          mimeType: file.type
+        })
+      });
 
-          // Fallback only if under 3MB to avoid localStorage crash
-          if (file.size < 3 * 1024 * 1024) {
-            setUploadStatus({ isUploading: false, message: 'Fichier chargé localement.' });
-            resolve(base64);
-          } else {
-            setUploadStatus({ isUploading: false, message: 'Fichier trop volumineux sans connexion serveur.' });
-            alert('Fichier trop volumineux pour le stockage local (limite 3Mo). Veuillez utiliser un lien vidéo ou réduire la taille.');
-            reject(new Error('File too large'));
-          }
-        } catch {
-          if (file.size < 3 * 1024 * 1024) {
-            setUploadStatus({ isUploading: false, message: 'Fichier chargé localement.' });
-            resolve(reader.result as string);
-          } else {
-            setUploadStatus({ isUploading: false, message: 'Échec de transmission.' });
-            reject(new Error('Upload failed'));
-          }
-        } finally {
-          setTimeout(() => setUploadStatus({ isUploading: false, message: '' }), 3000);
-        }
-      };
-      reader.onerror = () => {
-        setUploadStatus({ isUploading: false, message: 'Erreur de lecture du fichier.' });
-        reject(new Error('Read failed'));
-      };
-      reader.readAsDataURL(file);
-    });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.url) {
+        const errMsg = data?.error || `Échec du téléversement serveur (HTTP ${res.status}).`;
+        setUploadStatus({ isUploading: false, message: errMsg });
+        alert(errMsg);
+        throw new Error(errMsg);
+      }
+
+      setUploadStatus({ isUploading: false, message: 'Fichier enregistré sur le serveur.' });
+      return data.url as string;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Échec de transmission vers le serveur.';
+      setUploadStatus({ isUploading: false, message: errMsg });
+      throw err instanceof Error ? err : new Error(errMsg);
+    } finally {
+      setTimeout(() => setUploadStatus({ isUploading: false, message: '' }), 3500);
+    }
   };
 
   // Handle Real Photo File Upload from Admin Phone or Computer
@@ -1449,8 +1662,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   };
 
   // Handle Product Create or Update
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasPerm('manage_products')) {
+      alert('Action restreinte : Vous ne disposez pas du droit de gestion des produits.');
+      return;
+    }
     if (!newProdName.trim()) return;
 
     let subGroupKey = newProdSubGroup;
@@ -1520,66 +1737,71 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       isFlashSale: newProdIsFlashSale
     };
 
-    if (editingProductId) {
-      onUpdateProduct(productData);
-      onAddAuditLog({
-        author: currentAdminName,
-        date: new Date().toLocaleString('fr-FR'),
-        actionType: 'update_product',
-        description: `Mise à jour du produit "${productData.name}" (${productData.ref}) - Disponibilité: ${getStockStatusLabel(effectiveStockStatus)}`,
-        entityType: 'product',
-        newState: productData,
-        targetId: productData.id
-      });
-    } else {
-      onAddProduct(productData);
-      onAddAuditLog({
-        author: currentAdminName,
-        date: new Date().toLocaleString('fr-FR'),
-        actionType: 'create_product',
-        description: `Ajout du produit "${productData.name}" (${productData.ref}) - Disponibilité: ${getStockStatusLabel(effectiveStockStatus)}`,
-        entityType: 'product',
-        newState: productData,
-        targetId: productData.id
-      });
-
-      // Dispatch WhatsApp-style notification if requested
-      if (notifyUsersOnPublish && !newProdIsDraft && onAddNotification) {
-        onAddNotification({
-          type: 'product',
-          title: `Nouveau produit : ${productData.name}`,
-          message: `Nouveau produit disponible au rayon ${newProdDomain === 'informatique' ? 'Informatique' : newProdDomain === 'electrotechnique' ? 'Électrotechnique' : 'Électronique'} : ${productData.name} (${productData.price.toLocaleString('fr-FR')} FCFA).`,
-          actionTab: newProdDomain === 'informatique' ? 'boutique_informatique' : newProdDomain === 'electrotechnique' ? 'boutique_electrotechnique' : 'boutique_electronique',
-          actionProductId: productData.id,
-          priority: 'high'
+    try {
+      if (editingProductId) {
+        await Promise.resolve(onUpdateProduct(productData));
+        onAddAuditLog({
+          author: currentAdminName,
+          date: new Date().toLocaleString('fr-FR'),
+          actionType: 'update_product',
+          description: `Mise à jour du produit "${productData.name}" (${productData.ref}) - Disponibilité: ${getStockStatusLabel(effectiveStockStatus)}`,
+          entityType: 'product',
+          newState: productData,
+          targetId: productData.id
         });
-      }
-    }
+      } else {
+        await Promise.resolve(onAddProduct(productData));
+        onAddAuditLog({
+          author: currentAdminName,
+          date: new Date().toLocaleString('fr-FR'),
+          actionType: 'create_product',
+          description: `Ajout du produit "${productData.name}" (${productData.ref}) - Disponibilité: ${getStockStatusLabel(effectiveStockStatus)}`,
+          entityType: 'product',
+          newState: productData,
+          targetId: productData.id
+        });
 
-    // Reset Form
-    setIsAddProdOpen(false);
-    setEditingProductId(null);
-    setNewProdName('');
-    setNewProdBrand('');
-    setNewProdRef('');
-    setNewProdPrice(150000);
-    setNewProdOldPrice('');
-    setNewProdStock(5);
-    setNewProdStockStatus('in_stock');
-    setNewProdDesc('');
-    setNewProdSpecs('');
-    setNewProdImage('');
-    setNewProdHasRealPhoto(false);
-    setNewProdVideoUrl('');
-    setNewProdIsDraft(false);
-    setNewProdIsFeaturedOnHome(false);
-    setNewProdIsPromo(false);
-    setNewProdIsNew(false);
-    setNewProdIsFlashSale(false);
+        // Dispatch WhatsApp-style notification if requested
+        if (notifyUsersOnPublish && !newProdIsDraft && onAddNotification) {
+          onAddNotification({
+            type: 'product',
+            title: `Nouveau produit : ${productData.name}`,
+            message: `Nouveau produit disponible au rayon ${newProdDomain === 'informatique' ? 'Informatique' : newProdDomain === 'electrotechnique' ? 'Électrotechnique' : 'Électronique'} : ${productData.name} (${productData.price.toLocaleString('fr-FR')} FCFA).`,
+            actionTab: newProdDomain === 'informatique' ? 'boutique_informatique' : newProdDomain === 'electrotechnique' ? 'boutique_electrotechnique' : 'boutique_electronique',
+            actionProductId: productData.id,
+            priority: 'high'
+          });
+        }
+      }
+
+      // Reset Form after server save
+      setIsAddProdOpen(false);
+      setEditingProductId(null);
+      setNewProdName('');
+      setNewProdBrand('');
+      setNewProdRef('');
+      setNewProdPrice(150000);
+      setNewProdOldPrice('');
+      setNewProdStock(5);
+      setNewProdStockStatus('in_stock');
+      setNewProdDesc('');
+      setNewProdSpecs('');
+      setNewProdImage('');
+      setNewProdHasRealPhoto(false);
+      setNewProdVideoUrl('');
+      setNewProdIsDraft(false);
+      setNewProdIsFeaturedOnHome(false);
+      setNewProdIsPromo(false);
+      setNewProdIsNew(false);
+      setNewProdIsFlashSale(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde du produit.');
+    }
   };
 
   // Quick toggle availability status from table
   const handleQuickChangeStockStatus = (prod: Product, newStatus: ProductStockStatus) => {
+    if (!hasPerm('manage_products')) return;
     const updatedProd: Product = {
       ...prod,
       stockStatus: newStatus,
@@ -1601,6 +1823,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Open edit modal for an existing product
   const handleEditProduct = (prod: Product) => {
+    if (!hasPerm('manage_products')) return;
     setEditingProductId(prod.id);
     setNewProdName(prod.name);
     setNewProdBrand(prod.brand || '');
@@ -1627,8 +1850,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Handle Product Delete with confirmation
   const handleRequestDeleteProduct = (prod: Product) => {
-    if (!isPrincipal) {
-      alert('Action restreinte : Seul l’administrateur principal peut supprimer définitivement un produit.');
+    if (!hasPerm('delete_products')) {
+      alert('Action restreinte : Vous ne disposez pas du droit de suppression de produits.');
       return;
     }
 
@@ -1689,7 +1912,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           name: assignedName,
           phone: assignedPhone,
           role: 'admin_secondaire',
-          password: initialPass
+          password: initialPass,
+          permissions: secondaryAdminPermissions
         })
       });
       result = await response.json();
@@ -1705,18 +1929,66 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     const newAdminUser = result.admin;
     setAdminUsers((prev) => [...prev, newAdminUser]);
     setSecondaryAdminEmailInput('');
-    setSecondaryAdminFeedback(`Administrateur nommé avec succès : ${cleanEmail} (Mot de passe : ${initialPass})`);
+    setSecondaryAdminFeedback(
+      `Administrateur nommé avec succès : ${cleanEmail} (${(newAdminUser.permissions || secondaryAdminPermissions).length} droit(s) accordé(s) • Mot de passe provisoire : ${initialPass})`
+    );
+    setSecondaryAdminPermissions([]);
 
     onAddAuditLog({
       author: currentAdminName,
       date: new Date().toLocaleString('fr-FR'),
       actionType: 'add_secondary_admin',
-      description: `Nomination de ${assignedName} (${cleanEmail}) comme Administrateur Secondaire avec droits basiques`,
+      description: `Nomination de ${assignedName} (${cleanEmail}) comme Administrateur Secondaire (${(newAdminUser.permissions || secondaryAdminPermissions).length} permission(s))`,
       entityType: 'role',
       newState: newAdminUser
     });
 
-    setTimeout(() => setSecondaryAdminFeedback(null), 6000);
+    setTimeout(() => setSecondaryAdminFeedback(null), 9000);
+  };
+
+  // Principal Admin updates Secondary Admin granular permissions (including full revocation)
+  const handleUpdateAdminPermissions = async (user: AdminUser, nextPermissions: AdminPermission[]) => {
+    if (!isPrincipal || user.role !== 'admin_secondaire') return;
+    setSavingAdminPermId(user.id);
+    setAdminPermFeedback(null);
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/permissions`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: nextPermissions })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        alert(result.error || 'La mise à jour des droits a échoué.');
+        return;
+      }
+      const updatedPermissions: AdminPermission[] = Array.isArray(result.permissions) ? result.permissions : nextPermissions;
+      setAdminUsers((prev) =>
+        prev.map((item) => (item.id === user.id ? { ...item, permissions: updatedPermissions } : item))
+      );
+      setAdminPermDrafts((prev) => {
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
+      });
+      setAdminPermFeedback(
+        `Droits de ${user.name} mis à jour (${updatedPermissions.length} droit(s) actif(s)).`
+      );
+      onAddAuditLog({
+        author: currentAdminName,
+        date: new Date().toLocaleString('fr-FR'),
+        actionType: 'update_secondary_admin_permissions',
+        description: `Mise à jour des droits de ${user.email} : ${updatedPermissions.length} permission(s) active(s).`,
+        entityType: 'role',
+        newState: updatedPermissions
+      });
+      setTimeout(() => setAdminPermFeedback(null), 4000);
+    } catch {
+      alert('Impossible de joindre le serveur pour mettre à jour les droits.');
+    } finally {
+      setSavingAdminPermId(null);
+    }
   };
 
   // Principal Admin edits Secondary Admin password
@@ -1724,8 +1996,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     e.preventDefault();
     if (!isPrincipal || !editingSecondaryAdminPass) return;
     const cleanPass = editingSecondaryAdminPass.newPass.trim();
-    if (cleanPass.length < 12 || cleanPass.length > 128) {
-      alert('Le mot de passe doit comporter entre 12 et 128 caractères.');
+    if (cleanPass.length < 8 || cleanPass.length > 128) {
+      alert('Le mot de passe doit comporter entre 8 et 128 caractères.');
       return;
     }
 
@@ -1799,6 +2071,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Handle Course Create
   const handleSaveCourse = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasPerm('manage_courses')) {
+      alert('Action restreinte : Vous ne disposez pas du droit de gestion des formations.');
+      return;
+    }
     if (!newCourseTitle.trim()) return;
 
     const courseData: Course = {
@@ -1859,8 +2135,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Delivery Zone Creation
   const handleCreateDeliveryZone = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isPrincipal) {
-      alert('Action restreinte : Seul l’administrateur principal peut configurer les zones de livraison.');
+    if (!hasPerm('manage_delivery')) {
+      alert('Action restreinte : Vous ne disposez pas du droit de gestion de la logistique et livraison.');
       return;
     }
     if (!newZoneName.trim()) return;
@@ -1895,21 +2171,157 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setNewZoneKeywords('');
   };
 
-  // Admin writes to Investor Chat
-  const handleSendAdminChatMessage = (e: React.FormEvent) => {
+  // Admin Voice Note Recording (WhatsApp-style)
+  const startAdminVoiceRecording = async () => {
+    if (!hasPerm('manage_content') || isRecordingAdminVoice || isSendingAdminChat) return;
+    setAdminVoiceError(null);
+    setAdminVoiceDraft(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAdminVoiceError('Votre navigateur ne prend pas en charge l’enregistrement audio.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      adminVoiceStreamRef.current = stream;
+      const candidateTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+      const chosenType = candidateTypes.find((type) =>
+        typeof MediaRecorder.isTypeSupported === 'function' ? MediaRecorder.isTypeSupported(type) : false
+      );
+      const recorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+      adminMediaRecorderRef.current = recorder;
+      adminVoiceChunksRef.current = [];
+      adminVoiceCancelledRef.current = false;
+      adminVoiceStartRef.current = Date.now();
+      setAdminRecordingSeconds(0);
+      setIsRecordingAdminVoice(true);
+
+      adminVoiceTimerRef.current = window.setInterval(() => {
+        setAdminRecordingSeconds(Math.max(1, Math.round((Date.now() - adminVoiceStartRef.current) / 1000)));
+      }, 400);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          adminVoiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const wasCancelled = adminVoiceCancelledRef.current;
+        const elapsedSec = Math.max(1, Math.round((Date.now() - adminVoiceStartRef.current) / 1000));
+        if (adminVoiceTimerRef.current !== null) {
+          window.clearInterval(adminVoiceTimerRef.current);
+          adminVoiceTimerRef.current = null;
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        adminVoiceStreamRef.current = null;
+        setIsRecordingAdminVoice(false);
+        setAdminRecordingSeconds(0);
+        if (wasCancelled) return;
+
+        const mimeType = recorder.mimeType || chosenType || 'audio/webm';
+        const blob = new Blob(adminVoiceChunksRef.current, { type: mimeType });
+        if (blob.size < 128) {
+          setAdminVoiceError('Enregistrement audio trop court.');
+          return;
+        }
+        setIsSendingAdminChat(true);
+        try {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('Lecture audio impossible.'));
+            reader.readAsDataURL(blob);
+          });
+          const uploadRes = await fetch('/api/messages/voice', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileBase64: dataUrl, mimeType })
+          });
+          const uploadData = await uploadRes.json().catch(() => ({}));
+          if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
+            throw new Error(uploadData.error || 'Échec du téléversement du message vocal.');
+          }
+          setAdminVoiceDraft({
+            audioUrl: uploadData.url,
+            audioDuration: elapsedSec
+          });
+        } catch (err) {
+          setAdminVoiceError(err instanceof Error ? err.message : 'Erreur lors du traitement du vocal.');
+        } finally {
+          setIsSendingAdminChat(false);
+        }
+      };
+
+      recorder.start(250);
+    } catch {
+      setAdminVoiceError('Accès au microphone refusé ou indisponible.');
+      setIsRecordingAdminVoice(false);
+    }
+  };
+
+  const stopAdminVoiceRecording = (cancel = false) => {
+    adminVoiceCancelledRef.current = cancel;
+    if (adminMediaRecorderRef.current && adminMediaRecorderRef.current.state !== 'inactive') {
+      try {
+        adminMediaRecorderRef.current.stop();
+      } catch {}
+    } else if (cancel) {
+      setIsRecordingAdminVoice(false);
+      setAdminRecordingSeconds(0);
+    }
+  };
+
+  const handleSendAdminVoiceDraft = async () => {
+    if (!adminVoiceDraft || !onSendAdminMessage || isSendingAdminChat || !hasPerm('manage_content')) return;
+    setIsSendingAdminChat(true);
+    setAdminVoiceError(null);
+    try {
+      const labelText = adminChatText.trim() || 'Message vocal officiel';
+      await Promise.resolve(onSendAdminMessage(labelText, adminVoiceDraft));
+      setAdminVoiceDraft(null);
+      setAdminChatText('');
+      onAddAuditLog({
+        author: currentAdminName,
+        date: new Date().toLocaleString('fr-FR'),
+        actionType: 'admin_chat_voice',
+        description: `Note vocale officielle envoyée sur l'espace Investisseurs (${adminVoiceDraft.audioDuration}s)`,
+        entityType: 'chat'
+      });
+    } catch (err) {
+      setAdminVoiceError(err instanceof Error ? err.message : 'Envoi du message vocal refusé.');
+    } finally {
+      setIsSendingAdminChat(false);
+    }
+  };
+
+  // Admin writes to Investor Chat (anti-double-send lock)
+  const handleSendAdminChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminChatText.trim() || !onSendAdminMessage) return;
+    if (!hasPerm('manage_content') || isSendingAdminChat || !onSendAdminMessage) return;
+    if (adminVoiceDraft) {
+      await handleSendAdminVoiceDraft();
+      return;
+    }
+    if (!adminChatText.trim()) return;
 
-    onSendAdminMessage(adminChatText.trim());
-    setAdminChatText('');
-
-    onAddAuditLog({
-      author: currentAdminName,
-      date: new Date().toLocaleString('fr-FR'),
-      actionType: 'admin_chat_message',
-      description: `Message officiel envoyé sur l'espace Investisseurs`,
-      entityType: 'chat'
-    });
+    setIsSendingAdminChat(true);
+    setAdminVoiceError(null);
+    try {
+      await Promise.resolve(onSendAdminMessage(adminChatText.trim()));
+      setAdminChatText('');
+      onAddAuditLog({
+        author: currentAdminName,
+        date: new Date().toLocaleString('fr-FR'),
+        actionType: 'admin_chat_message',
+        description: `Message officiel envoyé sur l'espace Investisseurs`,
+        entityType: 'chat'
+      });
+    } catch (err) {
+      setAdminVoiceError(err instanceof Error ? err.message : 'Envoi du message refusé.');
+    } finally {
+      setIsSendingAdminChat(false);
+    }
   };
 
   return (
@@ -1933,7 +2345,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     isPrincipal ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-cyan-100 text-cyan-900 border border-cyan-300'
                   }`}
                 >
-                  {isPrincipal ? 'Super-Admin Principal' : 'Admin Secondaire (Basique)'}
+                  {isPrincipal
+                    ? 'Super-Admin Principal'
+                    : `Admin Secondaire (${currentAdminPermissions.length} droit${currentAdminPermissions.length > 1 ? 's' : ''})`}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -1944,10 +2358,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             {/* Live Connected Users Counter */}
-            <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>{presenceBreakdown.total} connectés</span>
-            </div>
+            {canViewRealtime && (
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{presenceBreakdown.total} connectés</span>
+              </div>
+            )}
 
             {/* Maintenance Mode Switch */}
             {isPrincipal && (
@@ -1987,24 +2403,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
         {/* Admin Navigation Pills */}
         <div className="mt-4 pt-3 border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
-          {[
-            { id: 'dashboard', label: 'Tableau de Bord', icon: 'dashboard' },
-            { id: 'realtime', label: 'En Direct (Temps Réel)', icon: 'sensors' },
-            { id: 'market', label: 'Produits (3 Rayons)', icon: 'inventory_2' },
-            { id: 'academy', label: 'Formations (3 Domaines)', icon: 'school' },
-            { id: 'logistique', label: 'Frais Livraison', icon: 'local_shipping' },
-            { id: 'content', label: 'Vidéos & Médias', icon: 'video_settings' },
-            { id: 'investors', label: 'Investisseurs & Messagerie', icon: 'forum' },
-            { id: 'subscriptions', label: 'Projets & Souscriptions', icon: 'verified_user' },
-            { id: 'funds', label: 'Dépôts & Retraits', icon: 'account_balance' },
-            { id: 'roles', label: 'Rôles & Sécurité', icon: 'key' },
-            { id: 'archives', label: 'Corbeille / Archives', icon: 'delete' },
-            { id: 'seo', label: 'Domaine & SEO', icon: 'travel_explore' },
-            { id: 'audit', label: 'Journal Audit', icon: 'history' }
-          ].map((tab) => (
+          {allowedAdminTabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
                 activeTab === tab.id
                   ? 'bg-gradient-to-r from-[#d4af37] to-[#b48c1e] text-slate-950 shadow-sm font-extrabold'
@@ -2046,26 +2448,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               <span className="text-[10px] text-amber-600 font-semibold">Tarification définie par opération</span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('realtime')}
-              className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-emerald-400 shadow-xs text-left cursor-pointer transition-all hover:bg-emerald-50/30 group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-slate-500 font-bold block">Activité en Direct</span>
-                <span className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>EN DIRECT</span>
+            {canViewRealtime ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab('realtime')}
+                className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-emerald-400 shadow-xs text-left cursor-pointer transition-all hover:bg-emerald-50/30 group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500 font-bold block">Activité en Direct</span>
+                  <span className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>EN DIRECT</span>
+                  </span>
+                </div>
+                <div className="text-xl font-bold text-emerald-600 mt-1 flex items-baseline gap-1">
+                  <span>{presenceBreakdown.total}</span>
+                  <span className="text-xs text-slate-500 font-semibold">connecté{presenceBreakdown.total > 1 ? 's' : ''}</span>
+                </div>
+                <span className="text-[10px] text-emerald-700 font-semibold group-hover:underline">
+                  Voir la console temps réel →
+                </span>
+              </button>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-xs text-left">
+                <span className="text-[11px] text-slate-500 font-bold block">Profil Administrateur</span>
+                <div className="text-base font-bold text-slate-900 mt-1">
+                  {currentAdminPermissions.length} droit{currentAdminPermissions.length > 1 ? 's' : ''} actif{currentAdminPermissions.length > 1 ? 's' : ''}
+                </div>
+                <span className="text-[10px] text-slate-500 font-semibold">
+                  Accès délégué par l’admin principal
                 </span>
               </div>
-              <div className="text-xl font-bold text-emerald-600 mt-1 flex items-baseline gap-1">
-                <span>{presenceBreakdown.total}</span>
-                <span className="text-xs text-slate-500 font-semibold">connecté{presenceBreakdown.total > 1 ? 's' : ''}</span>
-              </div>
-              <span className="text-[10px] text-emerald-700 font-semibold group-hover:underline">
-                Voir la console temps réel →
-              </span>
-            </button>
+            )}
           </div>
 
           {/* Quick Shortcuts */}
@@ -2075,38 +2489,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               <span>Actions Rapides de Gestion</span>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              <button
-                onClick={() => {
-                  setActiveTab('market');
-                  setIsAddProdOpen(true);
-                  setNewProdDomain('informatique');
-                }}
-                className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-              >
-                <span>+ Ajouter Matériel Informatique</span>
-                <span className="material-symbols-outlined text-sm text-cyan-700">laptop_mac</span>
-              </button>
+              {hasPerm('manage_products') && (
+                <button
+                  onClick={() => {
+                    setActiveTab('market');
+                    setIsAddProdOpen(true);
+                    setNewProdDomain('informatique');
+                  }}
+                  className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left font-bold text-slate-800 flex items-center justify-between cursor-pointer"
+                >
+                  <span>+ Ajouter Matériel Informatique</span>
+                  <span className="material-symbols-outlined text-sm text-cyan-700">laptop_mac</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => {
-                  setActiveTab('investors');
-                  setIsDistributeModalOpen(true);
-                }}
-                className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-left font-bold text-emerald-950 flex items-center justify-between cursor-pointer"
-              >
-                <span>+ Distribuer des Dividendes</span>
-                <span className="material-symbols-outlined text-sm text-emerald-700">account_balance_wallet</span>
-              </button>
+              {hasPerm('manage_subscriptions') && (
+                <button
+                  onClick={() => {
+                    setActiveTab('subscriptions');
+                    openProfitDistributionModal();
+                  }}
+                  className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-left font-bold text-emerald-950 flex items-center justify-between cursor-pointer"
+                >
+                  <span>+ Distribuer des Dividendes</span>
+                  <span className="material-symbols-outlined text-sm text-emerald-700">account_balance_wallet</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => {
-                  setActiveTab('investors');
-                }}
-                className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-              >
-                <span>Modérer la Messagerie ({investorMessages.length})</span>
-                <span className="material-symbols-outlined text-sm text-emerald-600">forum</span>
-              </button>
+              {(hasPerm('manage_content') || hasPerm('manage_investors')) && (
+                <button
+                  onClick={() => {
+                    setActiveTab('investors');
+                  }}
+                  className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left font-bold text-slate-800 flex items-center justify-between cursor-pointer"
+                >
+                  <span>Modérer la Messagerie ({investorMessages.length})</span>
+                  <span className="material-symbols-outlined text-sm text-emerald-600">forum</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2461,34 +2881,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 Électronique, Électrotechnique et Équipements Informatiques. Photographies réelles obligatoires.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAddGroupModalOpen(true)}
-                className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <span className="material-symbols-outlined text-sm text-cyan-600">category</span>
-                <span>+ Nouveau Groupe / Famille</span>
-              </button>
+            {hasPerm('manage_products') && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddGroupModalOpen(true)}
+                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <span className="material-symbols-outlined text-sm text-cyan-600">category</span>
+                  <span>+ Nouveau Groupe / Famille</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingProductId(null);
-                  setIsAddProdOpen(!isAddProdOpen);
-                }}
-                className="py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
-              >
-                <span className="material-symbols-outlined text-sm">
-                  {isAddProdOpen ? 'close' : 'add'}
-                </span>
-                <span>{isAddProdOpen ? 'Fermer' : 'Nouveau Produit'}</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingProductId(null);
+                    setIsAddProdOpen(!isAddProdOpen);
+                  }}
+                  className="py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-sm">
+                    {isAddProdOpen ? 'close' : 'add'}
+                  </span>
+                  <span>{isAddProdOpen ? 'Fermer' : 'Nouveau Produit'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Formulaire d'ajout / modification */}
-          {isAddProdOpen && (
+          {isAddProdOpen && hasPerm('manage_products') && (
             <form
               onSubmit={handleSaveProduct}
               className="p-4 sm:p-5 rounded-2xl bg-amber-50/60 border-2 border-amber-300 space-y-4 text-xs text-slate-800 shadow-sm"
@@ -3199,120 +3621,126 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       {/* Contrôle Rapide de l'État & Actions d'Édition */}
                       <div className="flex flex-wrap items-center gap-2 self-stretch lg:self-center shrink-0 justify-between lg:justify-end border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
                         {/* Sélecteur Rapide d'État (1 Clic) */}
-                        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                          <button
-                            type="button"
-                            onClick={() => handleQuickChangeStockStatus(prod, 'in_stock')}
-                            title="Basculer en stock"
-                            className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
-                              status === 'in_stock'
-                                ? 'bg-emerald-600 text-white shadow-2xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[12px]">check</span>
-                            <span>En Stock</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleQuickChangeStockStatus(prod, 'out_of_stock')}
-                            title="Basculer en rupture"
-                            className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
-                              status === 'out_of_stock'
-                                ? 'bg-rose-600 text-white shadow-2xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[12px]">block</span>
-                            <span>Rupture</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleQuickChangeStockStatus(prod, 'on_order')}
-                            title="Basculer sur commande"
-                            className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
-                              status === 'on_order'
-                                ? 'bg-amber-600 text-white shadow-2xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[12px]">schedule</span>
-                            <span>Sur Commande</span>
-                          </button>
-                        </div>
+                        {hasPerm('manage_products') && (
+                          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => handleQuickChangeStockStatus(prod, 'in_stock')}
+                              title="Basculer en stock"
+                              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                                status === 'in_stock'
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[12px]">check</span>
+                              <span>En Stock</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickChangeStockStatus(prod, 'out_of_stock')}
+                              title="Basculer en rupture"
+                              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                                status === 'out_of_stock'
+                                  ? 'bg-rose-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[12px]">block</span>
+                              <span>Rupture</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickChangeStockStatus(prod, 'on_order')}
+                              title="Basculer sur commande"
+                              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                                status === 'on_order'
+                                  ? 'bg-amber-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[12px]">schedule</span>
+                              <span>Sur Commande</span>
+                            </button>
+                          </div>
+                        )}
 
                         {/* Bouton Modifier & Supprimer */}
                         <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated: Product = {
-                                ...prod,
-                                isFeaturedOnHome: !prod.isFeaturedOnHome
-                              };
-                              onUpdateProduct(updated);
-                              onAddAuditLog({
-                                author: currentAdminName,
-                                date: new Date().toLocaleString('fr-FR'),
-                                actionType: 'update_featured_status',
-                                description: `${updated.isFeaturedOnHome ? 'Mise en avant' : 'Retrait de la mise en avant'} sur l'accueil : "${prod.name}"`,
-                                entityType: 'product',
-                                targetId: prod.id
-                              });
-                            }}
-                            title={prod.isFeaturedOnHome ? "Retirer de la vitrine d'accueil" : "Mettre en avant sur la page d'accueil"}
-                            className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors ${
-                              prod.isFeaturedOnHome
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-extrabold'
-                                : 'bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-800'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-xs text-amber-600">
-                              {prod.isFeaturedOnHome ? 'star' : 'star_border'}
-                            </span>
-                            <span>{prod.isFeaturedOnHome ? 'En Vedette' : 'Vedette'}</span>
-                          </button>
+                          {hasPerm('manage_products') && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated: Product = {
+                                    ...prod,
+                                    isFeaturedOnHome: !prod.isFeaturedOnHome
+                                  };
+                                  onUpdateProduct(updated);
+                                  onAddAuditLog({
+                                    author: currentAdminName,
+                                    date: new Date().toLocaleString('fr-FR'),
+                                    actionType: 'update_featured_status',
+                                    description: `${updated.isFeaturedOnHome ? 'Mise en avant' : 'Retrait de la mise en avant'} sur l'accueil : "${prod.name}"`,
+                                    entityType: 'product',
+                                    targetId: prod.id
+                                  });
+                                }}
+                                title={prod.isFeaturedOnHome ? "Retirer de la vitrine d'accueil" : "Mettre en avant sur la page d'accueil"}
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors ${
+                                  prod.isFeaturedOnHome
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-extrabold'
+                                    : 'bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-800'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-xs text-amber-600">
+                                  {prod.isFeaturedOnHome ? 'star' : 'star_border'}
+                                </span>
+                                <span>{prod.isFeaturedOnHome ? 'En Vedette' : 'Vedette'}</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated: Product = {
-                                ...prod,
-                                isFlashSale: !prod.isFlashSale
-                              };
-                              onUpdateProduct(updated);
-                              onAddAuditLog({
-                                author: currentAdminName,
-                                date: new Date().toLocaleString('fr-FR'),
-                                actionType: 'update_flash_status',
-                                description: `${updated.isFlashSale ? 'Ajout à la Vente Flash' : 'Retrait de la Vente Flash'} sur l'accueil : "${prod.name}"`,
-                                entityType: 'product',
-                                targetId: prod.id
-                              });
-                            }}
-                            title={prod.isFlashSale ? "Retirer de la Vente Flash" : "Ajouter à la Vente Flash animée"}
-                            className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors ${
-                              prod.isFlashSale
-                                ? 'bg-rose-100 text-rose-900 border border-rose-300 shadow-2xs font-extrabold animate-pulse'
-                                : 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-800'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-xs text-rose-600">
-                              bolt
-                            </span>
-                            <span>{prod.isFlashSale ? '⚡ Flash' : 'Flash'}</span>
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated: Product = {
+                                    ...prod,
+                                    isFlashSale: !prod.isFlashSale
+                                  };
+                                  onUpdateProduct(updated);
+                                  onAddAuditLog({
+                                    author: currentAdminName,
+                                    date: new Date().toLocaleString('fr-FR'),
+                                    actionType: 'update_flash_status',
+                                    description: `${updated.isFlashSale ? 'Ajout à la Vente Flash' : 'Retrait de la Vente Flash'} sur l'accueil : "${prod.name}"`,
+                                    entityType: 'product',
+                                    targetId: prod.id
+                                  });
+                                }}
+                                title={prod.isFlashSale ? "Retirer de la Vente Flash" : "Ajouter à la Vente Flash animée"}
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors ${
+                                  prod.isFlashSale
+                                    ? 'bg-rose-100 text-rose-900 border border-rose-300 shadow-2xs font-extrabold animate-pulse'
+                                    : 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-800'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-xs text-rose-600">
+                                  bolt
+                                </span>
+                                <span>{prod.isFlashSale ? '⚡ Flash' : 'Flash'}</span>
+                              </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleEditProduct(prod)}
-                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                          >
-                            <span className="material-symbols-outlined text-xs">edit</span>
-                            <span>Modifier</span>
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => handleEditProduct(prod)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <span className="material-symbols-outlined text-xs">edit</span>
+                                <span>Modifier</span>
+                              </button>
+                            </>
+                          )}
 
-                          {isPrincipal && (
+                          {hasPerm('delete_products') && (
                             <button
                               type="button"
                               onClick={() => handleRequestDeleteProduct(prod)}
@@ -3347,20 +3775,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 3 sections distinctes : Électronique, Électrotechnique et Informatique. Gratuit ou Certifiant.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsAddCourseOpen(!isAddCourseOpen)}
-              className="py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <span className="material-symbols-outlined text-sm">
-                {isAddCourseOpen ? 'close' : 'add'}
-              </span>
-              <span>{isAddCourseOpen ? 'Fermer' : 'Nouveau Programme'}</span>
-            </button>
+            {hasPerm('manage_courses') && (
+              <button
+                type="button"
+                onClick={() => setIsAddCourseOpen(!isAddCourseOpen)}
+                className="py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <span className="material-symbols-outlined text-sm">
+                  {isAddCourseOpen ? 'close' : 'add'}
+                </span>
+                <span>{isAddCourseOpen ? 'Fermer' : 'Nouveau Programme'}</span>
+              </button>
+            )}
           </div>
 
           {/* Formulaire Programme Formations */}
-          {isAddCourseOpen && (
+          {hasPerm('manage_courses') && isAddCourseOpen && (
             <form
               onSubmit={handleSaveCourse}
               className="p-4 sm:p-5 rounded-2xl bg-cyan-50/60 border-2 border-cyan-300 space-y-4 text-xs text-slate-800 shadow-sm"
@@ -3558,7 +3988,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           </span>
                         </div>
 
-                        {isPrincipal && (
+                        {hasPerm('delete_courses') && (
                           <button
                             type="button"
                             onClick={() => {
@@ -3601,7 +4031,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 Définissez les tarifs de transport selon la situation géographique du client.
               </p>
             </div>
-            {isPrincipal && (
+            {hasPerm('manage_delivery') && (
               <button
                 type="button"
                 onClick={() => setIsAddZoneOpen(!isAddZoneOpen)}
@@ -3614,7 +4044,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           </div>
 
           {/* Formulaire Zone de Livraison */}
-          {isAddZoneOpen && (
+          {hasPerm('manage_delivery') && isAddZoneOpen && (
             <form
               onSubmit={handleCreateDeliveryZone}
               className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-300 space-y-3 text-xs text-slate-800"
@@ -3721,7 +4151,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     </div>
                   </div>
 
-                  {isPrincipal && (
+                  {hasPerm('manage_delivery') && (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -3828,6 +4258,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <div className="flex items-center gap-1 shrink-0">
                       <select
                         value={b.flag || '🇧🇫'}
+                        disabled={!hasPerm('manage_delivery') && !hasPerm('manage_content')}
                         onChange={(e) => {
                           const selectedOption = e.target.selectedOptions[0];
                           const cName = selectedOption?.getAttribute('data-country') || 'Burkina Faso';
@@ -3835,7 +4266,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             onUpdateBoutiqueFlag(b.id, e.target.value, cName);
                           }
                         }}
-                        className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 outline-none font-medium cursor-pointer"
+                        className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 outline-none font-medium cursor-pointer disabled:opacity-50"
                       >
                         <option value="🇧🇫" data-country="Burkina Faso">🇧🇫 Burkina Faso</option>
                         <option value="🇨🇮" data-country="Côte d'Ivoire">🇨🇮 Côte d'Ivoire</option>
@@ -3995,8 +4426,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </p>
             </div>
 
-            {/* Toggle Open/Closed Messaging (Principal Admin only) */}
-            {isPrincipal && onToggleInvestorChat && (
+            {/* Toggle Open/Closed Messaging */}
+            {hasPerm('manage_content') && onToggleInvestorChat && (
               <button
                 type="button"
                 onClick={onToggleInvestorChat}
@@ -4014,31 +4445,98 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             )}
           </div>
 
-          {/* Admin Chat Broadcast Box */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-            <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-emerald-600 text-base">campaign</span>
-              <span>Publier un Message Officiel aux Investisseurs</span>
-            </h3>
+          {/* Admin Chat Broadcast Box (Texte + Note Vocale WhatsApp-style) */}
+          {hasPerm('manage_content') && (
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+              <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-emerald-600 text-base">campaign</span>
+                <span>Publier un Message Officiel ou Vocal aux Investisseurs</span>
+              </h3>
 
-            <form onSubmit={handleSendAdminChatMessage} className="flex gap-2">
-              <input
-                type="text"
-                required
-                value={adminChatText}
-                onChange={(e) => setAdminChatText(e.target.value)}
-                placeholder="Rédigez un communiqué officiel ou une réponse collective..."
-                className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-emerald-500"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0"
-              >
-                <span className="material-symbols-outlined text-sm">send</span>
-                <span>Envoyer</span>
-              </button>
-            </form>
-          </div>
+              {adminVoiceError && (
+                <p role="alert" className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {adminVoiceError}
+                </p>
+              )}
+
+              {isRecordingAdminVoice ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-rose-50 border border-rose-300">
+                  <div className="flex items-center gap-2 text-xs font-bold text-rose-800">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></span>
+                    <span>Enregistrement vocal en cours… {adminRecordingSeconds}s</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => stopAdminVoiceRecording(true)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => stopAdminVoiceRecording(false)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-sm">stop_circle</span>
+                      <span>Terminer</span>
+                    </button>
+                  </div>
+                </div>
+              ) : adminVoiceDraft ? (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm">graphic_eq</span>
+                      <span>Note vocale prête ({adminVoiceDraft.audioDuration}s)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAdminVoiceDraft(null)}
+                      className="text-[11px] font-bold text-red-700 hover:underline cursor-pointer"
+                    >
+                      Supprimer le vocal
+                    </button>
+                  </div>
+                  <audio controls preload="metadata" src={adminVoiceDraft.audioUrl} className="w-full h-9" />
+                </div>
+              ) : null}
+
+              <form onSubmit={handleSendAdminChatMessage} className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  required={!adminVoiceDraft}
+                  value={adminChatText}
+                  onChange={(e) => setAdminChatText(e.target.value)}
+                  disabled={isSendingAdminChat || isRecordingAdminVoice}
+                  placeholder={adminVoiceDraft ? 'Légende optionnelle pour le message vocal...' : 'Rédigez un communiqué officiel ou une réponse collective...'}
+                  className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-emerald-500 disabled:opacity-60"
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isRecordingAdminVoice && !adminVoiceDraft && (
+                    <button
+                      type="button"
+                      disabled={isSendingAdminChat}
+                      onClick={() => void startAdminVoiceRecording()}
+                      className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-bold text-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      title="Enregistrer un message vocal"
+                    >
+                      <span className="material-symbols-outlined text-sm text-rose-600">mic</span>
+                      <span>Vocal</span>
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSendingAdminChat || isRecordingAdminVoice || (!adminChatText.trim() && !adminVoiceDraft)}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="material-symbols-outlined text-sm">send</span>
+                    <span>{isSendingAdminChat ? 'Envoi…' : adminVoiceDraft ? 'Envoyer Vocal' : 'Envoyer'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Message Thread History */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3">
@@ -4048,7 +4546,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-slate-400">Synchronisé en temps réel</span>
-                {isPrincipal && investorMessages.length > 0 && onClearInvestorMessages && (
+                {hasPerm('manage_content') && investorMessages.length > 0 && onClearInvestorMessages && (
                   <button
                     type="button"
                     onClick={() => {
@@ -4090,7 +4588,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-400 font-mono">{msg.timestamp}</span>
-                        {isPrincipal && onDeleteInvestorMessage && (
+                        {hasPerm('manage_content') && onDeleteInvestorMessage && (
                           <button
                             type="button"
                             onClick={() => onDeleteInvestorMessage(msg.id)}
@@ -4102,14 +4600,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         )}
                       </div>
                     </div>
-                    <p className="text-slate-700">{msg.text}</p>
+                    {msg.text && <p className="text-slate-700">{msg.text}</p>}
+                    {(msg.messageType === 'voice' || msg.audioUrl) && msg.audioUrl && (
+                      <div className="pt-1 space-y-1">
+                        <audio controls preload="metadata" src={msg.audioUrl} className="w-full h-8" />
+                        {typeof msg.audioDuration === 'number' && msg.audioDuration > 0 && (
+                          <span className="text-[10px] font-mono text-slate-500">Durée : {msg.audioDuration}s</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </div>
           </div>
 
-          {isPrincipal && onCreateInvestor && (
+          {hasPerm('manage_investors') && onCreateInvestor && (
             <form onSubmit={handleCreateInvestor} className="p-4 rounded-2xl bg-white border border-cyan-200 shadow-xs space-y-3">
               <div>
                 <h3 className="font-syne text-sm font-bold text-slate-900">Créer ou activer un compte investisseur</h3>
@@ -4128,8 +4634,40 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </>
                 )}
                 <input required type="email" autoComplete="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder={investorProvisioningMode === 'existing' ? 'Adresse e-mail déjà enregistrée' : 'Adresse e-mail'} className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (12+ caractères)" className="rounded-lg border border-slate-300 p-2 text-xs" />
-                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.passwordConfirm} onChange={(event) => setNewInvestor({ ...newInvestor, passwordConfirm: event.target.value })} placeholder="Confirmer le mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs" />
+                <div className="flex items-center gap-1.5">
+                  <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 p-2 text-xs font-mono" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const generated = generateProvisionalPassword();
+                      setNewInvestor((prev) => ({ ...prev, password: generated, passwordConfirm: generated }));
+                      setShowNewInvestorPassword(true);
+                    }}
+                    className="px-2.5 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] shrink-0 cursor-pointer"
+                    title="Générer un mot de passe fort"
+                  >
+                    Générer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewInvestorPassword((v) => !v)}
+                    className="px-2 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+                    title={showNewInvestorPassword ? 'Masquer' : 'Afficher'}
+                  >
+                    <span className="material-symbols-outlined text-sm">{showNewInvestorPassword ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                  {newInvestor.password && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(newInvestor.password, 'new_inv_pwd')}
+                      className="px-2 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+                      title="Copier le mot de passe"
+                    >
+                      <span className="material-symbols-outlined text-sm">{copiedKey === 'new_inv_pwd' ? 'done' : 'content_copy'}</span>
+                    </button>
+                  )}
+                </div>
+                <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.passwordConfirm} onChange={(event) => setNewInvestor({ ...newInvestor, passwordConfirm: event.target.value })} placeholder="Confirmer le mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs font-mono" />
                 {investorProvisioningMode === 'new' && (
                   <>
                     <label className="text-[11px] text-slate-600">Montant déjà investi (FCFA)<input type="number" min="0" step="1" value={newInvestor.totalInvested} onChange={(event) => setNewInvestor({ ...newInvestor, totalInvested: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs" /></label>
@@ -4138,6 +4676,171 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </>
                 )}
               </div>
+              {investorProvisioningMode === 'new' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-800">
+                      Répartition détaillée des parts par Boutique &amp; Opération (optionnel)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const defaultSector: BoutiqueSector = 'Électronique';
+                        const matchingOp = projects.find((p) => (p.sector || p.category) === defaultSector) || projects[0];
+                        const opSector = (matchingOp?.sector || matchingOp?.category || defaultSector) as BoutiqueSector;
+                        const unitPrice = matchingOp?.sharePrice || matchingOp?.offers?.[0]?.sharePrice || 0;
+                        const nextList: ShareAllocation[] = [
+                          ...newInvestorAllocations,
+                          {
+                            id: `alloc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                            sector: ['Électronique', 'Électrotechnique', 'Informatique'].includes(opSector) ? opSector : defaultSector,
+                            operationId: matchingOp?.id || '',
+                            operationTitle: matchingOp?.title || '',
+                            shares: 1,
+                            amount: unitPrice
+                          }
+                        ];
+                        setNewInvestorAllocations(nextList);
+                        const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                        const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                        setNewInvestor((prev) => ({ ...prev, sharesCount: String(sumShares), totalInvested: String(sumAmount) }));
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold text-[11px] cursor-pointer"
+                    >
+                      + Ajouter une ligne boutique/opération
+                    </button>
+                  </div>
+                  {newInvestorAllocations.length > 0 && (
+                    <div className="space-y-2">
+                      {newInvestorAllocations.map((alloc, idx) => {
+                        const sectorOps = projects.filter((p) => (p.sector || p.category) === alloc.sector);
+                        return (
+                          <div key={alloc.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white p-2 rounded-lg border border-slate-200">
+                            <label className="sm:col-span-3 text-[10px] text-slate-600 font-semibold">
+                              Boutique
+                              <select
+                                value={alloc.sector}
+                                onChange={(e) => {
+                                  const nextSector = e.target.value as BoutiqueSector;
+                                  const firstOp = projects.find((p) => (p.sector || p.category) === nextSector);
+                                  const unitPrice = firstOp?.sharePrice || firstOp?.offers?.[0]?.sharePrice || 0;
+                                  const nextList = newInvestorAllocations.map((item, i) =>
+                                    i === idx
+                                      ? {
+                                          ...item,
+                                          sector: nextSector,
+                                          operationId: firstOp?.id || '',
+                                          operationTitle: firstOp?.title || '',
+                                          amount: unitPrice > 0 ? unitPrice * item.shares : item.amount
+                                        }
+                                      : item
+                                  );
+                                  setNewInvestorAllocations(nextList);
+                                  const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                                  setNewInvestor((prev) => ({ ...prev, totalInvested: String(sumAmount) }));
+                                }}
+                                className="mt-0.5 w-full rounded border border-slate-300 p-1.5 text-xs"
+                              >
+                                <option value="Électronique">Électronique</option>
+                                <option value="Électrotechnique">Électrotechnique</option>
+                                <option value="Informatique">Informatique</option>
+                              </select>
+                            </label>
+                            <label className="sm:col-span-4 text-[10px] text-slate-600 font-semibold">
+                              Opération ciblée
+                              <select
+                                value={alloc.operationId}
+                                onChange={(e) => {
+                                  const op = projects.find((p) => p.id === e.target.value);
+                                  const unitPrice = op?.sharePrice || op?.offers?.[0]?.sharePrice || 0;
+                                  const nextList = newInvestorAllocations.map((item, i) =>
+                                    i === idx
+                                      ? {
+                                          ...item,
+                                          operationId: e.target.value,
+                                          operationTitle: op?.title || '',
+                                          amount: unitPrice > 0 ? unitPrice * item.shares : item.amount
+                                        }
+                                      : item
+                                  );
+                                  setNewInvestorAllocations(nextList);
+                                  const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                                  setNewInvestor((prev) => ({ ...prev, totalInvested: String(sumAmount) }));
+                                }}
+                                className="mt-0.5 w-full rounded border border-slate-300 p-1.5 text-xs"
+                              >
+                                <option value="">-- Choisir une opération --</option>
+                                {sectorOps.map((op) => (
+                                  <option key={op.id} value={op.id}>{op.title}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="sm:col-span-2 text-[10px] text-slate-600 font-semibold">
+                              Parts
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={alloc.shares}
+                                onChange={(e) => {
+                                  const nextShares = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                  const op = projects.find((p) => p.id === alloc.operationId);
+                                  const unitPrice = op?.sharePrice || op?.offers?.[0]?.sharePrice || 0;
+                                  const nextList = newInvestorAllocations.map((item, i) =>
+                                    i === idx
+                                      ? { ...item, shares: nextShares, amount: unitPrice > 0 ? unitPrice * nextShares : item.amount }
+                                      : item
+                                  );
+                                  setNewInvestorAllocations(nextList);
+                                  const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                                  const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                                  setNewInvestor((prev) => ({ ...prev, sharesCount: String(sumShares), totalInvested: String(sumAmount) }));
+                                }}
+                                className="mt-0.5 w-full rounded border border-slate-300 p-1.5 text-xs"
+                              />
+                            </label>
+                            <label className="sm:col-span-2 text-[10px] text-slate-600 font-semibold">
+                              Montant (FCFA)
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={alloc.amount}
+                                onChange={(e) => {
+                                  const nextAmount = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                  const nextList = newInvestorAllocations.map((item, i) =>
+                                    i === idx ? { ...item, amount: nextAmount } : item
+                                  );
+                                  setNewInvestorAllocations(nextList);
+                                  const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                                  setNewInvestor((prev) => ({ ...prev, totalInvested: String(sumAmount) }));
+                                }}
+                                className="mt-0.5 w-full rounded border border-slate-300 p-1.5 text-xs"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextList = newInvestorAllocations.filter((_, i) => i !== idx);
+                                setNewInvestorAllocations(nextList);
+                                if (nextList.length > 0) {
+                                  const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                                  const sumAmount = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.amount) || 0), 0);
+                                  setNewInvestor((prev) => ({ ...prev, sharesCount: String(sumShares), totalInvested: String(sumAmount) }));
+                                }
+                              }}
+                              className="sm:col-span-1 py-1.5 px-2 rounded bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs cursor-pointer"
+                              title="Retirer cette ligne"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               {investorCreateError && <p role="alert" className="text-xs font-semibold text-red-700">{investorCreateError}</p>}
               {investorCreateMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorCreateMessage}</p>}
               <button type="submit" disabled={isCreatingInvestor} className="rounded-xl bg-cyan-700 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
@@ -4170,7 +4873,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   Aucun compte investisseur enregistré pour l'instant.
                 </div>
               ) : (
-                registeredInvestors.map((inv) => (
+                registeredInvestors.map((inv) => {
+                  const emailKey = inv.email.trim().toLowerCase();
+                  const sessionTemp = sessionTemporaryPasswords[emailKey];
+                  const isTempRevealed = Boolean(revealedTempPasswordKeys[emailKey]);
+                  return (
                   <div key={inv.id}>
                   <div className="p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div>
@@ -4203,10 +4910,50 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             ? 'Bloqué'
                             : 'En Attente'}
                         </span>
+                        <span
+                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                            inv.hasPasswordConfigured
+                              ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
+                          }`}
+                        >
+                          {inv.hasPasswordConfigured ? 'Mot de passe actif' : 'Mot de passe non défini'}
+                        </span>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        {inv.email} • {inv.phone} • Mot de passe protégé (non visible)
+                      <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span>{inv.email} • {inv.phone}</span>
+                        {inv.hasPasswordConfigured ? (
+                          <span className="text-cyan-800 font-medium">
+                            ({inv.passwordAlgorithm || 'scrypt'}{inv.passwordUpdatedAt ? ` · maj ${inv.passwordUpdatedAt}` : ''})
+                          </span>
+                        ) : (
+                          <span className="text-amber-700 font-medium">(Aucun mot de passe défini)</span>
+                        )}
                       </div>
+                      {sessionTemp && (
+                        <div className="mt-1 inline-flex flex-wrap items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-[10px] text-amber-950">
+                          <span className="font-bold">Provisoire (session {sessionTemp.updatedAt}) :</span>
+                          <code className="font-mono font-bold">
+                            {isTempRevealed ? sessionTemp.password : '••••••••••••'}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRevealedTempPasswordKeys((prev) => ({ ...prev, [emailKey]: !prev[emailKey] }))
+                            }
+                            className="font-bold text-cyan-800 hover:underline cursor-pointer"
+                          >
+                            {isTempRevealed ? 'Masquer' : 'Afficher'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyText(sessionTemp.password, `tmp_row_${inv.id}`)}
+                            className="font-bold text-emerald-800 hover:underline cursor-pointer"
+                          >
+                            {copiedKey === `tmp_row_${inv.id}` ? 'Copié' : 'Copier'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -4217,9 +4964,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       {expandedInvestorId === inv.id ? 'Fermer le dossier' : 'Dossier complet'}
                     </button>
 
-                    {isPrincipal && (
+                    {(hasPerm('manage_investors') || isPrincipal) && (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {inv.status !== 'approuve' && (
+                        {hasPerm('manage_investors') && inv.status !== 'approuve' && (
                           <button
                             type="button"
                             onClick={() => onUpdateInvestorStatus?.(inv.id, 'approuve')}
@@ -4229,7 +4976,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             Approuver
                           </button>
                         )}
-                        {inv.status !== 'refuse' && (
+                        {hasPerm('manage_investors') && inv.status !== 'refuse' && (
                           <button
                             type="button"
                             onClick={() => {
@@ -4242,7 +4989,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             Refuser
                           </button>
                         )}
-                        {inv.status === 'approuve' && (
+                        {hasPerm('manage_investors') && inv.status === 'approuve' && (
                           <button
                             type="button"
                             onClick={() => onUpdateInvestorStatus?.(inv.id, 'suspendu')}
@@ -4252,7 +4999,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             Suspendre
                           </button>
                         )}
-                        {inv.status !== 'bloque' ? (
+                        {hasPerm('manage_investors') && inv.status !== 'bloque' && (
                           <button
                             type="button"
                             onClick={() => onUpdateInvestorStatus?.(inv.id, 'bloque')}
@@ -4261,7 +5008,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           >
                             Bloquer
                           </button>
-                        ) : (
+                        )}
+                        {hasPerm('manage_investors') && inv.status === 'bloque' && (
                           <button
                             type="button"
                             onClick={() => onUpdateInvestorStatus?.(inv.id, 'approuve')}
@@ -4271,7 +5019,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             Débloquer
                           </button>
                         )}
-                        {onDeleteInvestor && (
+                        {isPrincipal && onDeleteInvestor && (
                           <button
                             type="button"
                             onClick={() => {
@@ -4312,12 +5060,64 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             <div><span className="text-slate-500">Montant investi</span><strong className="block text-slate-900">{(investorDetail.investor.totalInvested || 0).toLocaleString('fr-FR')} FCFA</strong></div>
                             <div><span className="text-slate-500">Parts détenues</span><strong className="block text-slate-900">{investorDetail.investor.sharesCount || 0}</strong></div>
                             <div><span className="text-slate-500">Dividendes perçus</span><strong className="block text-slate-900">{(investorDetail.investor.dividendsEarned || 0).toLocaleString('fr-FR')} FCFA</strong></div>
+                            <div>
+                              <span className="text-slate-500">Sécurité mot de passe</span>
+                              <strong className="block text-slate-900">
+                                {investorDetail.investor.hasPasswordConfigured
+                                  ? `Configuré (${investorDetail.investor.passwordAlgorithm || 'scrypt'}${investorDetail.investor.passwordUpdatedAt ? ` · ${investorDetail.investor.passwordUpdatedAt}` : ''})`
+                                  : 'Aucun mot de passe défini'}
+                              </strong>
+                            </div>
                           </section>
 
-                          {isPrincipal && investorEdit && (
+                          {sessionTemp && (
+                            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-950">
+                              <div className="space-y-0.5">
+                                <span className="font-bold block">Mot de passe provisoire défini durant cette session ({sessionTemp.updatedAt}) :</span>
+                                <code className="font-mono text-sm font-bold text-slate-900">
+                                  {isTempRevealed ? sessionTemp.password : '••••••••••••••••'}
+                                </code>
+                                <span className="block text-[10px] text-amber-800">Affiché uniquement en mémoire de session (non persisté en clair).</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRevealedTempPasswordKeys((prev) => ({ ...prev, [emailKey]: !prev[emailKey] }))
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-bold text-[11px] cursor-pointer"
+                                >
+                                  {isTempRevealed ? 'Masquer' : 'Afficher'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyText(sessionTemp.password, `tmp_dossier_${inv.id}`)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer"
+                                >
+                                  {copiedKey === `tmp_dossier_${inv.id}` ? 'Copié !' : 'Copier'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {Array.isArray(investorDetail.investor.shareAllocations) && investorDetail.investor.shareAllocations.length > 0 && (
+                            <section className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-1.5 text-[11px]">
+                              <h4 className="font-bold text-cyan-950">Répartition par Boutique &amp; Opération</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {investorDetail.investor.shareAllocations.map((alloc) => (
+                                  <span key={alloc.id} className="px-2.5 py-1 rounded-lg bg-white border border-cyan-200 text-slate-800 font-medium">
+                                    <strong>{alloc.sector}</strong> · {alloc.operationTitle || alloc.operationId} :{' '}
+                                    <strong className="text-cyan-800">{alloc.shares} parts</strong> ({(alloc.amount || 0).toLocaleString('fr-FR')} FCFA)
+                                  </span>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+
+                          {hasPerm('manage_investors') && investorEdit && (
                             <form onSubmit={handleSaveInvestor} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                               <h4 className="text-xs font-bold text-slate-900">Modifier le profil et le portefeuille</h4>
-                              <p className="text-[10px] text-slate-500">Les totaux de portefeuille sont conservés indépendamment des lignes d’historique; corrigez aussi les souscriptions ci-dessous si nécessaire.</p>
+                              <p className="text-[10px] text-slate-500">Les totaux de portefeuille sont conservés indépendamment des lignes d’historique; la répartition boutique/opération ci-dessous synchronise les parts par secteur.</p>
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                                 <label className="text-[10px] text-slate-600">Prénom<input required value={investorEdit.firstName || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, firstName: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
                                 <label className="text-[10px] text-slate-600">Nom<input required value={investorEdit.lastName || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, lastName: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
@@ -4338,6 +5138,166 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 </label>
                                 <label className="text-[10px] text-slate-600 sm:col-span-2">Motif du statut<input value={investorEdit.statusReason || ''} onChange={(event) => setInvestorEdit({ ...investorEdit, statusReason: event.target.value })} className="mt-1 w-full rounded border border-slate-300 p-2 text-xs" /></label>
                               </div>
+
+                              {/* Itemized shareAllocations editor */}
+                              <div className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-slate-800">
+                                    Lignes de parts par Boutique &amp; Opération ({(investorEdit.shareAllocations || []).length})
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const defaultSector: BoutiqueSector = 'Électronique';
+                                      const matchingOp = projects.find((p) => (p.sector || p.category) === defaultSector) || projects[0];
+                                      const opSector = (matchingOp?.sector || matchingOp?.category || defaultSector) as BoutiqueSector;
+                                      const unitPrice = matchingOp?.sharePrice || matchingOp?.offers?.[0]?.sharePrice || 0;
+                                      const currentList = investorEdit.shareAllocations || [];
+                                      const nextList: ShareAllocation[] = [
+                                        ...currentList,
+                                        {
+                                          id: `alloc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                          sector: ['Électronique', 'Électrotechnique', 'Informatique'].includes(opSector) ? opSector : defaultSector,
+                                          operationId: matchingOp?.id || '',
+                                          operationTitle: matchingOp?.title || '',
+                                          shares: 1,
+                                          amount: unitPrice
+                                        }
+                                      ];
+                                      const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                                      setAllocationsTouched(true);
+                                      setInvestorEdit({ ...investorEdit, shareAllocations: nextList, sharesCount: sumShares });
+                                    }}
+                                    className="px-2 py-1 rounded bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold text-[10px] cursor-pointer"
+                                  >
+                                    + Ajouter une ligne
+                                  </button>
+                                </div>
+
+                                {(investorEdit.shareAllocations || []).map((alloc, idx) => {
+                                  const sectorOps = projects.filter((p) => (p.sector || p.category) === alloc.sector);
+                                  return (
+                                    <div key={alloc.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end p-2 rounded border border-slate-100 bg-slate-50">
+                                      <label className="sm:col-span-3 text-[10px] text-slate-600">
+                                        Boutique
+                                        <select
+                                          value={alloc.sector}
+                                          onChange={(e) => {
+                                            const nextSector = e.target.value as BoutiqueSector;
+                                            const firstOp = projects.find((p) => (p.sector || p.category) === nextSector);
+                                            const unitPrice = firstOp?.sharePrice || firstOp?.offers?.[0]?.sharePrice || 0;
+                                            const nextList = (investorEdit.shareAllocations || []).map((item, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...item,
+                                                    sector: nextSector,
+                                                    operationId: firstOp?.id || '',
+                                                    operationTitle: firstOp?.title || '',
+                                                    amount: unitPrice > 0 ? unitPrice * item.shares : item.amount
+                                                  }
+                                                : item
+                                            );
+                                            setAllocationsTouched(true);
+                                            setInvestorEdit({ ...investorEdit, shareAllocations: nextList });
+                                          }}
+                                          className="mt-0.5 w-full rounded border border-slate-300 bg-white p-1.5 text-xs"
+                                        >
+                                          <option value="Électronique">Électronique</option>
+                                          <option value="Électrotechnique">Électrotechnique</option>
+                                          <option value="Informatique">Informatique</option>
+                                        </select>
+                                      </label>
+                                      <label className="sm:col-span-4 text-[10px] text-slate-600">
+                                        Opération
+                                        <select
+                                          value={alloc.operationId}
+                                          onChange={(e) => {
+                                            const op = projects.find((p) => p.id === e.target.value);
+                                            const unitPrice = op?.sharePrice || op?.offers?.[0]?.sharePrice || 0;
+                                            const nextList = (investorEdit.shareAllocations || []).map((item, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...item,
+                                                    operationId: e.target.value,
+                                                    operationTitle: op?.title || '',
+                                                    amount: unitPrice > 0 ? unitPrice * item.shares : item.amount
+                                                  }
+                                                : item
+                                            );
+                                            setAllocationsTouched(true);
+                                            setInvestorEdit({ ...investorEdit, shareAllocations: nextList });
+                                          }}
+                                          className="mt-0.5 w-full rounded border border-slate-300 bg-white p-1.5 text-xs"
+                                        >
+                                          <option value="">-- Choisir --</option>
+                                          {sectorOps.map((op) => (
+                                            <option key={op.id} value={op.id}>{op.title}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <label className="sm:col-span-2 text-[10px] text-slate-600">
+                                        Parts
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={1}
+                                          value={alloc.shares}
+                                          onChange={(e) => {
+                                            const nextShares = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                            const op = projects.find((p) => p.id === alloc.operationId);
+                                            const unitPrice = op?.sharePrice || op?.offers?.[0]?.sharePrice || 0;
+                                            const nextList = (investorEdit.shareAllocations || []).map((item, i) =>
+                                              i === idx
+                                                ? { ...item, shares: nextShares, amount: unitPrice > 0 ? unitPrice * nextShares : item.amount }
+                                                : item
+                                            );
+                                            const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                                            setAllocationsTouched(true);
+                                            setInvestorEdit({ ...investorEdit, shareAllocations: nextList, sharesCount: sumShares });
+                                          }}
+                                          className="mt-0.5 w-full rounded border border-slate-300 bg-white p-1.5 text-xs"
+                                        />
+                                      </label>
+                                      <label className="sm:col-span-2 text-[10px] text-slate-600">
+                                        Montant (FCFA)
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={1}
+                                          value={alloc.amount}
+                                          onChange={(e) => {
+                                            const nextAmount = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                            const nextList = (investorEdit.shareAllocations || []).map((item, i) =>
+                                              i === idx ? { ...item, amount: nextAmount } : item
+                                            );
+                                            setAllocationsTouched(true);
+                                            setInvestorEdit({ ...investorEdit, shareAllocations: nextList });
+                                          }}
+                                          className="mt-0.5 w-full rounded border border-slate-300 bg-white p-1.5 text-xs"
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextList = (investorEdit.shareAllocations || []).filter((_, i) => i !== idx);
+                                          const sumShares = nextList.reduce((acc, a) => acc + Math.max(0, Number(a.shares) || 0), 0);
+                                          setAllocationsTouched(true);
+                                          setInvestorEdit({
+                                            ...investorEdit,
+                                            shareAllocations: nextList,
+                                            ...(nextList.length > 0 ? { sharesCount: sumShares } : {})
+                                          });
+                                        }}
+                                        className="sm:col-span-1 py-1.5 px-2 rounded bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs cursor-pointer"
+                                        title="Retirer cette ligne"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
                               {investorEditError && <p role="alert" className="text-xs font-semibold text-red-700">{investorEditError}</p>}
                               {investorEditMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorEditMessage}</p>}
                               <button type="submit" disabled={investorManagementLoading} className="rounded-lg bg-cyan-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
@@ -4346,11 +5306,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </form>
                           )}
 
-                          {isPrincipal && onResetInvestorPassword && (
+                          {hasPerm('manage_investors_password') && onResetInvestorPassword && (
                             <form onSubmit={handleResetInvestorPassword} className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
                               <h4 className="text-xs font-bold text-slate-900">Réinitialiser le mot de passe</h4>
                               <div className="flex flex-col sm:flex-row gap-2">
-                                <input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={investorResetPassword} onChange={(event) => setInvestorResetPassword(event.target.value)} placeholder="Nouveau mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 p-2 text-xs" />
+                                <div className="flex flex-1 items-center gap-1.5">
+                                  <input required type={showResetInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={investorResetPassword} onChange={(event) => setInvestorResetPassword(event.target.value)} placeholder="Nouveau mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 bg-white p-2 text-xs font-mono" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInvestorResetPassword(generateProvisionalPassword());
+                                      setShowResetInvestorPassword(true);
+                                    }}
+                                    className="px-2.5 py-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] shrink-0 cursor-pointer"
+                                  >
+                                    Générer
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowResetInvestorPassword((v) => !v)}
+                                    className="px-2 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">{showResetInvestorPassword ? 'visibility_off' : 'visibility'}</span>
+                                  </button>
+                                </div>
                                 <button type="submit" disabled={investorManagementLoading} className="rounded-lg bg-amber-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Réinitialiser</button>
                               </div>
                               {investorPasswordError && <p role="alert" className="text-xs font-semibold text-red-700">{investorPasswordError}</p>}
@@ -4365,7 +5344,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             ) : (
                               <div className="overflow-x-auto">
                                 <table className="w-full min-w-[620px] text-left text-[10px]">
-                                  <thead><tr className="border-b text-slate-500"><th className="p-2">Opération / offre</th><th className="p-2">Parts</th><th className="p-2">Prix unitaire</th><th className="p-2">Montant</th><th className="p-2">Statut / paiement</th><th className="p-2">Dates</th>{isPrincipal && onUpdateInvestorSubscription && <th className="p-2">Action</th>}</tr></thead>
+                                  <thead><tr className="border-b text-slate-500"><th className="p-2">Opération / offre</th><th className="p-2">Parts</th><th className="p-2">Prix unitaire</th><th className="p-2">Montant</th><th className="p-2">Statut / paiement</th><th className="p-2">Dates</th>{hasPerm('manage_subscriptions') && onUpdateInvestorSubscription && <th className="p-2">Action</th>}</tr></thead>
                                   <tbody>{investorDetail.subscriptions.map((subscription) => (
                                     <tr key={subscription.id} className="border-b border-slate-100">
                                       <td className="p-2">{subscription.operationTitle || subscription.offerTitle || subscription.id}</td>
@@ -4374,14 +5353,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                       <td className="p-2">{(subscription.totalAmount || 0).toLocaleString('fr-FR')} FCFA</td>
                                       <td className="p-2">{subscription.status}{subscription.paymentMethod ? ` · ${subscription.paymentMethod}` : ''}</td>
                                       <td className="p-2">Demandée : {subscription.requestedAt}{subscription.approvedAt ? ` · Validée : ${subscription.approvedAt}` : ''}{subscription.paidAt ? ` · Payée : ${subscription.paidAt}` : ''}</td>
-                                      {isPrincipal && onUpdateInvestorSubscription && <td className="p-2"><button type="button" onClick={() => { setEditingInvestorSubscription(subscription); setSubscriptionEditError(null); setSubscriptionEditMessage(null); }} className="rounded bg-cyan-50 px-2 py-1 font-bold text-cyan-800">Modifier</button></td>}
+                                      {hasPerm('manage_subscriptions') && onUpdateInvestorSubscription && <td className="p-2"><button type="button" onClick={() => { setEditingInvestorSubscription(subscription); setSubscriptionEditError(null); setSubscriptionEditMessage(null); }} className="rounded bg-cyan-50 px-2 py-1 font-bold text-cyan-800">Modifier</button></td>}
                                     </tr>
                                   ))}</tbody>
                                 </table>
                               </div>
                             )}
                             {subscriptionEditMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{subscriptionEditMessage}</p>}
-                            {isPrincipal && onUpdateInvestorSubscription && editingInvestorSubscription && (
+                            {hasPerm('manage_subscriptions') && onUpdateInvestorSubscription && editingInvestorSubscription && (
                               <form onSubmit={handleSaveInvestorSubscription} className="mt-3 rounded-lg bg-slate-50 p-3 space-y-2">
                                 <h5 className="text-[11px] font-bold text-slate-800">Modifier la souscription {editingInvestorSubscription.id}</h5>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
@@ -4413,7 +5392,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     </div>
                   )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -4435,31 +5415,35 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </p>
             </div>
 
-            {isPrincipal && (
+            {(hasPerm('manage_operations') || hasPerm('manage_subscriptions')) && (
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddProjectOpen(!isAddProjectOpen)}
-                  className="py-2 px-3.5 rounded-xl btn-gold-prestige text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                >
-                  <span className="material-symbols-outlined text-sm">{isAddProjectOpen ? 'close' : 'add_circle'}</span>
-                  <span>{isAddProjectOpen ? 'Fermer le Formulaire' : 'Nouvelle Opération de Financement'}</span>
-                </button>
+                {hasPerm('manage_operations') && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddProjectOpen(!isAddProjectOpen)}
+                    className="py-2 px-3.5 rounded-xl btn-gold-prestige text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-sm">{isAddProjectOpen ? 'close' : 'add_circle'}</span>
+                    <span>{isAddProjectOpen ? 'Fermer le Formulaire' : 'Nouvelle Opération de Financement'}</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => setIsDistributeModalOpen(true)}
-                  className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                >
-                  <span className="material-symbols-outlined text-sm">payments</span>
-                  <span>Partager les Bénéfices / Gains</span>
-                </button>
+                {hasPerm('manage_subscriptions') && (
+                  <button
+                    type="button"
+                    onClick={openProfitDistributionModal}
+                    className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-sm">payments</span>
+                    <span>Partager les Bénéfices / Gains</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
 
           {/* Formulaire de Saisie et Publication d'une Opération de Financement */}
-          {isAddProjectOpen && (
+          {hasPerm('manage_operations') && isAddProjectOpen && (
             <form
               onSubmit={handleCreateAndPublishOperation}
               className="p-4 sm:p-5 rounded-2xl bg-amber-50/80 border-2 border-amber-400 shadow-md space-y-4 text-xs animate-fadeIn"
@@ -4702,7 +5686,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <span>Opérations de Financement Actives ({projects.length})</span>
               </h3>
               <div className="flex items-center gap-2">
-                {isPrincipal && (
+                {hasPerm('manage_operations') && (
                   <button
                     type="button"
                     onClick={() => setIsAddProjectOpen(!isAddProjectOpen)}
@@ -4727,7 +5711,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
                   Cliquez sur « Nouvelle Opération de Financement » ci-dessus pour saisir et publier un projet avec ses conditions de participation.
                 </p>
-                {isPrincipal && (
+                {hasPerm('manage_operations') && (
                   <button
                     type="button"
                     onClick={() => setIsAddProjectOpen(true)}
@@ -4796,7 +5780,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                     </div>
 
-                    {isPrincipal && (
+                    {hasPerm('manage_operations') && (
                       <div className="pt-2 border-t border-slate-200 space-y-1.5">
                         {editingOperation?.id === proj.id ? (
                           <form
@@ -4988,21 +5972,39 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                     </div>
 
-                    {isPrincipal && (
+                    {hasPerm('manage_subscriptions') && (
                       <div className="flex items-center gap-2">
                         {sub.status === 'pending_admin' && (
                           <>
                             <button
                               type="button"
-                              onClick={() => onApproveSubscription(sub.id)}
-                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
+                              disabled={Boolean(processingSubIds[sub.id])}
+                              onClick={async () => {
+                                if (processingSubIds[sub.id]) return;
+                                setProcessingSubIds((prev) => ({ ...prev, [sub.id]: true }));
+                                try {
+                                  await Promise.resolve(onApproveSubscription(sub.id));
+                                } finally {
+                                  setProcessingSubIds((prev) => ({ ...prev, [sub.id]: false }));
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Approuver
+                              {processingSubIds[sub.id] ? 'Traitement…' : 'Approuver'}
                             </button>
                             <button
                               type="button"
-                              onClick={() => onRejectSubscription(sub.id)}
-                              className="px-2 py-1 rounded bg-red-50 text-red-600 font-bold text-[11px] cursor-pointer"
+                              disabled={Boolean(processingSubIds[sub.id])}
+                              onClick={async () => {
+                                if (processingSubIds[sub.id]) return;
+                                setProcessingSubIds((prev) => ({ ...prev, [sub.id]: true }));
+                                try {
+                                  await Promise.resolve(onRejectSubscription(sub.id));
+                                } finally {
+                                  setProcessingSubIds((prev) => ({ ...prev, [sub.id]: false }));
+                                }
+                              }}
+                              className="px-2 py-1 rounded bg-red-50 text-red-600 font-bold text-[11px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               Rejeter
                             </button>
@@ -5011,29 +6013,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         {sub.status === 'approved_pending_payment' && (
                           <button
                             type="button"
-                            onClick={() => onForceValidateSubscription(sub.id)}
-                            className="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-[11px] cursor-pointer"
+                            disabled={Boolean(processingSubIds[sub.id])}
+                            onClick={async () => {
+                              if (processingSubIds[sub.id]) return;
+                              setProcessingSubIds((prev) => ({ ...prev, [sub.id]: true }));
+                              try {
+                                await Promise.resolve(onForceValidateSubscription(sub.id));
+                              } finally {
+                                setProcessingSubIds((prev) => ({ ...prev, [sub.id]: false }));
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-[11px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Confirmer la réception effective des fonds et valider officiellement"
                           >
-                            Valider le Paiement Reçu
+                            {processingSubIds[sub.id] ? 'Validation…' : 'Valider le Paiement Reçu'}
                           </button>
                         )}
                         {onDeleteSubscription && (
                           <button
                             type="button"
-                            onClick={() => {
+                            disabled={Boolean(processingSubIds[sub.id])}
+                            onClick={async () => {
+                              if (processingSubIds[sub.id]) return;
                               if (confirm(`Confirmez-vous la suppression de la souscription ${sub.id} pour ${sub.investorName} ?`)) {
-                                onDeleteSubscription(sub.id);
-                                onAddAuditLog({
-                                  author: currentAdminName,
-                                  date: new Date().toLocaleString('fr-FR'),
-                                  actionType: 'delete_subscription',
-                                  description: `Suppression de la souscription ${sub.id} pour ${sub.investorName}`,
-                                  entityType: 'subscription'
-                                });
+                                setProcessingSubIds((prev) => ({ ...prev, [sub.id]: true }));
+                                try {
+                                  await Promise.resolve(onDeleteSubscription(sub.id));
+                                  onAddAuditLog({
+                                    author: currentAdminName,
+                                    date: new Date().toLocaleString('fr-FR'),
+                                    actionType: 'delete_subscription',
+                                    description: `Suppression de la souscription ${sub.id} pour ${sub.investorName}`,
+                                    entityType: 'subscription'
+                                  });
+                                } finally {
+                                  setProcessingSubIds((prev) => ({ ...prev, [sub.id]: false }));
+                                }
                               }
                             }}
-                            className="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-bold text-[11px] cursor-pointer flex items-center gap-0.5"
+                            className="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 font-bold text-[11px] cursor-pointer flex items-center gap-0.5 disabled:opacity-50"
                             title="Supprimer définitivement cette demande"
                           >
                             <span className="material-symbols-outlined text-xs">delete</span>
@@ -5107,7 +6125,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                     </div>
 
-                    {isPrincipal && onDeleteProfitDistribution && (
+                    {hasPerm('manage_subscriptions') && onDeleteProfitDistribution && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5151,7 +6169,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   Affiché dans l'onglet "Activités" de l'espace investisseur. L'administrateur gère et peut tout supprimer.
                 </span>
               </div>
-              {isPrincipal && (
+              {hasPerm('manage_content') && (
                 <button
                   type="button"
                   onClick={() => setIsAddActivityOpen(!isAddActivityOpen)}
@@ -5164,7 +6182,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
 
             {/* Formulaire ajout activité */}
-            {isAddActivityOpen && (
+            {hasPerm('manage_content') && isAddActivityOpen && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -5307,7 +6325,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">{act.description}</p>
                     </div>
 
-                    {isPrincipal && onDeleteInvestorActivity && (
+                    {hasPerm('manage_content') && onDeleteInvestorActivity && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5346,7 +6364,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   Documents juridiques et financiers téléchargeables par les investisseurs.
                 </span>
               </div>
-              {isPrincipal && (
+              {hasPerm('manage_content') && (
                 <button
                   type="button"
                   onClick={() => setIsAddDocOpen(!isAddDocOpen)}
@@ -5359,7 +6377,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
 
             {/* Formulaire ajout document */}
-            {isAddDocOpen && (
+            {hasPerm('manage_content') && isAddDocOpen && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -5474,7 +6492,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                     </div>
 
-                    {isPrincipal && onDeleteInvestorDocument && (
+                    {hasPerm('manage_content') && onDeleteInvestorDocument && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5504,7 +6522,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       )}
 
       {/* MODAL DE DISTRIBUTION DIRECTE DES DIVIDENDES AUX INVESTISSEURS */}
-      {isDistributeModalOpen && (
+      {isDistributeModalOpen && hasPerm('manage_subscriptions') && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn overflow-y-auto">
           <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border-2 border-emerald-500 overflow-hidden my-auto max-h-[95vh] flex flex-col">
             {/* Header */}
@@ -5518,45 +6536,95 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     Distribution Directe des Dividendes aux Associés
                   </h3>
                   <span className="text-[10px] text-emerald-200">
-                    Saisie directe des montants calculés par la direction (sans formule de pourcentage imposée)
+                    Ciblage strict par Boutique &amp; Opération (vérification serveur atomique)
                   </span>
                 </div>
               </div>
               <button
                 type="button"
+                disabled={isDistributingProfit}
                 onClick={() => setIsDistributeModalOpen(false)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-base">close</span>
               </button>
             </div>
 
             {(() => {
-              // Calcul des investisseurs éligibles pour le secteur sélectionné
-              const eligibleInvestors = registeredInvestors.filter((inv) => {
-                // Sont admissibles les investisseurs enregistrés ayant des parts ou un engagement validé
-                return (inv.sharesCount || 0) > 0 || inv.totalInvested > 0 || subscriptions.some((s) => s.investorEmail.toLowerCase() === inv.email.toLowerCase());
-              });
+              const sectorOperations = projects.filter((p) => (p.sector || p.category) === distSector);
+              const selectedOp = sectorOperations.find((p) => p.id === distOperationId) || sectorOperations[0];
+              const resolvedOpId = selectedOp?.id || '';
+              const resolvedOpTitle = selectedOp?.title || '';
+
+              const confirmedSubInvestorIds = new Set<string>();
+              const confirmedSubInvestorEmails = new Set<string>();
+              if (resolvedOpId) {
+                for (const s of subscriptions) {
+                  if (
+                    s.operationId === resolvedOpId &&
+                    (s.status === 'paid_and_issued' || s.status === 'approved_pending_payment')
+                  ) {
+                    if (s.investorId) confirmedSubInvestorIds.add(s.investorId);
+                    if (s.investorEmail) confirmedSubInvestorEmails.add(s.investorEmail.trim().toLowerCase());
+                  }
+                }
+              }
+
+              const eligibleInvestors = resolvedOpId
+                ? registeredInvestors.filter((inv) => {
+                    if (inv.status !== 'approuve') return false;
+                    const hasMatchingAllocation =
+                      Array.isArray(inv.shareAllocations) &&
+                      inv.shareAllocations.some(
+                        (alloc) => alloc.sector === distSector && alloc.operationId === resolvedOpId && (alloc.shares || 0) > 0
+                      );
+                    const hasMatchingSubscription =
+                      confirmedSubInvestorIds.has(inv.id) ||
+                      confirmedSubInvestorEmails.has(inv.email.trim().toLowerCase());
+                    return hasMatchingAllocation || hasMatchingSubscription;
+                  })
+                : [];
 
               const investorsShareTotal = Math.max(0, distAmount || 0);
               const companyShare = Math.max(0, distCompanyAmount || 0);
               const totalOperationAmount = investorsShareTotal + companyShare;
               const eligibleCount = eligibleInvestors.length;
               const individualAmount = eligibleCount > 0 ? Math.floor(investorsShareTotal / eligibleCount) : 0;
-              const isBlocked = eligibleCount === 0 || investorsShareTotal <= 0;
+              const isBlocked = !selectedOp || eligibleCount === 0 || investorsShareTotal <= 0 || individualAmount <= 0 || isDistributingProfit;
 
               return (
                 <form
-                  onSubmit={(e) => {
+                  onSubmit={async (e) => {
                     e.preventDefault();
-                    if (isBlocked) {
-                      alert('La distribution est bloquée : aucun investisseur éligible ou montant invalide.');
+                    if (isBlocked || !selectedOp || !onDistributeProfits) {
+                      setProfitDistError('La distribution est bloquée : sélectionnez une boutique et une opération ayant au moins un investisseur approuvé admissible.');
                       return;
                     }
-                    if (onDistributeProfits) {
-                      onDistributeProfits(distProjectName, investorsShareTotal, distNotes, distSector, distPeriod, companyShare);
+                    setIsDistributingProfit(true);
+                    setProfitDistError(null);
+                    try {
+                      const ok = await Promise.resolve(
+                        onDistributeProfits(
+                          resolvedOpTitle,
+                          investorsShareTotal,
+                          distNotes,
+                          distSector,
+                          distPeriod,
+                          companyShare,
+                          resolvedOpId,
+                          profitDistIdempotencyKey
+                        )
+                      );
+                      if (ok !== false) {
+                        setIsDistributeModalOpen(false);
+                      } else {
+                        setProfitDistError('La distribution n’a pas pu être validée par le serveur. Vérifiez les paramètres ou réessayez.');
+                      }
+                    } catch (err) {
+                      setProfitDistError(err instanceof Error ? err.message : 'Erreur lors de la distribution des gains.');
+                    } finally {
+                      setIsDistributingProfit(false);
                     }
-                    setIsDistributeModalOpen(false);
                   }}
                   className="p-5 space-y-4 text-xs text-slate-800 overflow-y-auto"
                 >
@@ -5564,22 +6632,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   <div className="p-3 rounded-xl bg-slate-900 text-white border border-slate-700 space-y-1.5 shadow-sm">
                     <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px] uppercase tracking-wide">
                       <span className="material-symbols-outlined text-sm">verified_user</span>
-                      <span>Saisie Directe des Dividendes</span>
+                      <span>Ciblage Boutique &amp; Opération</span>
                     </div>
                     <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Vous calculez vous-même les sommes et saisissez directement le montant alloué aux associés. Aucun pourcentage n'est imposé. Le montant alloué est réparti à <strong className="text-amber-300">parts égales</strong> entre les {eligibleCount} associés admissibles du secteur concerné.
+                      Seuls les <strong className="text-emerald-300">investisseurs approuvés</strong> détenant des parts sur l’opération sélectionnée de la boutique <strong className="text-amber-300">{distSector}</strong> reçoivent ce versement ({eligibleCount} éligible{eligibleCount > 1 ? 's' : ''}).
                     </p>
                   </div>
+
+                  {profitDistError && (
+                    <div role="alert" className="p-3 rounded-xl bg-red-50 border border-red-300 text-red-800 text-xs font-semibold">
+                      {profitDistError}
+                    </div>
+                  )}
 
                   {/* Ligne 1 : Secteur et Période */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                        Secteur d'Activité Concerné *
+                        Boutique / Secteur Concerné *
                       </label>
                       <select
                         value={distSector}
-                        onChange={(e) => setDistSector(e.target.value as any)}
+                        disabled={isDistributingProfit}
+                        onChange={(e) => {
+                          const nextSector = e.target.value as BoutiqueSector;
+                          setDistSector(nextSector);
+                          const firstOp = projects.find((p) => (p.sector || p.category) === nextSector);
+                          setDistOperationId(firstOp?.id || '');
+                          setDistProjectName(firstOp?.title || '');
+                          setProfitDistError(null);
+                        }}
                         className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 font-bold outline-none focus:border-emerald-500 focus:bg-white"
                       >
                         <option value="Électronique">Électronique (Composants, IoT &amp; CMS)</option>
@@ -5598,6 +6680,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <input
                         type="text"
                         required
+                        disabled={isDistributingProfit}
                         value={distPeriod}
                         onChange={(e) => setDistPeriod(e.target.value)}
                         placeholder="Ex: 3ème Trimestre 2026"
@@ -5609,28 +6692,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Ligne 2 : Projet ou Activité */}
+                  {/* Ligne 2 : Opération de financement appartenant à la boutique */}
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                      Offre ou Projet d'Origine
+                      Opération Ciblée (Boutique {distSector}) *
                     </label>
-                    <select
-                      value={distProjectName}
-                      onChange={(e) => setDistProjectName(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 font-semibold outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.title}>
-                          {p.title} ({p.sector || p.category})
-                        </option>
-                      ))}
-                      <option value="Boutique & Vente directe de composants">
-                        Vente directe en Boutique physique &amp; web
-                      </option>
-                    </select>
+                    {sectorOperations.length === 0 ? (
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold">
+                        Aucune opération de financement n’est rattachée à la boutique « {distSector} ». Créez d’abord une opération dans ce secteur.
+                      </div>
+                    ) : (
+                      <select
+                        required
+                        disabled={isDistributingProfit}
+                        value={resolvedOpId}
+                        onChange={(e) => {
+                          const op = sectorOperations.find((p) => p.id === e.target.value);
+                          setDistOperationId(e.target.value);
+                          setDistProjectName(op?.title || '');
+                          setProfitDistError(null);
+                        }}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs text-slate-900 font-semibold outline-none focus:border-emerald-500 focus:bg-white"
+                      >
+                        {sectorOperations.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.title} ({p.offerStatus || p.status || 'Ouvert'})
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
-                  {/* Ligne 3 : Saisie Directe des Montants (sans 70%/30%) */}
+                  {/* Ligne 3 : Saisie Directe des Montants */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-slate-700 block mb-1">
@@ -5639,15 +6732,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <input
                         type="number"
                         required
-                        min={1000}
-                        step={1000}
+                        min={1}
+                        step={1}
+                        disabled={isDistributingProfit}
                         value={distAmount}
                         onChange={(e) => setDistAmount(Math.max(0, Number(e.target.value)))}
                         placeholder="Ex: 70000"
                         className="w-full bg-emerald-50/50 border-2 border-emerald-400 rounded-xl p-2.5 text-sm font-mono font-bold text-emerald-950 outline-none focus:border-emerald-600 focus:bg-white"
                       />
                       <span className="text-[10px] text-slate-500 block mt-0.5">
-                        Montant calculé par vos soins à verser aux associés
+                        Montant total à répartir entre les associés éligibles
                       </span>
                     </div>
 
@@ -5658,7 +6752,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <input
                         type="number"
                         min={0}
-                        step={1000}
+                        step={1}
+                        disabled={isDistributingProfit}
                         value={distCompanyAmount}
                         onChange={(e) => setDistCompanyAmount(Math.max(0, Number(e.target.value)))}
                         placeholder="Ex: 30000"
@@ -5740,7 +6835,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         Investisseurs Admissibles ({eligibleCount})
                       </label>
                       <span className="text-[10px] text-slate-500">
-                        Secteur {distSector} • Dividende unitaire
+                        {distSector} • {resolvedOpTitle || 'Aucune opération'}
                       </span>
                     </div>
 
@@ -5751,7 +6846,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           <span>Distribution Bloquée : 0 Investisseur Éligible</span>
                         </div>
                         <p className="text-[11px] text-red-600">
-                          Aucun investisseur éligible n'a été détecté dans les registres. Veuillez vérifier les souscriptions avant de publier.
+                          Aucun investisseur approuvé ne détient de part ou souscription validée sur cette opération de la boutique « {distSector} ».
                         </p>
                       </div>
                     ) : (
@@ -5786,6 +6881,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <input
                       type="text"
                       required
+                      disabled={isDistributingProfit}
                       value={distNotes}
                       onChange={(e) => setDistNotes(e.target.value)}
                       placeholder="Ex: Bénéfices nets validés sur les ventes de microcontrôleurs & matériel IoT (T3)"
@@ -5800,8 +6896,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   <div className="pt-2 flex gap-2 shrink-0">
                     <button
                       type="button"
+                      disabled={isDistributingProfit}
                       onClick={() => setIsDistributeModalOpen(false)}
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition-colors"
+                      className="flex-1 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition-colors disabled:opacity-50"
                     >
                       Annuler
                     </button>
@@ -5815,7 +6912,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       }`}
                     >
                       <span className="material-symbols-outlined text-sm">publish</span>
-                      <span>Publier le Partage des Bénéfices</span>
+                      <span>{isDistributingProfit ? 'Distribution en cours…' : 'Publier le Partage des Bénéfices'}</span>
                     </button>
                   </div>
                 </form>
@@ -6105,24 +7202,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </a>
 
                             {/* 2. Marquer en traitement si En attente */}
-                            {req.status === 'En attente' && onSetFundRequestProcessing && (
+                            {hasPerm('manage_funds') && req.status === 'En attente' && onSetFundRequestProcessing && (
                               <button
                                 type="button"
-                                onClick={() => onSetFundRequestProcessing(req.id)}
-                                className="px-2.5 py-1.5 rounded-xl bg-cyan-100 hover:bg-cyan-200 text-cyan-900 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                disabled={Boolean(processingFundIds[req.id])}
+                                onClick={async () => {
+                                  if (processingFundIds[req.id]) return;
+                                  setProcessingFundIds((prev) => ({ ...prev, [req.id]: true }));
+                                  try {
+                                    await Promise.resolve(onSetFundRequestProcessing(req.id));
+                                  } finally {
+                                    setProcessingFundIds((prev) => ({ ...prev, [req.id]: false }));
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-cyan-100 hover:bg-cyan-200 text-cyan-900 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Passer en cours de traitement"
                               >
                                 <span className="material-symbols-outlined text-sm">pending_actions</span>
-                                <span>En traitement</span>
+                                <span>{processingFundIds[req.id] ? 'Traitement…' : 'En traitement'}</span>
                               </button>
                             )}
 
                             {/* 3. Admettre / Confirmer l'opération */}
-                            {(req.status === 'En attente' || req.status === 'En cours de traitement') &&
+                            {hasPerm('manage_funds') &&
+                              (req.status === 'En attente' || req.status === 'En cours de traitement') &&
                               onConfirmFundRequest && (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  disabled={Boolean(processingFundIds[req.id])}
+                                  onClick={async () => {
+                                    if (processingFundIds[req.id]) return;
                                     if (
                                       confirm(
                                         `Confirmez-vous que vous avez RÉELLEMENT reçu les fonds ou effectué le virement pour la demande ${req.reference} de ${req.amount.toLocaleString(
@@ -6130,27 +7239,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                         )} FCFA pour ${req.investorName} ?\n\nCette action va modifier immédiatement le solde du portefeuille investisseur.`
                                       )
                                     ) {
-                                      onConfirmFundRequest(req.id);
+                                      setProcessingFundIds((prev) => ({ ...prev, [req.id]: true }));
+                                      try {
+                                        await Promise.resolve(onConfirmFundRequest(req.id));
+                                      } finally {
+                                        setProcessingFundIds((prev) => ({ ...prev, [req.id]: false }));
+                                      }
                                     }
                                   }}
-                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-colors"
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="Admettre et créditer/débiter le solde"
                                 >
                                   <span className="material-symbols-outlined text-sm">check_circle</span>
-                                  <span>Admettre / Confirmer</span>
+                                  <span>{processingFundIds[req.id] ? 'Confirmation…' : 'Admettre / Confirmer'}</span>
                                 </button>
                               )}
 
                             {/* 4. Refuser la demande avec motif */}
-                            {(req.status === 'En attente' || req.status === 'En cours de traitement') &&
+                            {hasPerm('manage_funds') &&
+                              (req.status === 'En attente' || req.status === 'En cours de traitement') &&
                               onRejectFundRequest && (
                                 <button
                                   type="button"
+                                  disabled={Boolean(processingFundIds[req.id])}
                                   onClick={() => {
                                     setRejectingFundReq(req);
                                     setRejectReasonInput('');
                                   }}
-                                  className="px-2.5 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                  className="px-2.5 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 text-red-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
                                   title="Refuser la demande"
                                 >
                                   <span className="material-symbols-outlined text-sm">close</span>
@@ -6213,7 +7329,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       )}
 
       {/* REJECTION REASON MODAL */}
-      {rejectingFundReq && (
+      {rejectingFundReq && hasPerm('manage_funds') && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 space-y-4 text-xs text-slate-800">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -6244,16 +7360,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </p>
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 if (!rejectReasonInput.trim()) {
                   alert('Veuillez spécifier le motif du refus.');
                   return;
                 }
-                if (onRejectFundRequest) {
-                  onRejectFundRequest(rejectingFundReq.id, rejectReasonInput.trim());
+                const targetId = rejectingFundReq.id;
+                if (processingFundIds[targetId]) return;
+                setProcessingFundIds((prev) => ({ ...prev, [targetId]: true }));
+                try {
+                  if (onRejectFundRequest) {
+                    await Promise.resolve(onRejectFundRequest(targetId, rejectReasonInput.trim()));
+                  }
+                  setRejectingFundReq(null);
+                } finally {
+                  setProcessingFundIds((prev) => ({ ...prev, [targetId]: false }));
                 }
-                setRejectingFundReq(null);
               }}
               className="space-y-3"
             >
@@ -6310,14 +7433,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           <div className="p-3.5 rounded-2xl bg-cyan-50 border border-cyan-200 text-xs text-cyan-950 space-y-1">
             <span className="font-bold flex items-center gap-1.5 text-cyan-900">
               <span className="material-symbols-outlined text-sm">shield</span>
-              <span>Politique de Sécurité &amp; Droits Restreints</span>
+              <span>Délégation Granulaire des Droits Administrateurs</span>
             </span>
             <p className="text-[11px] text-cyan-800">
-              Pour des raisons de sécurité, les administrateurs secondaires disposent uniquement des droits de gestion courante (mise à jour des stocks, visualisation des cours, réponse aux messages investisseurs). Les suppressions définitives, la modification des tarifs, la gestion des accès et l'approbation des souscriptions de parts sont strictement réservées au Super-Administrateur Principal.
+              En tant que Super-Administrateur Principal, vous choisissez exactement les droits accordés à chaque administrateur secondaire (jusqu’à 0 droit si tout est révoqué). Chaque permission est vérifiée à la fois dans l’interface et côté serveur sur les routes API. Les opérations système critiques (gestion des rôles, URL secrète, code maître, remise à zéro, SEO) restent strictement réservées au Principal.
             </p>
           </div>
 
-          {/* Nomination Admin Secondaire par simple Email */}
+          {adminPermFeedback && (
+            <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold">
+              {adminPermFeedback}
+            </div>
+          )}
+
+          {/* Nomination Admin Secondaire par simple Email + Sélection des droits */}
           {isPrincipal && (
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
               <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
@@ -6331,73 +7460,221 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               )}
 
-              <form onSubmit={handleAddSecondaryAdminByEmail} className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="email"
-                  required
-                  value={secondaryAdminEmailInput}
-                  onChange={(e) => setSecondaryAdminEmailInput(e.target.value)}
-                  placeholder="Saisissez l'email de la personne (ex: collaborateur@electromen.bf)..."
-                  className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-amber-500"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer shrink-0"
-                >
-                  Nommer Administrateur
-                </button>
+              <form onSubmit={handleAddSecondaryAdminByEmail} className="space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    required
+                    value={secondaryAdminEmailInput}
+                    onChange={(e) => setSecondaryAdminEmailInput(e.target.value)}
+                    placeholder="Saisissez l'email de la personne (ex: collaborateur@electromen.bf)..."
+                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-amber-500"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer shrink-0"
+                  >
+                    Nommer Administrateur
+                  </button>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-800">
+                      Droits initiaux attribués ({secondaryAdminPermissions.length} / {ALL_ADMIN_PERMISSIONS.length})
+                    </span>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setSecondaryAdminPermissions([...ALL_ADMIN_PERMISSIONS])}
+                        className="px-2 py-1 rounded bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold cursor-pointer"
+                      >
+                        Tout cocher
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSecondaryAdminPermissions([])}
+                        className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold cursor-pointer"
+                      >
+                        Tout décocher (0)
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {ADMIN_PERMISSION_DEFINITIONS.map((perm) => {
+                      const checked = secondaryAdminPermissions.includes(perm.id);
+                      return (
+                        <label
+                          key={perm.id}
+                          className={`flex items-start gap-2 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                            checked ? 'bg-cyan-50/70 border-cyan-300 text-slate-900' : 'bg-white border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setSecondaryAdminPermissions((prev) =>
+                                prev.includes(perm.id) ? prev.filter((id) => id !== perm.id) : [...prev, perm.id]
+                              )
+                            }
+                            className="mt-0.5 rounded text-cyan-700 focus:ring-0"
+                          />
+                          <div>
+                            <span className="font-bold block leading-tight">{perm.label}</span>
+                            <span className="text-[10px] text-slate-500 block leading-snug">{perm.description}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </form>
             </div>
           )}
 
-          {/* Liste des Administrateurs & Modification manuelle du mot de passe */}
+          {/* Liste des Administrateurs & Matrice de Permissions Secondaires */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-3 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-800">
               Équipe d'Administration Active ({adminUsers.length})
             </div>
             <div className="divide-y divide-slate-100">
-              {adminUsers.map((u) => (
-                <div key={u.id} className="p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-xs">{u.name}</span>
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                          u.role === 'admin_principal'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-cyan-100 text-cyan-800'
-                        }`}
-                      >
-                        {u.role === 'admin_principal' ? 'Principal' : 'Secondaire (Basique)'}
-                      </span>
+              {adminUsers.map((u) => {
+                const savedPerms: AdminPermission[] =
+                  u.role === 'admin_principal'
+                    ? [...ALL_ADMIN_PERMISSIONS]
+                    : Array.isArray(u.permissions)
+                    ? u.permissions
+                    : DEFAULT_SECONDARY_ADMIN_PERMISSIONS;
+                const draftPerms: AdminPermission[] = adminPermDrafts[u.id] ?? savedPerms;
+                const isDirty =
+                  u.role === 'admin_secondaire' &&
+                  (draftPerms.length !== savedPerms.length ||
+                    draftPerms.some((p) => !savedPerms.includes(p)));
+
+                return (
+                <div key={u.id} className="p-3.5 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-900 text-xs">{u.name}</span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                            u.role === 'admin_principal'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-cyan-100 text-cyan-800'
+                          }`}
+                        >
+                          {u.role === 'admin_principal'
+                            ? 'Principal (Accès Total)'
+                            : `Secondaire (${savedPerms.length} droit${savedPerms.length > 1 ? 's' : ''})`}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {u.email} • {u.phone} • Mot de passe stocké de manière sécurisée
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      {u.email} • {u.phone} • Mot de passe stocké de manière sécurisée
-                    </div>
+
+                    {isPrincipal && !u.isProtected && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setEditingSecondaryAdminPass({ user: u, newPass: '' })}
+                          className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] cursor-pointer"
+                        >
+                          Modifier mot de passe
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSecondaryAdmin(u.id, u.name, u.email)}
+                          className="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[11px] cursor-pointer flex items-center gap-1 transition-colors"
+                          title="Supprimer définitivement cet administrateur secondaire"
+                        >
+                          <span className="material-symbols-outlined text-xs">delete</span>
+                          <span>Supprimer</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {isPrincipal && !u.isProtected && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setEditingSecondaryAdminPass({ user: u, newPass: '' })}
-                        className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] cursor-pointer"
-                      >
-                        Modifier mot de passe
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSecondaryAdmin(u.id, u.name, u.email)}
-                        className="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[11px] cursor-pointer flex items-center gap-1 transition-colors"
-                        title="Supprimer définitivement cet administrateur secondaire"
-                      >
-                        <span className="material-symbols-outlined text-xs">delete</span>
-                        <span>Supprimer</span>
-                      </button>
+                  {isPrincipal && u.role === 'admin_secondaire' && (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] font-bold text-slate-800 flex items-center gap-2">
+                          <span>Droits attribués à {u.name} : {draftPerms.length} / {ALL_ADMIN_PERMISSIONS.length}</span>
+                          {isDirty && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[9px] font-extrabold uppercase">
+                              Modifications en attente
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                          <button
+                            type="button"
+                            disabled={savingAdminPermId === u.id}
+                            onClick={() =>
+                              setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [...ALL_ADMIN_PERMISSIONS] }))
+                            }
+                            className="px-2 py-1 rounded bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            Tout accorder
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingAdminPermId === u.id}
+                            onClick={() =>
+                              setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [] }))
+                            }
+                            className="px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-800 font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            Tout révoquer (0 droit)
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingAdminPermId === u.id}
+                            onClick={() => void handleUpdateAdminPermissions(u, draftPerms)}
+                            className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            {savingAdminPermId === u.id ? 'Enregistrement…' : 'Enregistrer les droits'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                        {ADMIN_PERMISSION_DEFINITIONS.map((perm) => {
+                          const checked = draftPerms.includes(perm.id);
+                          return (
+                            <label
+                              key={perm.id}
+                              className={`flex items-start gap-2 p-2 rounded-lg border text-[10px] cursor-pointer transition-colors ${
+                                checked ? 'bg-white border-cyan-300 text-slate-900 shadow-2xs' : 'bg-slate-100/70 border-slate-200 text-slate-500'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={savingAdminPermId === u.id}
+                                checked={checked}
+                                onChange={() => {
+                                  const next = checked
+                                    ? draftPerms.filter((id) => id !== perm.id)
+                                    : [...draftPerms, perm.id];
+                                  setAdminPermDrafts((prev) => ({ ...prev, [u.id]: next }));
+                                }}
+                                className="mt-0.5 rounded text-cyan-700 focus:ring-0"
+                              />
+                              <div>
+                                <span className="font-bold block leading-tight">{perm.label}</span>
+                                <span className="text-[9px] text-slate-500 block leading-snug">{perm.category}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -6415,18 +7692,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <input
                   type="password"
                   required
-                  minLength={12}
+                  minLength={8}
                   maxLength={128}
                   autoComplete="new-password"
                   value={masterPasswordInput}
                   onChange={(event) => setMasterPasswordInput(event.target.value)}
-                  placeholder="Nouveau code (12 caractères min.)"
+                  placeholder="Nouveau code (8 caractères min.)"
                   className="rounded-lg border border-slate-300 p-2 text-xs"
                 />
                 <input
                   type="password"
                   required
-                  minLength={12}
+                  minLength={8}
                   maxLength={128}
                   autoComplete="new-password"
                   value={masterPasswordConfirm}
@@ -7146,6 +8423,9 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
               <input
                 type="text"
                 required
+                minLength={8}
+                maxLength={128}
+                placeholder="Nouveau mot de passe (8 car. min.)"
                 value={editingSecondaryAdminPass.newPass}
                 onChange={(e) =>
                   setEditingSecondaryAdminPass({
@@ -7204,7 +8484,7 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
       )}
 
       {/* MODAL: GESTION & SUPPRESSION DES GROUPES / FAMILLES */}
-      {isAddGroupModalOpen && (
+      {isAddGroupModalOpen && hasPerm('manage_products') && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
           <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-5 space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -7266,7 +8546,7 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
                         <span className="text-[10px] font-mono text-slate-400 ml-2">({grp.id})</span>
                       </div>
 
-                      {isPrincipal && (
+                      {hasPerm('delete_products') && (
                         <button
                           type="button"
                           onClick={() => {

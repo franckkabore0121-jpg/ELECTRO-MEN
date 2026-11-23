@@ -4,6 +4,18 @@ import { validatePersonData } from '../utils/validation.ts';
 
 export type InvestorStatus = 'demande_non_soumise' | 'en_attente' | 'approuve' | 'refuse' | 'suspendu' | 'bloque';
 
+export type BoutiqueSector = 'Électronique' | 'Électrotechnique' | 'Informatique';
+
+export interface ShareAllocation {
+  id: string;
+  sector: BoutiqueSector;
+  operationId: string;
+  operationTitle: string;
+  shares: number;
+  amount: number;
+  updatedAt?: string;
+}
+
 export interface RegisteredInvestor {
   id: string;
   name: string;
@@ -18,12 +30,20 @@ export interface RegisteredInvestor {
   totalInvested: number;
   sharesCount: number;
   dividendsEarned: number;
+  hasPasswordConfigured?: boolean;
+  passwordAlgorithm?: string;
+  passwordUpdatedAt?: string;
+  shareAllocations?: ShareAllocation[];
 }
 
 export interface InvestorMessage {
   id: string;
   senderName: string;
   senderPhone?: string;
+  senderRole?: 'admin' | 'investor';
+  messageType?: 'text' | 'voice';
+  audioUrl?: string;
+  audioDuration?: number;
   text: string;
   timestamp: string;
   isOfficial?: boolean;
@@ -55,13 +75,27 @@ interface ScreenBourseIRProps {
   onInvestorSessionChange?: (investor: InvestorProfile | null) => void;
   onOpenPdfContract: (investorData: { name: string; phone: string; shares: number; total: number; id: string }) => void;
   onGoTab: (tab: any) => void;
-  onRequestSubscription: (data: { name: string; email: string; phone: string; shares: number; total: number }) => string;
+  onRequestSubscription: (data: {
+    id?: string;
+    name: string;
+    email: string;
+    phone: string;
+    shares: number;
+    total: number;
+    operationId?: string;
+    operationTitle?: string;
+  }) => string;
   onOpenPayment: (subId: string) => void;
   onOpenWallet: (action?: 'depot' | 'retrait' | 'history') => void;
   onOpenEmailInbox: () => void;
   // External synchronized messaging
   messages?: InvestorMessage[];
-  onSendMessage?: (text: string, senderName: string, isOfficial?: boolean) => void;
+  onSendMessage?: (
+    text: string,
+    senderName: string,
+    isOfficial?: boolean,
+    voice?: { audioUrl: string; audioDuration?: number }
+  ) => void | Promise<void>;
   isMessagingOpen?: boolean;
   projects?: InvestmentProject[];
   activities?: InvestorActivity[];
@@ -232,7 +266,9 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
               if (
                 prev.status !== serverInv.status ||
                 prev.sharesCount !== serverInv.sharesCount ||
-                prev.totalInvested !== serverInv.totalInvested
+                prev.totalInvested !== serverInv.totalInvested ||
+                prev.dividendsEarned !== serverInv.dividendsEarned ||
+                JSON.stringify(prev.shareAllocations || []) !== JSON.stringify(serverInv.shareAllocations || [])
               ) {
                 const nextInv = { ...prev, ...serverInv };
                 return nextInv;
@@ -256,14 +292,25 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [selectedShares, setSelectedShares] = useState<number>(4);
   const [selectedOperationId, setSelectedOperationId] = useState<string>('');
   const [selectedOfferId, setSelectedOfferId] = useState<string>('');
+  const [selectedInvestmentBoutique, setSelectedInvestmentBoutique] = useState<'all' | BoutiqueSector>('all');
   const [submittingSub, setSubmittingSub] = useState(false);
   const [subSuccess, setSubSuccess] = useState<string | null>(null);
 
-  // Community Chat Messages (empty by default, no mock conversations)
+  // Community Chat Messages + WhatsApp-style Voice Notes
   const [localMessages, setLocalMessages] = useState<InvestorMessage[]>([]);
 
   const activeMessages = externalMessages || localMessages;
   const [newMessageText, setNewMessageText] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceDurationSec, setVoiceDurationSec] = useState(0);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const audioStreamRef = React.useRef<MediaStream | null>(null);
+  const voiceChunksRef = React.useRef<Blob[]>([]);
+  const voiceTimerRef = React.useRef<number | null>(null);
+  const voiceCancelledRef = React.useRef(false);
+  const voiceStartTimeRef = React.useRef<number>(0);
 
   // Handle Investor Registration
   const handleRegister = async (e: React.FormEvent) => {
@@ -444,6 +491,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   // Handle funding subscription (requiert compte approuvé & sélection opération + offre)
   const handleParticipate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingSub) return;
     if (!isLoggedIn || !activeInvestor) {
       alert("Accès refusé : Vous devez impérativement créer un compte investisseur avant d'accéder à l'achat de parts.");
       return;
@@ -463,6 +511,11 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
     }
 
     const currentInv = activeInvestor;
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? `sub-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
+        : `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
     setSubmittingSub(true);
     let createdSubscription: InvestorSubscriptionHistory | undefined;
 
@@ -470,8 +523,12 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       const response = await fetch('/api/investor/subscribe-shares', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': idempotencyKey
+        },
         body: JSON.stringify({
+          idempotencyKey,
           investorId: currentInv.id,
           operationId: currentOpId,
           offerId: selectedOffer?.id || selectedOfferId || 'standard',
@@ -506,50 +563,175 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
         newSubscription,
         ...previous.filter((item) => item.id !== newSubscription.id)
       ]);
-    }
-
-    // Update local investor stats
-    setActiveInvestor((prev) => {
-      if (!prev) return null;
-      const updated = {
-        ...prev,
-        sharesCount: (prev.sharesCount || 0) + selectedShares,
-        totalInvested: (prev.totalInvested || 0) + (selectedShares * selectedSharePrice)
-      };
-      return updated;
-    });
-
-    setTimeout(() => {
       const generatedId = onRequestSubscription({
+        id: newSubscription.id,
         name: currentInv.name,
         email: currentInv.email,
         phone: currentInv.phone,
-        shares: selectedShares,
-        total: selectedShares * selectedSharePrice
+        shares: newSubscription.shares || selectedShares,
+        total: newSubscription.totalAmount || (selectedShares * selectedSharePrice),
+        operationId: newSubscription.operationId || currentOpId,
+        operationTitle: newSubscription.operationTitle || selectedOp?.title
       });
-
       setSubSuccess(generatedId);
-    }, 600);
+    }
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current !== null) window.clearInterval(voiceTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        voiceCancelledRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const stopVoiceRecording = (cancel = false) => {
+    voiceCancelledRef.current = cancel;
+    if (voiceTimerRef.current !== null) {
+      window.clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      setIsRecordingVoice(false);
+      setVoiceDurationSec(0);
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (!activeInvestor || !isMessagingOpen || isRecordingVoice || isSendingMessage) return;
+    setVoiceError(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError('Votre navigateur ne prend pas en charge l’enregistrement audio.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      const candidateTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+      const chosenType = candidateTypes.find((type) =>
+        typeof MediaRecorder.isTypeSupported === 'function' ? MediaRecorder.isTypeSupported(type) : false
+      );
+      const recorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+      voiceCancelledRef.current = false;
+      voiceStartTimeRef.current = Date.now();
+      setVoiceDurationSec(0);
+      setIsRecordingVoice(true);
+
+      voiceTimerRef.current = window.setInterval(() => {
+        setVoiceDurationSec(Math.max(1, Math.round((Date.now() - voiceStartTimeRef.current) / 1000)));
+      }, 400);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const wasCancelled = voiceCancelledRef.current;
+        const elapsedSec = Math.max(1, Math.round((Date.now() - voiceStartTimeRef.current) / 1000));
+        if (voiceTimerRef.current !== null) {
+          window.clearInterval(voiceTimerRef.current);
+          voiceTimerRef.current = null;
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        audioStreamRef.current = null;
+        setIsRecordingVoice(false);
+        setVoiceDurationSec(0);
+        if (wasCancelled) return;
+
+        const mimeType = recorder.mimeType || chosenType || 'audio/webm';
+        const blob = new Blob(voiceChunksRef.current, { type: mimeType });
+        if (blob.size < 128) {
+          setVoiceError('Enregistrement audio trop court.');
+          return;
+        }
+        setIsSendingMessage(true);
+        try {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error('Lecture audio impossible.'));
+            reader.readAsDataURL(blob);
+          });
+          const uploadRes = await fetch('/api/messages/voice', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileBase64: dataUrl, mimeType })
+          });
+          const uploadData = await uploadRes.json();
+          if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
+            throw new Error(uploadData.error || 'Échec du téléversement du message vocal.');
+          }
+          if (externalOnSendMessage) {
+            await externalOnSendMessage('Message vocal', activeInvestor.name, false, {
+              audioUrl: uploadData.url,
+              audioDuration: elapsedSec
+            });
+          } else {
+            setLocalMessages((prev) => [
+              ...prev,
+              {
+                id: `msg-${Date.now()}`,
+                senderName: activeInvestor.name,
+                senderPhone: activeInvestor.phone,
+                senderRole: 'investor',
+                messageType: 'voice',
+                audioUrl: uploadData.url,
+                audioDuration: elapsedSec,
+                text: 'Message vocal',
+                timestamp: 'À l’instant'
+              }
+            ]);
+          }
+        } catch (err) {
+          setVoiceError(err instanceof Error ? err.message : 'Erreur lors de l’envoi du message vocal.');
+        } finally {
+          setIsSendingMessage(false);
+        }
+      };
+
+      recorder.start(250);
+    } catch {
+      setVoiceError('Accès au microphone refusé ou indisponible.');
+      setIsRecordingVoice(false);
+    }
   };
 
   // Handle Chat Message
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessageText.trim() || !activeInvestor) return;
+    if (!newMessageText.trim() || !activeInvestor || isSendingMessage) return;
     if (!isMessagingOpen) {
       alert('La messagerie est actuellement fermée par l’administrateur.');
       return;
     }
 
+    const cleanText = newMessageText.trim();
     if (externalOnSendMessage) {
-      externalOnSendMessage(newMessageText.trim(), activeInvestor.name, false);
-      setNewMessageText('');
+      setIsSendingMessage(true);
+      try {
+        await externalOnSendMessage(cleanText, activeInvestor.name, false);
+        setNewMessageText('');
+      } finally {
+        setIsSendingMessage(false);
+      }
     } else {
       const newMsg: InvestorMessage = {
         id: `msg-${Date.now()}`,
         senderName: activeInvestor.name,
         senderPhone: activeInvestor.phone,
-        text: newMessageText.trim(),
+        text: cleanText,
         timestamp: 'À l’instant'
       };
       setLocalMessages((prev) => [...prev, newMsg]);
@@ -580,7 +762,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
         status: p.duration ? `Cycle ${p.cycleNumber || 1} • ${p.duration}` : 'En cours',
         description: p.description,
         offerStatus: p.offerStatus || (p.status === 'completed' ? 'Fermé' : 'Ouvert'),
-        sector: p.sector || (p.category.toLowerCase().includes('électrotechnique') ? 'Électrotechnique' : p.category.toLowerCase().includes('informatique') ? 'Informatique' : 'Électronique'),
+        sector: (p.sector || (p.category.toLowerCase().includes('électrotechnique') ? 'Électrotechnique' : p.category.toLowerCase().includes('informatique') ? 'Informatique' : 'Électronique')) as BoutiqueSector,
         objective: p.objective || p.description,
         conditions: p.conditions || 'Le prix unitaire et le quota de parts sont définis pour chaque opération.',
         sharePrice: p.sharePrice ?? p.offers?.[0]?.sharePrice ?? 0,
@@ -601,6 +783,27 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
     }
     return [];
   }, [projects]);
+
+  const activeOpenBoutiques = React.useMemo(() => {
+    const sectors = new Set<BoutiqueSector>();
+    operationsList.forEach((op) => {
+      if (op.offerStatus === 'Ouvert') {
+        sectors.add(op.sector);
+      }
+    });
+    return Array.from(sectors);
+  }, [operationsList]);
+
+  React.useEffect(() => {
+    if (selectedInvestmentBoutique !== 'all' && !activeOpenBoutiques.includes(selectedInvestmentBoutique)) {
+      setSelectedInvestmentBoutique('all');
+    }
+  }, [activeOpenBoutiques, selectedInvestmentBoutique]);
+
+  const filteredOperationsList = React.useMemo(() => {
+    if (selectedInvestmentBoutique === 'all') return operationsList;
+    return operationsList.filter((op) => op.sector === selectedInvestmentBoutique && op.offerStatus === 'Ouvert');
+  }, [operationsList, selectedInvestmentBoutique]);
 
   const selectedOp = operationsList.find((o) => o.id === selectedOperationId) || operationsList[0] || null;
   const currentOffers = selectedOp?.offers || [];
@@ -989,13 +1192,45 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {activeOpenBoutiques.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-slate-600 mr-1">
+                        Boutiques ouvertes à l'investissement :
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInvestmentBoutique('all')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                          selectedInvestmentBoutique === 'all'
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Toutes ({operationsList.length})
+                      </button>
+                      {activeOpenBoutiques.map((boutique) => (
+                        <button
+                          key={boutique}
+                          type="button"
+                          onClick={() => setSelectedInvestmentBoutique(boutique)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                            selectedInvestmentBoutique === boutique
+                              ? 'bg-amber-500 text-slate-950 border-amber-600'
+                              : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {boutique} (Ouvert)
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <span className="text-xs font-bold text-slate-700 uppercase tracking-wide block">
                     Offres &amp; Projets (Sélectionnez un projet pour consulter les conditions autorisées) :
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {operationsList.map((op) => {
-                      const isSelected = selectedOperationId === op.id || (!selectedOperationId && op.id === operationsList[0]?.id);
+                    {filteredOperationsList.map((op) => {
+                      const isSelected = selectedOperationId === op.id || (!selectedOperationId && op.id === filteredOperationsList[0]?.id);
                       const isOpClosed = op.offerStatus === 'Fermé';
                       return (
                         <button
@@ -1308,10 +1543,10 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                               <button
                                 type="submit"
                                 disabled={submittingSub || !canInvest || selectedShares > remainingShares}
-                                className="flex-1 py-3 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95"
+                                className="flex-1 py-3 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                               >
                                 <span className="material-symbols-outlined text-base">how_to_reg</span>
-                                <span>{submittingSub ? 'Enregistrement...' : 'Investir / Soumettre la Demande'}</span>
+                                <span>{submittingSub ? 'En attente...' : 'Investir / Soumettre la Demande'}</span>
                               </button>
 
                               <button
@@ -1423,6 +1658,44 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Détail des parts détenues par Boutique et par Opération */}
+              {Array.isArray(activeInvestor?.shareAllocations) && activeInvestor.shareAllocations.length > 0 && (
+                <div className="p-4 rounded-2xl bg-white border border-amber-300 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-amber-600 text-lg">pie_chart</span>
+                      <span>Répartition de mes parts par Boutique &amp; Opération</span>
+                    </h3>
+                    <span className="text-[11px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
+                      {activeInvestor.shareAllocations.length} ligne(s)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    {activeInvestor.shareAllocations.map((alloc) => (
+                      <div
+                        key={alloc.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3"
+                      >
+                        <div>
+                          <span className="inline-block px-2 py-0.5 rounded bg-cyan-100 text-cyan-900 text-[10px] font-bold mb-1">
+                            {alloc.sector}
+                          </span>
+                          <p className="font-bold text-slate-900 leading-snug">{alloc.operationTitle}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-syne font-extrabold text-amber-800">
+                            {alloc.shares} part{alloc.shares > 1 ? 's' : ''}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-600">
+                            {(alloc.amount || 0).toLocaleString('fr-FR')} FCFA
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Fiche d'identité Investisseur & Mot de passe attribué */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
@@ -1812,70 +2085,128 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
 
                 {/* Messages scrollables */}
                 <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50">
-                  {activeMessages.map((msg) => {
-                    const isMe = activeInvestor ? msg.senderName === activeInvestor.name : false;
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                      >
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span
-                            className={`text-[11px] font-bold ${
-                              msg.isOfficial ? 'text-amber-800' : 'text-slate-800'
+                  {activeMessages.length === 0 ? (
+                    <div className="text-center text-xs text-slate-400 italic py-10">
+                      Aucun message dans le canal pour le moment. Soyez le premier à écrire ou envoyer un vocal !
+                    </div>
+                  ) : (
+                    activeMessages.map((msg) => {
+                      const isMe = activeInvestor ? msg.senderName === activeInvestor.name : false;
+                      const isVoice = msg.messageType === 'voice' || Boolean(msg.audioUrl);
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                        >
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span
+                              className={`text-[11px] font-bold ${
+                                msg.isOfficial ? 'text-amber-800' : 'text-slate-800'
+                              }`}
+                            >
+                              {msg.senderName}
+                            </span>
+                            {msg.isOfficial && (
+                              <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 text-[9px] font-bold flex items-center gap-0.5">
+                                <span className="material-symbols-outlined text-[11px]">verified</span>
+                                <span>Direction / Admin</span>
+                              </span>
+                            )}
+                            <span className="text-[9px] text-slate-400">{msg.timestamp}</span>
+                          </div>
+                          <div
+                            className={`p-3 rounded-2xl max-w-sm sm:max-w-md text-xs leading-relaxed shadow-xs space-y-2 ${
+                              isMe
+                                ? 'bg-slate-900 text-white rounded-tr-none'
+                                : msg.isOfficial
+                                ? 'bg-amber-100 text-amber-950 border border-amber-300 rounded-tl-none font-medium'
+                                : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
                             }`}
                           >
-                            {msg.senderName}
-                          </span>
-                          {msg.isOfficial && (
-                            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 text-[9px] font-bold flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-[11px]">verified</span>
-                              <span>Direction / Admin</span>
-                            </span>
-                          )}
-                          <span className="text-[9px] text-slate-400">{msg.timestamp}</span>
+                            {isVoice && msg.audioUrl ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                                  <span className="material-symbols-outlined text-sm">mic</span>
+                                  <span>Message vocal{msg.audioDuration ? ` (${msg.audioDuration}s)` : ''}</span>
+                                </div>
+                                <audio controls preload="metadata" src={msg.audioUrl} className="w-full max-w-[260px] h-9" />
+                              </div>
+                            ) : (
+                              <span>{msg.text}</span>
+                            )}
+                          </div>
                         </div>
-                        <div
-                          className={`p-3 rounded-2xl max-w-sm sm:max-w-md text-xs leading-relaxed shadow-xs ${
-                            isMe
-                              ? 'bg-slate-900 text-white rounded-tr-none'
-                              : msg.isOfficial
-                              ? 'bg-amber-100 text-amber-950 border border-amber-300 rounded-tl-none font-medium'
-                              : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
-                          }`}
-                        >
-                          {msg.text}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
 
-                {/* Input d'envoi de message */}
+                {voiceError && (
+                  <div className="px-3 py-1.5 bg-red-50 border-t border-red-200 text-red-700 text-[11px] font-semibold">
+                    {voiceError}
+                  </div>
+                )}
+
+                {/* Input d'envoi de message texte & vocal */}
                 <form
                   onSubmit={handleSendMessage}
                   className="p-3 bg-white border-t border-slate-200 flex items-center gap-2"
                 >
-                  <input
-                    type="text"
-                    disabled={!isMessagingOpen}
-                    value={newMessageText}
-                    onChange={(e) => setNewMessageText(e.target.value)}
-                    placeholder={
-                      isMessagingOpen
-                        ? 'Écrire un message aux autres associés et à l’administrateur...'
-                        : 'La messagerie est actuellement fermée par l’administrateur.'
-                    }
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!isMessagingOpen || !newMessageText.trim()}
-                    className="py-2 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span>Envoyer</span>
-                    <span className="material-symbols-outlined text-sm">send</span>
-                  </button>
+                  {isRecordingVoice ? (
+                    <>
+                      <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-300 rounded-xl py-2 px-3 text-xs text-red-800 font-bold">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+                        <span>Enregistrement vocal... {voiceDurationSec}s</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => stopVoiceRecording(true)}
+                        className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => stopVoiceRecording(false)}
+                        className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-sm">send</span>
+                        <span>Envoyer vocal</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!isMessagingOpen || isSendingMessage}
+                        onClick={() => void startVoiceRecording()}
+                        title="Enregistrer un message vocal"
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-lg">mic</span>
+                      </button>
+                      <input
+                        type="text"
+                        disabled={!isMessagingOpen || isSendingMessage}
+                        value={newMessageText}
+                        onChange={(e) => setNewMessageText(e.target.value)}
+                        placeholder={
+                          isMessagingOpen
+                            ? 'Écrire un message aux autres associés et à l’administrateur...'
+                            : 'La messagerie est actuellement fermée par l’administrateur.'
+                        }
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!isMessagingOpen || !newMessageText.trim() || isSendingMessage}
+                        className="py-2 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                      >
+                        <span>{isSendingMessage ? 'En attente...' : 'Envoyer'}</span>
+                        <span className="material-symbols-outlined text-sm">send</span>
+                      </button>
+                    </>
+                  )}
                 </form>
               </div>
             </div>

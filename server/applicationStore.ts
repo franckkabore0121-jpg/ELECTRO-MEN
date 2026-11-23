@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
-import { getDatabasePool } from './investorStore.ts';
+import { getDatabasePool, isMemoryStoreActive } from './investorStore.ts';
 
 type CollectionKey =
   | 'operations'
@@ -11,7 +11,11 @@ type CollectionKey =
   | 'courses'
   | 'course-categories'
   | 'audit-logs'
-  | 'products';
+  | 'products'
+  | 'fund-requests'
+  | 'wallet-transactions'
+  | 'investor-messages'
+  | 'profit-distributions';
 
 export type ApplicationDataKey = CollectionKey | 'admin-config' | 'groups';
 
@@ -23,7 +27,11 @@ const collections: Record<CollectionKey, { table: string; filename: string }> = 
   courses: { table: 'app_courses', filename: 'courses.json' },
   'course-categories': { table: 'app_course_categories', filename: 'course-categories.json' },
   'audit-logs': { table: 'app_audit_logs', filename: 'audit-logs.json' },
-  products: { table: 'app_products', filename: 'products.json' }
+  products: { table: 'app_products', filename: 'products.json' },
+  'fund-requests': { table: 'app_fund_requests', filename: 'fund-requests.json' },
+  'wallet-transactions': { table: 'app_wallet_transactions', filename: 'wallet-transactions.json' },
+  'investor-messages': { table: 'app_investor_messages', filename: 'investor-messages.json' },
+  'profit-distributions': { table: 'app_profit_distributions', filename: 'profit-distributions.json' }
 };
 
 const documents = {
@@ -32,6 +40,17 @@ const documents = {
 } as const;
 
 const isCollectionKey = (key: ApplicationDataKey): key is CollectionKey => key in collections;
+
+// In-memory fallback stores when PostgreSQL is unavailable
+const memCollections = new Map<CollectionKey, Array<{ id: string; payload: unknown }>>();
+const memDocuments = new Map<'admin-config' | 'groups', unknown>();
+const memSourcePresent = new Set<ApplicationDataKey>();
+const memExplicitlyWritten = new Set<ApplicationDataKey>();
+const memBackups = new Map<string, unknown>();
+
+function cloneData<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 function assertRecord(value: unknown): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -155,6 +174,7 @@ export function sanitizeAdminConfig(value: unknown): Record<string, unknown> {
       ? value.formationsVideoUrl
       : '/assets/videos/electromen-hero.mp4',
     isMaintenanceMode: Boolean(value.isMaintenanceMode),
+    isInvestorChatOpen: value.isInvestorChatOpen === undefined ? true : Boolean(value.isInvestorChatOpen),
     masterPasswordHash: '',
     masterPasswordHint: '',
     admins: [],
@@ -162,10 +182,55 @@ export function sanitizeAdminConfig(value: unknown): Record<string, unknown> {
   };
 }
 
+function initializeMemoryApplicationStore(dataDir: string, defaultAdminConfig: unknown): void {
+  memCollections.clear();
+  memDocuments.clear();
+  memSourcePresent.clear();
+  memExplicitlyWritten.clear();
+  memBackups.clear();
+
+  for (const key of Object.keys(collections) as CollectionKey[]) {
+    const { filename } = collections[key];
+    const source = migrationSource(dataDir, filename);
+    const rows: Array<{ id: string; payload: unknown }> = [];
+    if (source.exists) {
+      memSourcePresent.add(key);
+      const parsed = parseLegacyJson(source.filePath);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (typeof item === 'object' && item !== null && !Array.isArray(item) && typeof (item as { id?: unknown }).id === 'string') {
+            rows.push({ id: (item as { id: string }).id, payload: cloneData(item) });
+          }
+        }
+      }
+    }
+    memCollections.set(key, rows);
+  }
+
+  for (const key of ['admin-config', 'groups'] as const) {
+    const { filename } = documents[key];
+    const source = migrationSource(dataDir, filename);
+    let payload: Record<string, unknown> = key === 'admin-config' ? sanitizeAdminConfig(defaultAdminConfig) : {};
+    if (source.exists) {
+      memSourcePresent.add(key);
+      const parsed = parseLegacyJson(source.filePath);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        payload = key === 'admin-config' ? sanitizeAdminConfig(parsed) : (cloneData(parsed) as Record<string, unknown>);
+      }
+    }
+    memDocuments.set(key, payload);
+  }
+}
+
 export async function initializeApplicationStore(
   dataDir: string,
   defaultAdminConfig: unknown
 ): Promise<void> {
+  if (isMemoryStoreActive()) {
+    initializeMemoryApplicationStore(dataDir, defaultAdminConfig);
+    return;
+  }
+
   const pool = getDatabasePool();
   for (const { table } of Object.values(collections)) {
     await pool.query(`
@@ -232,6 +297,16 @@ export async function initializeApplicationStore(
 }
 
 export async function readApplicationData<T>(key: ApplicationDataKey, defaultValue: T): Promise<T> {
+  if (isMemoryStoreActive()) {
+    if (isCollectionKey(key)) {
+      const rows = memCollections.get(key) ?? [];
+      if (rows.length > 0) return rows.map((row) => cloneData(row.payload)) as T;
+      return memSourcePresent.has(key) || memExplicitlyWritten.has(key) ? ([] as T) : defaultValue;
+    }
+    const doc = memDocuments.get(key);
+    return doc !== undefined ? (cloneData(doc) as T) : defaultValue;
+  }
+
   const pool = getDatabasePool();
   if (isCollectionKey(key)) {
     const { table } = collections[key];
@@ -261,6 +336,41 @@ export async function readInvestorSubscriptions<T>(
   const investorIds = [...new Set([identity.id, ...(identity.legacyIds ?? [])]
     .filter((id) => typeof id === 'string' && id.trim().length > 0))];
   const email = identity.email.trim().toLowerCase();
+
+  if (isMemoryStoreActive()) {
+    const idSet = new Set(investorIds);
+    const rows = memCollections.get('subscriptions') ?? [];
+    const readTrimmed = (record: Record<string, unknown>, field: string): string | null => {
+      const raw = record[field];
+      if (typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+    return rows
+      .map((row) => row.payload as Record<string, unknown>)
+      .filter((payload) => {
+        const investorId = readTrimmed(payload, 'investorId');
+        const legacyInvestorId = readTrimmed(payload, 'investor_id');
+        const userId = readTrimmed(payload, 'userId');
+        const legacyUserId = readTrimmed(payload, 'user_id');
+        if (investorId !== null && !idSet.has(investorId)) return false;
+        if (legacyInvestorId !== null && !idSet.has(legacyInvestorId)) return false;
+        if (userId !== null && !idSet.has(userId)) return false;
+        if (legacyUserId !== null && !idSet.has(legacyUserId)) return false;
+        if (
+          (investorId && idSet.has(investorId)) ||
+          (legacyInvestorId && idSet.has(legacyInvestorId)) ||
+          (userId && idSet.has(userId)) ||
+          (legacyUserId && idSet.has(legacyUserId))
+        ) {
+          return true;
+        }
+        const payloadEmail = (readTrimmed(payload, 'investorEmail') ?? readTrimmed(payload, 'investor_email') ?? '').toLowerCase();
+        return payloadEmail === email;
+      })
+      .map((payload) => cloneData(payload) as T);
+  }
+
   const { rows } = await getDatabasePool().query<{ payload: T }>(
     `WITH investor_subscriptions AS (
        SELECT id, position, payload,
@@ -299,6 +409,29 @@ export async function readInvestorSubscriptions<T>(
 }
 
 export async function writeApplicationData<T>(key: ApplicationDataKey, value: T): Promise<void> {
+  if (isMemoryStoreActive()) {
+    if (isCollectionKey(key)) {
+      if (!Array.isArray(value)) throw new Error(`La ressource ${key} doit être un tableau.`);
+      const items = value as unknown[];
+      for (const item of items) {
+        assertRecord(item);
+        if (typeof item.id !== 'string' || item.id.length === 0) {
+          throw new Error(`Chaque élément de ${key} doit avoir un identifiant valide.`);
+        }
+      }
+      memCollections.set(
+        key,
+        items.map((item) => ({ id: (item as { id: string }).id, payload: cloneData(item) }))
+      );
+      memExplicitlyWritten.add(key);
+      return;
+    }
+    const payload = key === 'admin-config' ? sanitizeAdminConfig(value) : cloneData(value);
+    memDocuments.set(key, payload);
+    memExplicitlyWritten.add(key);
+    return;
+  }
+
   const pool = getDatabasePool();
   if (isCollectionKey(key)) {
     if (!Array.isArray(value)) throw new Error(`La ressource ${key} doit être un tableau.`);
@@ -356,6 +489,17 @@ export async function appendApplicationRecord<T extends { id: string }>(
   key: CollectionKey,
   value: T
 ): Promise<void> {
+  if (isMemoryStoreActive()) {
+    const rows = memCollections.get(key) ?? [];
+    if (rows.some((row) => row.id === value.id)) {
+      throw new Error(`L’enregistrement ${value.id} existe déjà dans ${key}.`);
+    }
+    rows.unshift({ id: value.id, payload: cloneData(value) });
+    memCollections.set(key, rows);
+    memExplicitlyWritten.add(key);
+    return;
+  }
+
   const pool = getDatabasePool();
   const { table } = collections[key];
   const client = await pool.connect();
@@ -388,6 +532,19 @@ export async function updateApplicationRecord<T extends { id: string }>(
   id: string,
   update: (record: T) => T
 ): Promise<T | undefined> {
+  if (isMemoryStoreActive()) {
+    const rows = memCollections.get(key) ?? [];
+    const index = rows.findIndex((row) => row.id === id);
+    if (index === -1) return undefined;
+    const updated = update(cloneData(rows[index].payload) as T);
+    if (updated.id !== id) {
+      throw new Error(`L’identifiant d’un enregistrement de ${key} ne peut pas être modifié.`);
+    }
+    rows[index] = { id, payload: cloneData(updated) };
+    memExplicitlyWritten.add(key);
+    return updated;
+  }
+
   const pool = getDatabasePool();
   const { table } = collections[key];
   const client = await pool.connect();
@@ -424,9 +581,227 @@ export async function updateApplicationRecord<T extends { id: string }>(
   }
 }
 
+export async function deleteApplicationRecord(key: CollectionKey, id: string): Promise<boolean> {
+  if (isMemoryStoreActive()) {
+    const rows = memCollections.get(key) ?? [];
+    const next = rows.filter((row) => row.id !== id);
+    if (next.length === rows.length) return false;
+    memCollections.set(key, next);
+    memExplicitlyWritten.add(key);
+    return true;
+  }
+
+  const pool = getDatabasePool();
+  const { table } = collections[key];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`electromen-data-${key}`]);
+    const result = await client.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+    await client.query(
+      'UPDATE app_data_migrations SET explicitly_written = TRUE WHERE resource_key = $1',
+      [key]
+    );
+    await client.query('COMMIT');
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function saveApplicationBackup(id: string, value: unknown): Promise<void> {
+  if (isMemoryStoreActive()) {
+    memBackups.set(id, cloneData(value));
+    return;
+  }
   await getDatabasePool().query(
     'INSERT INTO app_backups (id, payload) VALUES ($1, $2::jsonb)',
     [id, JSON.stringify(value)]
   );
+}
+
+export interface AtomicFundRequestRecord {
+  id: string;
+  reference: string;
+  idempotencyKey?: string;
+  type: 'depot' | 'retrait';
+  amount: number;
+  investorId: string;
+  investorName: string;
+  investorEmail: string;
+  investorPhone: string;
+  adminWhatsApp: string;
+  sector?: 'Électronique' | 'Électrotechnique' | 'Informatique';
+  paymentMethod?: string;
+  notes?: string;
+  status: 'En attente' | 'En cours de traitement' | 'Confirmé' | 'Refusé';
+  requestedAt: string;
+  requestedDateKey?: string;
+  validatedBy?: string;
+  validatedAt?: string;
+  rejectionReason?: string;
+}
+
+export class FundRequestRuleError extends Error {
+  readonly statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'FundRequestRuleError';
+    this.statusCode = statusCode;
+  }
+}
+
+const memFundQueue = new Map<string, Promise<unknown>>();
+
+export async function createFundRequestAtomic<T extends AtomicFundRequestRecord>(params: {
+  investorId: string;
+  investorEmail: string;
+  idempotencyKey?: string;
+  todayDateKey: string;
+  maxDailyWithdrawal: number;
+  maxPendingWithdrawals: number;
+  buildRequest: (realBalance: number) => T;
+}): Promise<{ request: T; duplicate: boolean }> {
+  const emailNorm = params.investorEmail.trim().toLowerCase();
+  const matchesInvestor = (r: AtomicFundRequestRecord) =>
+    (typeof r.investorId === 'string' && r.investorId.trim() === params.investorId) ||
+    (typeof r.investorEmail === 'string' && r.investorEmail.trim().toLowerCase() === emailNorm);
+
+  const validateAndBuild = (
+    realBalance: number,
+    existingRequests: AtomicFundRequestRecord[]
+  ): { request: T; duplicate: boolean } => {
+    const mine = existingRequests.filter(matchesInvestor);
+    if (params.idempotencyKey) {
+      const existingDup = mine.find((r) => r.idempotencyKey === params.idempotencyKey);
+      if (existingDup) {
+        return { request: cloneData(existingDup as T), duplicate: true };
+      }
+    }
+
+    const candidate = params.buildRequest(realBalance);
+    if (candidate.type === 'retrait') {
+      if (candidate.amount > realBalance) {
+        throw new FundRequestRuleError(
+          `Solde insuffisant : votre solde réel vérifié est de ${realBalance.toLocaleString('fr-FR')} FCFA.`,
+          400
+        );
+      }
+
+      const pendingWithdrawals = mine.filter(
+        (r) => r.type === 'retrait' && (r.status === 'En attente' || r.status === 'En cours de traitement')
+      );
+      if (pendingWithdrawals.length >= params.maxPendingWithdrawals) {
+        throw new FundRequestRuleError(
+          `Vous avez déjà ${pendingWithdrawals.length} demandes de retrait en attente. Veuillez attendre leur traitement avant d’en soumettre une nouvelle.`,
+          429
+        );
+      }
+
+      const pendingTotal = pendingWithdrawals.reduce(
+        (sum, r) => sum + (Number.isSafeInteger(r.amount) && r.amount > 0 ? r.amount : 0),
+        0
+      );
+      if (pendingTotal + candidate.amount > realBalance) {
+        const remainingAvailable = Math.max(0, realBalance - pendingTotal);
+        throw new FundRequestRuleError(
+          `Solde disponible insuffisant : ${pendingTotal.toLocaleString('fr-FR')} FCFA sont déjà réservés par vos retraits en attente (disponible : ${remainingAvailable.toLocaleString('fr-FR')} FCFA).`,
+          400
+        );
+      }
+
+      const todayTotal = mine
+        .filter((r) => r.type === 'retrait' && r.status !== 'Refusé' && r.requestedDateKey === params.todayDateKey)
+        .reduce((sum, r) => sum + (Number.isSafeInteger(r.amount) && r.amount > 0 ? r.amount : 0), 0);
+      if (todayTotal + candidate.amount > params.maxDailyWithdrawal) {
+        throw new FundRequestRuleError(
+          `Plafond journalier de retrait dépassé : maximum ${params.maxDailyWithdrawal.toLocaleString('fr-FR')} FCFA par jour.`,
+          400
+        );
+      }
+    }
+
+    return { request: candidate, duplicate: false };
+  };
+
+  if (isMemoryStoreActive()) {
+    const prevLock = memFundQueue.get(params.investorId) ?? Promise.resolve();
+    const runTask = prevLock.then(async () => {
+      const { findInvestorByIdentifier } = await import('./investorStore.ts');
+      const investor = await findInvestorByIdentifier<{ id: string; email: string; phone: string; walletBalance?: number }>(
+        params.investorId
+      );
+      if (!investor) {
+        throw new FundRequestRuleError('Compte investisseur introuvable.', 404);
+      }
+      const rawBalance = investor.walletBalance;
+      const realBalance = Number.isSafeInteger(rawBalance) && (rawBalance as number) >= 0 ? (rawBalance as number) : 0;
+      const rows = memCollections.get('fund-requests') ?? [];
+      const existing = rows.map((row) => row.payload as AtomicFundRequestRecord);
+      const outcome = validateAndBuild(realBalance, existing);
+      if (outcome.duplicate) return outcome;
+      rows.unshift({ id: outcome.request.id, payload: cloneData(outcome.request) });
+      memCollections.set('fund-requests', rows);
+      memExplicitlyWritten.add('fund-requests');
+      return outcome;
+    });
+    const tail = runTask.catch(() => {});
+    memFundQueue.set(params.investorId, tail);
+    try {
+      return await runTask;
+    } finally {
+      if (memFundQueue.get(params.investorId) === tail) {
+        memFundQueue.delete(params.investorId);
+      }
+    }
+  }
+
+  const pool = getDatabasePool();
+  const { table } = collections['fund-requests'];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`electromen-fund-${params.investorId}`]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['electromen-data-fund-requests']);
+
+    const { rows: investorRows } = await client.query<{ payload: { walletBalance?: number } }>(
+      `SELECT payload FROM app_users WHERE id = $1 AND role = 'investor' FOR UPDATE`,
+      [params.investorId]
+    );
+    if (!investorRows[0]) {
+      throw new FundRequestRuleError('Compte investisseur introuvable.', 404);
+    }
+    const rawBalance = investorRows[0].payload.walletBalance;
+    const realBalance = Number.isSafeInteger(rawBalance) && (rawBalance as number) >= 0 ? (rawBalance as number) : 0;
+
+    const { rows: reqRows } = await client.query<{ payload: AtomicFundRequestRecord }>(
+      `SELECT payload FROM ${table} ORDER BY position ASC, id ASC`
+    );
+    const existing = reqRows.map((row) => row.payload);
+    const outcome = validateAndBuild(realBalance, existing);
+    if (outcome.duplicate) {
+      await client.query('COMMIT');
+      return outcome;
+    }
+
+    await client.query(
+      `INSERT INTO ${table} (id, position, payload)
+       SELECT $1, COALESCE(MIN(position), 0) - 1, $2::jsonb FROM ${table}`,
+      [outcome.request.id, JSON.stringify(outcome.request)]
+    );
+    await client.query(
+      'UPDATE app_data_migrations SET explicitly_written = TRUE WHERE resource_key = $1',
+      ['fund-requests']
+    );
+    await client.query('COMMIT');
+    return outcome;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }

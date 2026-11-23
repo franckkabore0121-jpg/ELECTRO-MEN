@@ -25,8 +25,14 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
   const [paymentPhone, setPaymentPhone] = useState('65 48 47 38');
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   if (!isOpen || !subscription) return null;
+
+  const availableWalletBalance =
+    typeof wallet.availableWithdrawalBalance === 'number'
+      ? Math.max(0, Math.min(wallet.balance, wallet.availableWithdrawalBalance))
+      : Math.max(0, wallet.balance);
 
   const handleVerifyPassword = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,13 +59,16 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
   };
 
   const handleProcessPayment = () => {
-    if (paymentMethod === 'wallet' && wallet.balance < subscription.totalAmount) {
-      alert(
-        `Solde portefeuille insuffisant (${wallet.balance.toLocaleString(
+    if (isProcessing) return;
+    setPaymentError(null);
+
+    if (paymentMethod === 'wallet' && availableWalletBalance < subscription.totalAmount) {
+      setPaymentError(
+        `Solde disponible insuffisant (${availableWalletBalance.toLocaleString(
           'fr-FR'
         )} FCFA). Vous devez disposer de ${subscription.totalAmount.toLocaleString(
           'fr-FR'
-        )} FCFA ou choisir Orange/Moov Money.`
+        )} FCFA disponibles ou choisir Orange/Moov Money.`
       );
       return;
     }
@@ -208,7 +217,7 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
 
                     {/* Option 1: Solde Portefeuille */}
                     <div
-                      onClick={() => setPaymentMethod('wallet')}
+                      onClick={() => !isProcessing && setPaymentMethod('wallet')}
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         paymentMethod === 'wallet'
                           ? 'border-amber-500 bg-amber-50 shadow-sm'
@@ -220,24 +229,24 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
                         <div>
                           <strong className="text-slate-900 block font-bold">Solde Portefeuille Cash</strong>
                           <span className="text-[11px] text-slate-500">
-                            Disponible : {wallet.balance.toLocaleString('fr-FR')} FCFA
+                            Disponible réel : {availableWalletBalance.toLocaleString('fr-FR')} FCFA
                           </span>
                         </div>
                       </div>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          wallet.balance >= subscription.totalAmount
+                          availableWalletBalance >= subscription.totalAmount
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-red-100 text-red-700'
                         }`}
                       >
-                        {wallet.balance >= subscription.totalAmount ? 'SOLDE SUFFISANT' : 'INSUFFISANT'}
+                        {availableWalletBalance >= subscription.totalAmount ? 'SOLDE SUFFISANT' : 'INSUFFISANT'}
                       </span>
                     </div>
 
                     {/* Option 2: Orange Money */}
                     <div
-                      onClick={() => setPaymentMethod('orange_money')}
+                      onClick={() => !isProcessing && setPaymentMethod('orange_money')}
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         paymentMethod === 'orange_money'
                           ? 'border-cyan-500 bg-cyan-50 shadow-sm'
@@ -256,7 +265,7 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
 
                     {/* Option 3: Moov Money */}
                     <div
-                      onClick={() => setPaymentMethod('moov_money')}
+                      onClick={() => !isProcessing && setPaymentMethod('moov_money')}
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         paymentMethod === 'moov_money'
                           ? 'border-cyan-500 bg-cyan-50 shadow-sm'
@@ -274,6 +283,13 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
                     </div>
                   </div>
 
+                  {paymentError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-300 text-red-700 text-[11px] leading-snug flex items-start gap-1.5 font-semibold">
+                      <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                      <span>{paymentError}</span>
+                    </div>
+                  )}
+
                   {paymentMethod !== 'wallet' && (
                     <div className="space-y-1 pt-1">
                       <label className="text-[11px] text-slate-600 font-semibold">
@@ -285,6 +301,7 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
                         </span>
                         <input
                           type="tel"
+                          disabled={isProcessing}
                           value={paymentPhone}
                           onChange={(e) => setPaymentPhone(e.target.value)}
                           className="flex-1 bg-white border border-slate-200 rounded-r-xl p-2 text-xs text-slate-900 outline-none focus:border-amber-500"
@@ -296,8 +313,8 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
                   <button
                     type="button"
                     onClick={handleProcessPayment}
-                    disabled={isProcessing}
-                    className="w-full py-3 rounded-xl btn-gold-prestige font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-98 cursor-pointer mt-3"
+                    disabled={isProcessing || (paymentMethod === 'wallet' && availableWalletBalance < subscription.totalAmount)}
+                    className="w-full py-3 rounded-xl btn-gold-prestige font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-98 cursor-pointer mt-3 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isProcessing ? (
                       <>
@@ -363,15 +380,17 @@ export const SharePaymentModal: React.FC<SharePaymentModalProps> = ({
         {/* Footer */}
         <div className="p-3.5 border-t border-slate-100 bg-white flex justify-between items-center text-xs">
           <button
+            disabled={isProcessing}
             onClick={onOpenEmailInbox}
-            className="text-cyan-700 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+            className="text-cyan-700 hover:underline flex items-center gap-1 font-bold cursor-pointer disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-sm">mail</span>
             <span>Boîte de réception des emails</span>
           </button>
           <button
+            disabled={isProcessing}
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
+            className="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer disabled:opacity-50"
           >
             Fermer
           </button>

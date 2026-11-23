@@ -56,18 +56,59 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  // Determine target department among electronique, electrotechnique, and informatique
-  const hasInformatique = items.some((it) => it.product.domain === 'informatique');
-  const hasElectrotech = items.some((it) => it.product.domain === 'electrotechnique');
-
-  const targetDepartment: 'informatique' | 'electrotechnique' | 'electronique' =
-    activeCatalog === 'informatique' || hasInformatique
-      ? 'informatique'
-      : activeCatalog === 'electrotechnique' || hasElectrotech
-      ? 'electrotechnique'
+  // Déterminer la boutique majoritaire selon le nombre total d'articles/composants dans le panier
+  // (départage par nombre de références, sous-total puis rayon actif)
+  const domainTotals: Record<
+    'electronique' | 'electrotechnique' | 'informatique',
+    { qty: number; lines: number; subtotal: number }
+  > = {
+    electronique: { qty: 0, lines: 0, subtotal: 0 },
+    electrotechnique: { qty: 0, lines: 0, subtotal: 0 },
+    informatique: { qty: 0, lines: 0, subtotal: 0 }
+  };
+  for (const it of items) {
+    const dom = it.product.domain;
+    if (dom === 'electronique' || dom === 'electrotechnique' || dom === 'informatique') {
+      const qty = Math.max(0, Number(it.quantity) || 0);
+      domainTotals[dom].qty += qty;
+      domainTotals[dom].lines += 1;
+      domainTotals[dom].subtotal += Math.max(0, (Number(it.product.price) || 0) * qty);
+    }
+  }
+  const activeBoutiqueFallback: 'electronique' | 'electrotechnique' | 'informatique' =
+    activeCatalog === 'informatique' || activeCatalog === 'electrotechnique' || activeCatalog === 'electronique'
+      ? activeCatalog
       : 'electronique';
 
+  const rankedDomains = (['electronique', 'electrotechnique', 'informatique'] as const)
+    .filter((d) => domainTotals[d].qty > 0)
+    .sort((a, b) => {
+      if (domainTotals[b].qty !== domainTotals[a].qty) {
+        return domainTotals[b].qty - domainTotals[a].qty;
+      }
+      if (domainTotals[b].lines !== domainTotals[a].lines) {
+        return domainTotals[b].lines - domainTotals[a].lines;
+      }
+      if (domainTotals[b].subtotal !== domainTotals[a].subtotal) {
+        return domainTotals[b].subtotal - domainTotals[a].subtotal;
+      }
+      if (a === activeBoutiqueFallback) return -1;
+      if (b === activeBoutiqueFallback) return 1;
+      return 0;
+    });
+
+  const targetDepartment: 'informatique' | 'electrotechnique' | 'electronique' =
+    rankedDomains[0] || activeBoutiqueFallback;
+  const hasMultipleBoutiques = rankedDomains.length > 1;
+  const totalComponentsCount = items.reduce((acc, it) => acc + Math.max(0, Number(it.quantity) || 0), 0);
+  const boutiqueShortLabel: Record<'electronique' | 'electrotechnique' | 'informatique', string> = {
+    electronique: 'Électronique',
+    electrotechnique: 'Électrotechnique',
+    informatique: 'Informatique'
+  };
+
   const destinationContact = WHATSAPP_CONTACTS[targetDepartment];
+  const cleanDestNumber = destinationContact.number.replace('+', '').trim();
 
   // Calculate pricing
   const subtotal = items.reduce((acc, it) => acc + it.product.price * it.quantity, 0);
@@ -189,9 +230,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           </button>
         </div>
 
-        {/* Info Routing WhatsApp */}
+        {/* Info Routing WhatsApp & Téléphone Boutique Majoritaire */}
         <div
-          className={`px-4 py-2 text-xs font-semibold flex items-center justify-between border-b ${
+          className={`px-4 py-2.5 text-xs border-b space-y-1.5 ${
             targetDepartment === 'informatique'
               ? 'bg-cyan-50 border-cyan-200 text-cyan-950'
               : targetDepartment === 'electrotechnique'
@@ -199,11 +240,50 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               : 'bg-emerald-50 border-emerald-200 text-emerald-950'
           }`}
         >
-          <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm">chat</span>
-            <span>Numéro de commande WhatsApp :</span>
+          <div className="flex items-center justify-between gap-2 font-semibold">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="material-symbols-outlined text-sm shrink-0">call</span>
+              <span className="truncate">
+                {hasMultipleBoutiques
+                  ? `Boutique majoritaire (${boutiqueShortLabel[targetDepartment]}) :`
+                  : `Contact ${boutiqueShortLabel[targetDepartment]} :`}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <a
+                href={`tel:${destinationContact.number}`}
+                className="font-mono font-bold underline decoration-dotted hover:opacity-80"
+                title={`Appeler le ${destinationContact.display}`}
+              >
+                {destinationContact.display}
+              </a>
+              <a
+                href={`https://wa.me/${cleanDestNumber}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2 py-0.5 rounded-md bg-[#25D366] text-white text-[10px] font-bold hover:bg-[#20ba59] transition-colors"
+                title={`Écrire sur WhatsApp (${destinationContact.display})`}
+              >
+                WhatsApp
+              </a>
+            </div>
           </div>
-          <span className="font-mono font-bold">{destinationContact.display}</span>
+
+          {items.length > 0 && (
+            <div className="text-[10px] opacity-85 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span>
+                {hasMultipleBoutiques
+                  ? `Répartition (${totalComponentsCount} art.) :`
+                  : `${totalComponentsCount} article${totalComponentsCount > 1 ? 's' : ''} sélectionné${totalComponentsCount > 1 ? 's' : ''}`}
+              </span>
+              {hasMultipleBoutiques &&
+                rankedDomains.map((dom) => (
+                  <span key={dom} className={dom === targetDepartment ? 'font-bold underline' : ''}>
+                    {boutiqueShortLabel[dom]} ({domainTotals[dom].qty})
+                  </span>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -440,7 +520,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 className="w-full py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-md cursor-pointer"
               >
                 <span className="material-symbols-outlined text-base">chat</span>
-                <span>Commander sur WhatsApp</span>
+                <span>Commander sur WhatsApp ({destinationContact.display})</span>
               </button>
             </div>
           </div>

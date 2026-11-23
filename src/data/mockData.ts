@@ -392,6 +392,8 @@ export interface WalletTransaction {
 
 export interface InvestorWallet {
   balance: number;
+  availableWithdrawalBalance?: number;
+  pendingWithdrawalsTotal?: number;
   sharesCount: number;
   dividendsEarned: number;
 }
@@ -424,6 +426,7 @@ export type FundOperationStatus = 'En attente' | 'En cours de traitement' | 'Con
 export interface FundOperationRequest {
   id: string;
   reference: string;
+  idempotencyKey?: string;
   type: 'depot' | 'retrait';
   amount: number;
   investorId: string;
@@ -447,6 +450,9 @@ export interface ProfitDistribution {
   id: string;
   reference: string;
   sector: 'Électronique' | 'Électrotechnique' | 'Informatique';
+  operationId?: string;
+  operationTitle?: string;
+  projectName?: string;
   period: string;
   netProfit: number;
   investorsShareTotal: number; // Montant alloué aux associés

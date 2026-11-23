@@ -85,7 +85,7 @@ export function getMediaContentType(filename: string): string | undefined {
   return extensionContentTypes[path.extname(filename).toLowerCase()];
 }
 
-export function createMediaObjectKey(folder: 'uploads' | 'videos', filename: string): string {
+export function createMediaObjectKey(folder: 'uploads' | 'videos' | 'voice', filename: string): string {
   const normalizedFilename = filename.replace(/\\/g, '/');
   const segments = normalizedFilename.split('/');
   if (
@@ -117,6 +117,34 @@ function detectContentType(buffer: Buffer): string | undefined {
   return undefined;
 }
 
+const VOICE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+
+const voiceContentTypeExtensions: Record<string, string> = {
+  'audio/webm': '.webm',
+  'audio/ogg': '.ogg',
+  'audio/mp4': '.m4a',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/aac': '.aac'
+};
+
+function detectVoiceAudioContainer(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  // WebM / Matroska (EBML header)
+  if (buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return true;
+  // OggS
+  if (buffer.subarray(0, 4).toString('ascii') === 'OggS') return true;
+  // RIFF / WAVE
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WAVE') return true;
+  // MP4 / M4A ftyp
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') return true;
+  // MP3 ID3 or MPEG sync frame, or AAC ADTS frame
+  if (buffer.subarray(0, 3).toString('ascii') === 'ID3') return true;
+  if (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) return true;
+  return false;
+}
+
 export function validateMediaBuffer(buffer: Buffer, contentType: string): void {
   if (!contentTypeExtensions[contentType]) {
     throw new InvalidMediaUploadError('Type de fichier non pris en charge.');
@@ -137,7 +165,7 @@ export function parseBase64MediaUpload(
     throw new InvalidMediaUploadError('Données de fichier invalides.');
   }
 
-  const dataUrlMatch = /^data:([^;,]+);base64,/.exec(fileBase64);
+  const dataUrlMatch = /^data:([^;,]+)(?:;[^;,]+)*;base64,/.exec(fileBase64);
   const dataUrlMimeType = dataUrlMatch?.[1].toLowerCase();
   const suppliedMimeType = typeof declaredMimeType === 'string'
     ? declaredMimeType.split(';', 1)[0].trim().toLowerCase()
@@ -164,4 +192,44 @@ export function parseBase64MediaUpload(
   validateMediaBuffer(buffer, contentType);
 
   return { buffer, contentType, extension };
+}
+
+export function parseBase64VoiceUpload(
+  fileBase64: unknown,
+  declaredMimeType: unknown
+): ParsedMediaUpload {
+  if (typeof fileBase64 !== 'string' || fileBase64.length === 0) {
+    throw new InvalidMediaUploadError('Données audio invalides.');
+  }
+
+  const dataUrlMatch = /^data:([^;,]+)(?:;[^;,]+)*;base64,/.exec(fileBase64);
+  const dataUrlMimeType = dataUrlMatch?.[1].toLowerCase();
+  const suppliedMimeType = typeof declaredMimeType === 'string'
+    ? declaredMimeType.split(';', 1)[0].trim().toLowerCase()
+    : undefined;
+
+  const rawType = suppliedMimeType || dataUrlMimeType;
+  const normalizedType = rawType === 'video/webm' ? 'audio/webm' : rawType;
+  const extension = normalizedType ? voiceContentTypeExtensions[normalizedType] : undefined;
+  if (!normalizedType || !extension) {
+    throw new InvalidMediaUploadError('Format audio non pris en charge (WebM, OGG, MP4/M4A, MP3 ou WAV requis).');
+  }
+
+  const base64 = dataUrlMatch ? fileBase64.slice(dataUrlMatch[0].length) : fileBase64;
+  if (
+    base64.length > Math.ceil(VOICE_MAX_SIZE_BYTES / 3) * 4 + 4 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)
+  ) {
+    throw new InvalidMediaUploadError('Message vocal trop volumineux (5 Mo maximum) ou encodage invalide.');
+  }
+
+  const buffer = Buffer.from(base64, 'base64');
+  if (buffer.length === 0 || buffer.length > VOICE_MAX_SIZE_BYTES) {
+    throw new InvalidMediaUploadError('Le message vocal doit peser au maximum 5 Mo.');
+  }
+  if (!detectVoiceAudioContainer(buffer)) {
+    throw new InvalidMediaUploadError('Le contenu audio est invalide ou corrompu.');
+  }
+
+  return { buffer, contentType: normalizedType, extension };
 }

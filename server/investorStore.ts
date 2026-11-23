@@ -5,6 +5,19 @@ export interface InvestorIdentity {
   id: string;
   email: string;
   phone: string;
+  walletBalance?: number;
+}
+
+export class InsufficientBalanceError extends Error {
+  readonly availableBalance: number;
+  readonly requestedDebit: number;
+
+  constructor(availableBalance: number, requestedDebit: number) {
+    super(`Solde insuffisant (${availableBalance.toLocaleString('fr-FR')} FCFA disponibles pour ${requestedDebit.toLocaleString('fr-FR')} FCFA demandés).`);
+    this.name = 'InsufficientBalanceError';
+    this.availableBalance = availableBalance;
+    this.requestedDebit = requestedDebit;
+  }
 }
 
 export type UserRole = 'client' | 'investor' | 'admin_principal' | 'admin_secondaire';
@@ -37,6 +50,19 @@ export interface OperationInventory {
 }
 
 let pool: Pool | undefined;
+let useMemoryStore = false;
+
+// In-memory fallback stores (used when DATABASE_URL is missing or PostgreSQL is unreachable)
+const memUsers = new Map<string, StoredUser>();
+const memSessions = new Map<string, { userId: string; expiresAt: Date }>();
+const memOtps = new Map<string, { code: string; expiresAt: Date; attempts: number }>();
+const memArchives = new Map<string, ArchivedRecord & { archivedAtDate: Date }>();
+const memOperationInventories = new Map<string, OperationInventory>();
+let memAdminSecurity: AdminSecuritySettings | undefined;
+
+export function isMemoryStoreActive(): boolean {
+  return useMemoryStore;
+}
 
 function getPool(): Pool {
   if (!pool) {
@@ -50,19 +76,89 @@ export function getDatabasePool(): Pool {
 }
 
 export async function checkUserStoreConnection(): Promise<void> {
+  if (useMemoryStore) return;
   await getPool().query('SELECT 1');
 }
 
 export function normalizeInvestorEmail(email: string): string {
+  if (typeof email !== 'string') return '';
   return email.trim().toLowerCase();
 }
 
 export function normalizeInvestorPhone(phone: string): string | null {
+  if (typeof phone !== 'string') return null;
   const digits = phone.replace(/\D/g, '');
   if (!digits) return null;
   if (digits.length === 8) return `226${digits}`;
   if (digits.length === 11 && digits.startsWith('226')) return digits;
   return digits;
+}
+
+function cloneUser<T extends StoredUser>(user: T): T {
+  return JSON.parse(JSON.stringify(user)) as T;
+}
+
+function createConflictError(constraint: string): Error & { code: string; constraint: string } {
+  const err = new Error(`Contrainte d'unicité violée (${constraint})`) as Error & {
+    code: string;
+    constraint: string;
+  };
+  err.code = '23505';
+  err.constraint = constraint;
+  return err;
+}
+
+function assertUniqueMemUser(user: StoredUser, excludeId?: string): void {
+  const targetEmail = normalizeInvestorEmail(user.email);
+  const targetPhone = normalizeInvestorPhone(user.phone);
+  for (const existing of memUsers.values()) {
+    if (excludeId && existing.id === excludeId) continue;
+    if (normalizeInvestorEmail(existing.email) === targetEmail) {
+      throw createConflictError('app_users_email_normalized_key');
+    }
+    if (
+      targetPhone &&
+      (user.role === 'client' || user.role === 'investor') &&
+      (existing.role === 'client' || existing.role === 'investor') &&
+      normalizeInvestorPhone(existing.phone) === targetPhone
+    ) {
+      throw createConflictError('app_users_phone_unique_idx');
+    }
+  }
+}
+
+function insertMemLegacyUser(user: StoredUser): void {
+  const email = normalizeInvestorEmail(user.email);
+  const existing = Array.from(memUsers.values()).find(
+    (candidate) => normalizeInvestorEmail(candidate.email) === email
+  );
+  if (!existing) {
+    memUsers.set(user.id, cloneUser(user));
+    return;
+  }
+  if (existing.role === 'investor' && (user.role === 'admin_principal' || user.role === 'admin_secondaire')) {
+    const cleaned = { ...existing } as StoredUser & Record<string, unknown>;
+    delete cleaned.assignedPassword;
+    delete cleaned.assignedPasswordPlainText;
+    memUsers.set(existing.id, { ...cleaned, ...cloneUser(user), id: existing.id });
+  }
+}
+
+function insertMemBootstrapAdmin(user: StoredUser): void {
+  const email = normalizeInvestorEmail(user.email);
+  const existing = Array.from(memUsers.values()).find(
+    (candidate) => normalizeInvestorEmail(candidate.email) === email
+  );
+  if (!existing) {
+    memUsers.set(user.id, cloneUser(user));
+    return;
+  }
+  if (existing.role === 'investor' || existing.role === 'admin_secondaire') {
+    const cleaned = { ...existing } as StoredUser & Record<string, unknown>;
+    delete cleaned.assignedPassword;
+    delete cleaned.assignedPasswordPlainText;
+    memUsers.set(existing.id, { ...cleaned, ...cloneUser(user), role: 'admin_principal', id: existing.id });
+  }
 }
 
 async function insertInvestor(client: Pick<PoolClient, 'query'>, investor: InvestorIdentity): Promise<void> {
@@ -175,18 +271,56 @@ function readLegacyUsers(filePath: string): StoredUser[] {
   return [];
 }
 
+function initializeMemoryUserStore(options: {
+  legacyInvestorFile: string;
+  legacyClientFile: string;
+  legacyAdmins: () => StoredUser[];
+  bootstrapAdmin?: StoredUser;
+}): void {
+  useMemoryStore = true;
+  memUsers.clear();
+  memSessions.clear();
+  memOtps.clear();
+  memArchives.clear();
+  memOperationInventories.clear();
+  memAdminSecurity = undefined;
+
+  for (const user of readLegacyUsers(options.legacyClientFile)) {
+    insertMemLegacyUser({ ...user, role: 'client' });
+  }
+  for (const user of readLegacyUsers(options.legacyInvestorFile)) {
+    insertMemLegacyUser({ ...user, role: 'investor' });
+  }
+  for (const admin of options.legacyAdmins()) {
+    if (admin.role === 'admin_principal' || admin.role === 'admin_secondaire') {
+      insertMemLegacyUser(admin);
+    }
+  }
+  if (options.bootstrapAdmin) {
+    insertMemBootstrapAdmin(options.bootstrapAdmin);
+  }
+
+  const hasPrincipal = Array.from(memUsers.values()).some((u) => u.role === 'admin_principal');
+  if (!hasPrincipal) {
+    console.warn('[AI Studio] Mode mémoire actif sans administrateur principal configuré (ADMIN_INITIAL_EMAIL / ADMIN_INITIAL_PASSWORD).');
+  }
+}
+
 export async function initializeUserStore(options: {
   legacyInvestorFile: string;
   legacyClientFile: string;
   legacyAdmins: () => StoredUser[];
   bootstrapAdmin?: StoredUser;
 }): Promise<void> {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    throw new Error('DATABASE_URL doit être configurée pour démarrer le serveur.');
+    console.warn('[AI Studio] DATABASE_URL non configurée — utilisation du stockage en mémoire.');
+    initializeMemoryUserStore(options);
+    return;
   }
 
-  pool = new Pool({ connectionString });
+  useMemoryStore = false;
+  pool = new Pool({ connectionString, connectionTimeoutMillis: 3000 });
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_users (
@@ -362,7 +496,7 @@ export async function initializeUserStore(options: {
         `SELECT COUNT(*)::text AS count FROM app_users WHERE role = 'admin_principal'`
       );
       if (principals[0]?.count === '0') {
-        throw new Error('Aucun administrateur principal en base. Configurez ADMIN_INITIAL_EMAIL et ADMIN_INITIAL_PASSWORD.');
+        console.warn('[AI Studio] Aucun administrateur principal en base. Configurez ADMIN_INITIAL_EMAIL et ADMIN_INITIAL_PASSWORD pour initialiser le compte principal.');
       }
 
       const { rows: sessionTable } = await client.query<{ exists: boolean }>(
@@ -391,13 +525,20 @@ export async function initializeUserStore(options: {
       if (existsSync(legacyPath)) renameSync(legacyPath, `${legacyPath}.migrated`);
     }
   } catch (error) {
-    await pool.end();
+    await pool.end().catch(() => {});
     pool = undefined;
-    throw error;
+    console.warn('[AI Studio] PostgreSQL indisponible — basculement vers le stockage en mémoire:', (error as Error).message);
+    initializeMemoryUserStore(options);
   }
 }
 
 export async function initializeAdminSecurity(settings: AdminSecuritySettings): Promise<void> {
+  if (useMemoryStore) {
+    if (!memAdminSecurity) {
+      memAdminSecurity = { ...settings, previousAdminUrls: [...settings.previousAdminUrls] };
+    }
+    return;
+  }
   await getPool().query(
     `INSERT INTO app_admin_security
        (singleton_id, custom_admin_url, master_password_hash, master_password_salt, previous_admin_urls)
@@ -413,6 +554,11 @@ export async function initializeAdminSecurity(settings: AdminSecuritySettings): 
 }
 
 export async function getAdminSecuritySettings(): Promise<AdminSecuritySettings | undefined> {
+  if (useMemoryStore) {
+    return memAdminSecurity
+      ? { ...memAdminSecurity, previousAdminUrls: [...memAdminSecurity.previousAdminUrls] }
+      : undefined;
+  }
   const { rows } = await getPool().query<{
     custom_admin_url: string;
     master_password_hash: string;
@@ -434,6 +580,10 @@ export async function getAdminSecuritySettings(): Promise<AdminSecuritySettings 
 }
 
 export async function updateAdminSecuritySettings(settings: AdminSecuritySettings): Promise<void> {
+  if (useMemoryStore) {
+    memAdminSecurity = { ...settings, previousAdminUrls: [...settings.previousAdminUrls] };
+    return;
+  }
   await getPool().query(
     `UPDATE app_admin_security
      SET custom_admin_url = $1, master_password_hash = $2, master_password_salt = $3,
@@ -449,6 +599,15 @@ export async function updateAdminSecuritySettings(settings: AdminSecuritySetting
 }
 
 export async function createArchiveRecord(record: ArchivedRecord & { payload: unknown }): Promise<void> {
+  if (useMemoryStore) {
+    const now = record.archivedAt ? new Date(record.archivedAt) : new Date();
+    memArchives.set(record.id, {
+      ...record,
+      archivedAt: now.toISOString(),
+      archivedAtDate: now
+    });
+    return;
+  }
   await getPool().query(
     `INSERT INTO app_archives (id, entity_type, entity_id, label, parent_id, payload)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
@@ -457,6 +616,11 @@ export async function createArchiveRecord(record: ArchivedRecord & { payload: un
 }
 
 export async function listArchiveRecords(): Promise<ArchivedRecord[]> {
+  if (useMemoryStore) {
+    return Array.from(memArchives.values())
+      .sort((a, b) => b.archivedAtDate.getTime() - a.archivedAtDate.getTime())
+      .map(({ payload: _payload, archivedAtDate: _date, ...record }) => record);
+  }
   const { rows } = await getPool().query<{
     id: string;
     entity_type: string;
@@ -479,6 +643,12 @@ export async function listArchiveRecords(): Promise<ArchivedRecord[]> {
 }
 
 export async function findArchiveRecord(id: string): Promise<ArchivedRecord | undefined> {
+  if (useMemoryStore) {
+    const record = memArchives.get(id);
+    if (!record) return undefined;
+    const { archivedAtDate: _date, ...rest } = record;
+    return rest;
+  }
   const { rows } = await getPool().query<{
     id: string;
     entity_type: string;
@@ -507,10 +677,25 @@ export async function findArchiveRecord(id: string): Promise<ArchivedRecord | un
 }
 
 export async function deleteArchiveRecord(id: string): Promise<void> {
+  if (useMemoryStore) {
+    memArchives.delete(id);
+    return;
+  }
   await getPool().query('DELETE FROM app_archives WHERE id = $1', [id]);
 }
 
 export async function initializeOperationInventory(inventories: OperationInventory[]): Promise<void> {
+  if (useMemoryStore) {
+    for (const inventory of inventories) {
+      const existing = memOperationInventories.get(inventory.operationId);
+      if (existing) {
+        existing.totalShares = Math.max(inventory.totalShares, existing.committedShares);
+      } else {
+        memOperationInventories.set(inventory.operationId, { ...inventory });
+      }
+    }
+    return;
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -533,6 +718,12 @@ export async function initializeOperationInventory(inventories: OperationInvento
 }
 
 export async function updateOperationInventory(operationId: string, totalShares: number): Promise<boolean> {
+  if (useMemoryStore) {
+    const existing = memOperationInventories.get(operationId);
+    if (!existing || existing.committedShares > totalShares) return false;
+    existing.totalShares = totalShares;
+    return true;
+  }
   const result = await getPool().query(
     `UPDATE app_operation_inventory
      SET total_shares = $2
@@ -543,6 +734,9 @@ export async function updateOperationInventory(operationId: string, totalShares:
 }
 
 export async function listOperationInventories(): Promise<OperationInventory[]> {
+  if (useMemoryStore) {
+    return Array.from(memOperationInventories.values()).map((item) => ({ ...item }));
+  }
   const { rows } = await getPool().query<{
     operation_id: string;
     total_shares: number;
@@ -558,6 +752,15 @@ export async function listOperationInventories(): Promise<OperationInventory[]> 
 }
 
 export async function reserveOperationShares(operationId: string, count: number): Promise<boolean> {
+  if (typeof operationId !== 'string' || !operationId.trim() || !Number.isSafeInteger(count) || count < 1) {
+    return false;
+  }
+  if (useMemoryStore) {
+    const existing = memOperationInventories.get(operationId);
+    if (!existing || existing.committedShares + count > existing.totalShares) return false;
+    existing.committedShares += count;
+    return true;
+  }
   const result = await getPool().query(
     `UPDATE app_operation_inventory
      SET committed_shares = committed_shares + $2
@@ -568,6 +771,14 @@ export async function reserveOperationShares(operationId: string, count: number)
 }
 
 export async function releaseOperationShares(operationId: string, count: number): Promise<void> {
+  if (typeof operationId !== 'string' || !operationId.trim() || !Number.isSafeInteger(count) || count < 1) {
+    return;
+  }
+  if (useMemoryStore) {
+    const existing = memOperationInventories.get(operationId);
+    if (existing) existing.committedShares = Math.max(0, existing.committedShares - count);
+    return;
+  }
   await getPool().query(
     `UPDATE app_operation_inventory
      SET committed_shares = GREATEST(0, committed_shares - $2)
@@ -577,6 +788,11 @@ export async function releaseOperationShares(operationId: string, count: number)
 }
 
 export async function listInvestors<T extends InvestorIdentity>(): Promise<T[]> {
+  if (useMemoryStore) {
+    return Array.from(memUsers.values())
+      .filter((user) => user.role === 'investor')
+      .map((user) => cloneUser(user) as unknown as T);
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT payload, role FROM app_users WHERE role = 'investor'`
   );
@@ -584,8 +800,23 @@ export async function listInvestors<T extends InvestorIdentity>(): Promise<T[]> 
 }
 
 export async function findInvestorByIdentifier<T extends InvestorIdentity>(identifier: string): Promise<T | undefined> {
+  if (typeof identifier !== 'string' || !identifier.trim()) return undefined;
   const normalizedEmail = normalizeInvestorEmail(identifier);
   const normalizedPhone = normalizeInvestorPhone(identifier);
+  if (useMemoryStore) {
+    const normalizedId = identifier.trim().toLowerCase();
+    for (const user of memUsers.values()) {
+      if (user.role !== 'investor') continue;
+      if (
+        normalizeInvestorEmail(user.email) === normalizedEmail ||
+        user.id.toLowerCase() === normalizedId ||
+        (normalizedPhone !== null && normalizeInvestorPhone(user.phone) === normalizedPhone)
+      ) {
+        return cloneUser(user) as unknown as T;
+      }
+    }
+    return undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT payload, role FROM app_users
      WHERE role = 'investor'
@@ -597,6 +828,15 @@ export async function findInvestorByIdentifier<T extends InvestorIdentity>(ident
 }
 
 export async function findInvestorByEmail<T extends InvestorIdentity>(email: string): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const target = normalizeInvestorEmail(email);
+    for (const user of memUsers.values()) {
+      if (user.role === 'investor' && normalizeInvestorEmail(user.email) === target) {
+        return cloneUser(user) as unknown as T;
+      }
+    }
+    return undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT payload, role FROM app_users WHERE role = 'investor' AND email_normalized = $1 LIMIT 1`,
     [normalizeInvestorEmail(email)]
@@ -608,6 +848,20 @@ export async function findInvestorByPhoneAndEmail<T extends InvestorIdentity>(
   phone: string,
   email: string
 ): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const targetPhone = normalizeInvestorPhone(phone);
+    const targetEmail = normalizeInvestorEmail(email);
+    for (const user of memUsers.values()) {
+      if (
+        user.role === 'investor' &&
+        normalizeInvestorPhone(user.phone) === targetPhone &&
+        normalizeInvestorEmail(user.email) === targetEmail
+      ) {
+        return cloneUser(user) as unknown as T;
+      }
+    }
+    return undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT payload, role
      FROM app_users
@@ -621,6 +875,12 @@ export async function findInvestorByPhoneAndEmail<T extends InvestorIdentity>(
 }
 
 export async function createInvestor<T extends InvestorIdentity>(investor: T): Promise<void> {
+  if (useMemoryStore) {
+    const stored = { ...investor, role: 'investor' } as StoredUser;
+    assertUniqueMemUser(stored);
+    memUsers.set(stored.id, cloneUser(stored));
+    return;
+  }
   await insertInvestor(getPool(), investor);
 }
 
@@ -628,6 +888,15 @@ export async function updateInvestor<T extends InvestorIdentity>(
   id: string,
   update: (investor: T) => T
 ): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const current = memUsers.get(id);
+    if (!current || current.role !== 'investor') return undefined;
+    const updated = update(cloneUser(current) as unknown as T);
+    const nextUser = { ...updated, role: 'investor' } as StoredUser;
+    assertUniqueMemUser(nextUser, id);
+    memUsers.set(id, cloneUser(nextUser));
+    return updated;
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -683,12 +952,88 @@ export async function updateInvestor<T extends InvestorIdentity>(
   }
 }
 
+export async function adjustInvestorWalletBalance<T extends InvestorIdentity>(
+  idOrEmail: string,
+  delta: number
+): Promise<{ investor: T; previousBalance: number; newBalance: number } | undefined> {
+  if (!Number.isSafeInteger(delta)) {
+    throw new Error('La variation du solde doit être un entier valide.');
+  }
+
+  const target = await findInvestorByIdentifier<T>(idOrEmail);
+  if (!target) return undefined;
+
+  if (useMemoryStore) {
+    const current = memUsers.get(target.id);
+    if (!current || current.role !== 'investor') return undefined;
+    const rawBalance = (current as unknown as T).walletBalance;
+    const previousBalance = Number.isSafeInteger(rawBalance) && (rawBalance as number) >= 0 ? (rawBalance as number) : 0;
+    const newBalance = previousBalance + delta;
+    if (newBalance < 0) {
+      throw new InsufficientBalanceError(previousBalance, Math.abs(delta));
+    }
+    const updated = { ...cloneUser(current), walletBalance: newBalance } as unknown as T;
+    memUsers.set(target.id, cloneUser(updated as unknown as StoredUser));
+    return { investor: updated, previousBalance, newBalance };
+  }
+
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<{ payload: T }>(
+      `SELECT payload FROM app_users WHERE id = $1 AND role = 'investor' FOR UPDATE`,
+      [target.id]
+    );
+    if (!rows[0]) {
+      await client.query('COMMIT');
+      return undefined;
+    }
+    const rawBalance = rows[0].payload.walletBalance;
+    const previousBalance = Number.isSafeInteger(rawBalance) && (rawBalance as number) >= 0 ? (rawBalance as number) : 0;
+    const newBalance = previousBalance + delta;
+    if (newBalance < 0) {
+      throw new InsufficientBalanceError(previousBalance, Math.abs(delta));
+    }
+    const updated: T = { ...rows[0].payload, walletBalance: newBalance };
+    await client.query(
+      `UPDATE app_users SET payload = $2::jsonb WHERE id = $1`,
+      [target.id, JSON.stringify(updated)]
+    );
+    await client.query('COMMIT');
+    return { investor: updated, previousBalance, newBalance };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteInvestor(id: string): Promise<boolean> {
+  if (useMemoryStore) {
+    const existing = memUsers.get(id);
+    if (!existing || existing.role !== 'investor') return false;
+    memUsers.delete(id);
+    for (const [token, session] of memSessions.entries()) {
+      if (session.userId === id) memSessions.delete(token);
+    }
+    return true;
+  }
   const result = await getPool().query(`DELETE FROM app_users WHERE id = $1 AND role = 'investor'`, [id]);
   return result.rowCount === 1;
 }
 
 export async function replaceInvestors<T extends InvestorIdentity>(investors: T[]): Promise<void> {
+  if (useMemoryStore) {
+    for (const [id, user] of memUsers.entries()) {
+      if (user.role === 'investor') memUsers.delete(id);
+    }
+    for (const investor of investors) {
+      const stored = { ...investor, role: 'investor' } as StoredUser;
+      memUsers.set(stored.id, cloneUser(stored));
+    }
+    return;
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -706,6 +1051,15 @@ export async function replaceInvestors<T extends InvestorIdentity>(investors: T[
 }
 
 export async function replaceUsersByRole<T extends StoredUser>(role: UserRole, users: T[]): Promise<void> {
+  if (useMemoryStore) {
+    for (const [id, user] of memUsers.entries()) {
+      if (user.role === role) memUsers.delete(id);
+    }
+    for (const user of users) {
+      memUsers.set(user.id, cloneUser(user));
+    }
+    return;
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -721,6 +1075,10 @@ export async function replaceUsersByRole<T extends StoredUser>(role: UserRole, u
 }
 
 export async function createInvestorSession(tokenHash: string, investorId: string, expiresAt: Date): Promise<void> {
+  if (useMemoryStore) {
+    memSessions.set(tokenHash, { userId: investorId, expiresAt });
+    return;
+  }
   await getPool().query(
     'INSERT INTO app_sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)',
     [tokenHash, investorId, expiresAt]
@@ -728,6 +1086,13 @@ export async function createInvestorSession(tokenHash: string, investorId: strin
 }
 
 export async function findInvestorBySession<T extends InvestorIdentity>(tokenHash: string): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const session = memSessions.get(tokenHash);
+    if (!session || session.expiresAt.getTime() <= Date.now()) return undefined;
+    const user = memUsers.get(session.userId);
+    if (!user || user.role !== 'investor') return undefined;
+    return cloneUser(user) as unknown as T;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT i.payload, i.role
      FROM app_sessions s
@@ -740,10 +1105,20 @@ export async function findInvestorBySession<T extends InvestorIdentity>(tokenHas
 }
 
 export async function deleteInvestorSession(tokenHash: string): Promise<void> {
+  if (useMemoryStore) {
+    memSessions.delete(tokenHash);
+    return;
+  }
   await getPool().query('DELETE FROM app_sessions WHERE token_hash = $1', [tokenHash]);
 }
 
 export async function deleteOtherInvestorSessions(investorId: string, currentTokenHash: string): Promise<void> {
+  if (useMemoryStore) {
+    for (const [token, session] of memSessions.entries()) {
+      if (session.userId === investorId && token !== currentTokenHash) memSessions.delete(token);
+    }
+    return;
+  }
   await getPool().query(
     'DELETE FROM app_sessions WHERE user_id = $1 AND token_hash <> $2',
     [investorId, currentTokenHash]
@@ -751,10 +1126,21 @@ export async function deleteOtherInvestorSessions(investorId: string, currentTok
 }
 
 export async function deleteInvestorSessions(investorId: string): Promise<void> {
+  if (useMemoryStore) {
+    for (const [token, session] of memSessions.entries()) {
+      if (session.userId === investorId) memSessions.delete(token);
+    }
+    return;
+  }
   await getPool().query('DELETE FROM app_sessions WHERE user_id = $1', [investorId]);
 }
 
 export async function createUser<T extends StoredUser>(user: T): Promise<void> {
+  if (useMemoryStore) {
+    assertUniqueMemUser(user);
+    memUsers.set(user.id, cloneUser(user));
+    return;
+  }
   await insertUser(getPool(), user);
 }
 
@@ -763,6 +1149,12 @@ export async function createUserWithOtp<T extends StoredUser>(
   code: string,
   expiresAt: Date
 ): Promise<void> {
+  if (useMemoryStore) {
+    assertUniqueMemUser(user);
+    memUsers.set(user.id, cloneUser(user));
+    memOtps.set(normalizeInvestorEmail(user.email), { code, expiresAt, attempts: 0 });
+    return;
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -782,6 +1174,13 @@ export async function createUserWithOtp<T extends StoredUser>(
 }
 
 export async function findUserByEmail<T extends StoredUser>(email: string): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const target = normalizeInvestorEmail(email);
+    for (const user of memUsers.values()) {
+      if (normalizeInvestorEmail(user.email) === target) return cloneUser(user) as T;
+    }
+    return undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     'SELECT payload, role FROM app_users WHERE email_normalized = $1 LIMIT 1',
     [normalizeInvestorEmail(email)]
@@ -790,6 +1189,10 @@ export async function findUserByEmail<T extends StoredUser>(email: string): Prom
 }
 
 export async function findUserById<T extends StoredUser>(id: string): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const user = memUsers.get(id);
+    return user ? (cloneUser(user) as T) : undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     'SELECT payload, role FROM app_users WHERE id = $1 LIMIT 1',
     [id]
@@ -798,6 +1201,12 @@ export async function findUserById<T extends StoredUser>(id: string): Promise<T 
 }
 
 export async function findAdminByRole<T extends StoredUser>(role: 'admin_principal' | 'admin_secondaire'): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const matches = Array.from(memUsers.values())
+      .filter((u) => u.role === role)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return matches[0] ? (cloneUser(matches[0]) as T) : undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     'SELECT payload, role FROM app_users WHERE role = $1 ORDER BY id LIMIT 1',
     [role]
@@ -806,6 +1215,11 @@ export async function findAdminByRole<T extends StoredUser>(role: 'admin_princip
 }
 
 export async function listAdmins<T extends StoredUser>(): Promise<T[]> {
+  if (useMemoryStore) {
+    return Array.from(memUsers.values())
+      .filter((u) => u.role === 'admin_principal' || u.role === 'admin_secondaire')
+      .map((u) => cloneUser(u) as T);
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT payload, role FROM app_users WHERE role IN ('admin_principal', 'admin_secondaire')`
   );
@@ -813,6 +1227,11 @@ export async function listAdmins<T extends StoredUser>(): Promise<T[]> {
 }
 
 export async function listUsersByRole<T extends StoredUser>(role: UserRole): Promise<T[]> {
+  if (useMemoryStore) {
+    return Array.from(memUsers.values())
+      .filter((u) => u.role === role)
+      .map((u) => cloneUser(u) as T);
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     'SELECT payload, role FROM app_users WHERE role = $1',
     [role]
@@ -821,6 +1240,11 @@ export async function listUsersByRole<T extends StoredUser>(role: UserRole): Pro
 }
 
 export async function updateUser<T extends StoredUser>(id: string, user: T): Promise<void> {
+  if (useMemoryStore) {
+    assertUniqueMemUser(user, id);
+    memUsers.set(id, cloneUser(user));
+    return;
+  }
   await getPool().query(
     `UPDATE app_users
      SET email_normalized = $2, phone_normalized = $3, role = $4, payload = $5::jsonb
@@ -830,10 +1254,21 @@ export async function updateUser<T extends StoredUser>(id: string, user: T): Pro
 }
 
 export async function deleteUser(id: string): Promise<void> {
+  if (useMemoryStore) {
+    memUsers.delete(id);
+    for (const [token, session] of memSessions.entries()) {
+      if (session.userId === id) memSessions.delete(token);
+    }
+    return;
+  }
   await getPool().query('DELETE FROM app_users WHERE id = $1', [id]);
 }
 
 export async function createUserSession(tokenHash: string, userId: string, expiresAt: Date): Promise<void> {
+  if (useMemoryStore) {
+    memSessions.set(tokenHash, { userId, expiresAt });
+    return;
+  }
   await getPool().query(
     'INSERT INTO app_sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)',
     [tokenHash, userId, expiresAt]
@@ -841,6 +1276,12 @@ export async function createUserSession(tokenHash: string, userId: string, expir
 }
 
 export async function findUserBySession<T extends StoredUser>(tokenHash: string): Promise<T | undefined> {
+  if (useMemoryStore) {
+    const session = memSessions.get(tokenHash);
+    if (!session || session.expiresAt.getTime() <= Date.now()) return undefined;
+    const user = memUsers.get(session.userId);
+    return user ? (cloneUser(user) as T) : undefined;
+  }
   const { rows } = await getPool().query<{ payload: T; role: UserRole }>(
     `SELECT u.payload, u.role
      FROM app_sessions s
@@ -853,6 +1294,10 @@ export async function findUserBySession<T extends StoredUser>(tokenHash: string)
 }
 
 export async function saveUserOtp(email: string, code: string, expiresAt: Date): Promise<void> {
+  if (useMemoryStore) {
+    memOtps.set(normalizeInvestorEmail(email), { code, expiresAt, attempts: 0 });
+    return;
+  }
   await getPool().query(
     `INSERT INTO user_otps (email_normalized, code, expires_at, attempts)
      VALUES ($1, $2, $3, 0)
@@ -863,6 +1308,10 @@ export async function saveUserOtp(email: string, code: string, expiresAt: Date):
 }
 
 export async function findUserOtp(email: string): Promise<{ code: string; expiresAt: Date; attempts: number } | undefined> {
+  if (useMemoryStore) {
+    const entry = memOtps.get(normalizeInvestorEmail(email));
+    return entry ? { ...entry } : undefined;
+  }
   const { rows } = await getPool().query<{ code: string; expires_at: Date; attempts: number }>(
     'SELECT code, expires_at, attempts FROM user_otps WHERE email_normalized = $1',
     [normalizeInvestorEmail(email)]
@@ -872,6 +1321,12 @@ export async function findUserOtp(email: string): Promise<{ code: string; expire
 }
 
 export async function incrementUserOtpAttempts(email: string): Promise<number> {
+  if (useMemoryStore) {
+    const entry = memOtps.get(normalizeInvestorEmail(email));
+    if (!entry) return 0;
+    entry.attempts += 1;
+    return entry.attempts;
+  }
   const { rows } = await getPool().query<{ attempts: number }>(
     `UPDATE user_otps SET attempts = attempts + 1
      WHERE email_normalized = $1 RETURNING attempts`,
@@ -881,10 +1336,18 @@ export async function incrementUserOtpAttempts(email: string): Promise<number> {
 }
 
 export async function deleteUserOtp(email: string): Promise<void> {
+  if (useMemoryStore) {
+    memOtps.delete(normalizeInvestorEmail(email));
+    return;
+  }
   await getPool().query('DELETE FROM user_otps WHERE email_normalized = $1', [normalizeInvestorEmail(email)]);
 }
 
 export async function clearUserOtps(): Promise<void> {
+  if (useMemoryStore) {
+    memOtps.clear();
+    return;
+  }
   await getPool().query('DELETE FROM user_otps');
 }
 

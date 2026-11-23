@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { InvestorWallet, WalletTransaction, FundOperationRequest, WHATSAPP_CONTACTS } from '../data/mockData.ts';
+import { InvestorWallet, WalletTransaction, FundOperationRequest, InvestmentProject } from '../data/mockData.ts';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -7,12 +7,25 @@ interface WalletModalProps {
   wallet: InvestorWallet;
   transactions: WalletTransaction[];
   fundRequests: FundOperationRequest[];
-  onSubmitFundRequest: (req: Omit<FundOperationRequest, 'id' | 'requestedAt' | 'status'>) => FundOperationRequest;
+  projects?: InvestmentProject[];
+  onSubmitFundRequest: (req: Omit<FundOperationRequest, 'id' | 'requestedAt' | 'status'>) => FundOperationRequest | Promise<FundOperationRequest>;
   defaultAction?: 'depot' | 'retrait' | 'history';
   investorName?: string;
   investorPhone?: string;
   investorEmail?: string;
   investorId?: string;
+}
+
+const MIN_FUND_AMOUNT = 500;
+const MAX_WITHDRAWAL_PER_TX = 5_000_000;
+const MAX_DEPOSIT_PER_TX = 50_000_000;
+
+function generateIdempotencyKey(opType: 'depot' | 'retrait'): string {
+  const randomPart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `idem-${opType}-${randomPart}`;
 }
 
 export const WalletModal: React.FC<WalletModalProps> = ({
@@ -21,6 +34,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   wallet,
   transactions,
   fundRequests,
+  projects = [],
   onSubmitFundRequest,
   defaultAction = 'depot',
   investorName = 'Franck Kaboré',
@@ -28,7 +42,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   investorEmail = 'franckkabore454@gmail.com',
   investorId = '#EM-INV-4541'
 }) => {
-  // Navigation tabs: 'operations' (5-step flow for deposit / withdrawal) or 'history'
+  // Navigation tabs: 'operations' (step flow for deposit / withdrawal), 'requests', or 'history'
   const [activeTab, setActiveTab] = useState<'operations' | 'requests' | 'history'>(
     defaultAction === 'history' ? 'history' : 'operations'
   );
@@ -68,7 +82,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   // Step state: 1 = Input Amount, 2 = Summary & Validate, 3 = Submitted Ticket
   const [flowStep, setFlowStep] = useState<1 | 2 | 3>(1);
 
-  // Input amount (Step 2)
+  // Input amount
   const [amountInput, setAmountInput] = useState<string>('25000');
   const [paymentMethod, setPaymentMethod] = useState<'Orange Money' | 'Moov Money' | 'Wave' | 'Virement / Espèces'>(
     'Orange Money'
@@ -78,6 +92,39 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   // Submitted ticket result
   const [submittedRequest, setSubmittedRequest] = useState<FundOperationRequest | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
+    generateIdempotencyKey(defaultAction === 'retrait' ? 'retrait' : 'depot')
+  );
+
+  const ALL_BOUTIQUES = [
+    { id: 'electronique' as const, sector: 'Électronique' as const, phone: '65 48 47 38', icon: 'memory' },
+    { id: 'electrotechnique' as const, sector: 'Électrotechnique' as const, phone: '07 31 57 34', icon: 'bolt' },
+    { id: 'informatique' as const, sector: 'Informatique' as const, phone: '56 28 35 26', icon: 'laptop_mac' }
+  ];
+
+  const openOperationBoutiqueIds = React.useMemo(() => {
+    const activeSet = new Set<'electronique' | 'electrotechnique' | 'informatique'>();
+    projects.forEach((p) => {
+      const isPublished = p.isPublished !== false && p.offerStatus !== 'Brouillon' && p.status !== 'draft';
+      const isOpenOp = (p.offerStatus || (p.status === 'completed' ? 'Fermé' : 'Ouvert')) === 'Ouvert';
+      if (!isPublished || !isOpenOp) return;
+      const raw = `${p.sector || ''} ${p.category || ''}`.toLowerCase();
+      if (raw.includes('électrotechnique') || raw.includes('electrotechnique') || raw.includes('puissance')) {
+        activeSet.add('electrotechnique');
+      } else if (raw.includes('informatique')) {
+        activeSet.add('informatique');
+      } else {
+        activeSet.add('electronique');
+      }
+    });
+    return activeSet;
+  }, [projects]);
+
+  const availableBoutiquesForStep1 = React.useMemo(() => {
+    if (operationType === 'retrait') return ALL_BOUTIQUES;
+    return ALL_BOUTIQUES.filter((b) => openOperationBoutiqueIds.has(b.id));
+  }, [operationType, openOperationBoutiqueIds]);
 
   React.useEffect(() => {
     if (investorPhone) {
@@ -85,9 +132,27 @@ export const WalletModal: React.FC<WalletModalProps> = ({
     }
   }, [investorPhone]);
 
-  if (!isOpen) return null;
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const nextOp: 'depot' | 'retrait' = defaultAction === 'retrait' ? 'retrait' : 'depot';
+    setActiveTab(defaultAction === 'history' ? 'history' : 'operations');
+    setOperationType(nextOp);
+    setFlowStep(1);
+    setSubmittedRequest(null);
+    setErrorMessage(null);
+    setIsSubmitting(false);
+    setIdempotencyKey(generateIdempotencyKey(nextOp));
+  }, [isOpen, defaultAction]);
 
-  const numericAmount = parseInt(amountInput, 10);
+  React.useEffect(() => {
+    if (operationType === 'depot' && availableBoutiquesForStep1.length > 0) {
+      if (!availableBoutiquesForStep1.some((b) => b.id === selectedSector)) {
+        setSelectedSector(availableBoutiquesForStep1[0].id);
+      }
+    }
+  }, [operationType, availableBoutiquesForStep1, selectedSector]);
+
+  if (!isOpen) return null;
 
   // Filter requests strictly for this investor
   const myRequests = fundRequests.filter(
@@ -96,53 +161,131 @@ export const WalletModal: React.FC<WalletModalProps> = ({
       r.investorId === investorId
   );
 
+  // Real available withdrawal balance: total cash balance minus pending/processing withdrawals
+  const computedPendingWithdrawals = myRequests
+    .filter((r) => r.type === 'retrait' && (r.status === 'En attente' || r.status === 'En cours de traitement'))
+    .reduce((sum, r) => sum + (Number.isSafeInteger(r.amount) && r.amount > 0 ? r.amount : 0), 0);
+  const pendingWithdrawalsTotal = Math.max(
+    computedPendingWithdrawals,
+    typeof wallet.pendingWithdrawalsTotal === 'number' ? wallet.pendingWithdrawalsTotal : 0
+  );
+  const localAvailable = Math.max(0, wallet.balance - pendingWithdrawalsTotal);
+  const effectiveAvailableForWithdrawal =
+    typeof wallet.availableWithdrawalBalance === 'number'
+      ? Math.max(0, Math.min(localAvailable, wallet.availableWithdrawalBalance))
+      : localAvailable;
+
+  const trimmedAmount = amountInput.trim();
+  const isStrictIntegerAmount = /^\d+$/.test(trimmedAmount);
+  const numericAmount = isStrictIntegerAmount ? Number(trimmedAmount) : Number.NaN;
+
+  const getWithdrawalOrAmountError = (checkEmpty = false): string | null => {
+    if (!trimmedAmount) {
+      return checkEmpty ? 'Veuillez saisir un montant valide supérieur à 0 FCFA.' : null;
+    }
+    if (!isStrictIntegerAmount || !Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+      return 'Veuillez saisir un montant entier valide supérieur à 0 FCFA.';
+    }
+    if (numericAmount < MIN_FUND_AMOUNT) {
+      return `Le montant minimum autorisé est de ${MIN_FUND_AMOUNT.toLocaleString('fr-FR')} FCFA.`;
+    }
+    if (operationType === 'retrait') {
+      if (effectiveAvailableForWithdrawal <= 0) {
+        return `Retrait impossible : votre solde disponible réel est de 0 FCFA${
+          pendingWithdrawalsTotal > 0
+            ? ` (${pendingWithdrawalsTotal.toLocaleString('fr-FR')} FCFA déjà engagés sur des retraits en attente)`
+            : ''
+        }.`;
+      }
+      if (numericAmount > effectiveAvailableForWithdrawal) {
+        return `Montant refusé : votre solde disponible réel pour retrait est de ${effectiveAvailableForWithdrawal.toLocaleString(
+          'fr-FR'
+        )} FCFA${
+          pendingWithdrawalsTotal > 0
+            ? ` (dont ${pendingWithdrawalsTotal.toLocaleString('fr-FR')} FCFA déjà réservés par vos demandes en attente)`
+            : ''
+        }.`;
+      }
+      if (numericAmount > MAX_WITHDRAWAL_PER_TX) {
+        return `Le plafond maximal autorisé par retrait est de ${MAX_WITHDRAWAL_PER_TX.toLocaleString('fr-FR')} FCFA.`;
+      }
+    } else if (numericAmount > MAX_DEPOSIT_PER_TX) {
+      return `Le plafond maximal autorisé par dépôt est de ${MAX_DEPOSIT_PER_TX.toLocaleString('fr-FR')} FCFA.`;
+    }
+    return null;
+  };
+
+  const liveAmountError = getWithdrawalOrAmountError(false);
+  const noActiveDepotBoutiques = operationType === 'depot' && availableBoutiquesForStep1.length === 0;
+  const isStep1Blocked =
+    noActiveDepotBoutiques ||
+    getWithdrawalOrAmountError(true) !== null ||
+    phoneInput.replace(/\D/g, '').length < 8;
+
   // Handle Step 1 to Step 2 : Validate Form
   const handleValidateStep = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      setErrorMessage('Veuillez saisir un montant valide supérieur à 0 FCFA.');
+    const validationError = getWithdrawalOrAmountError(true);
+    if (validationError) {
+      setErrorMessage(validationError);
       return;
     }
 
-    if (operationType === 'retrait' && numericAmount > wallet.balance) {
-      setErrorMessage(
-        `Solde disponible insuffisant. Votre solde actuel est de ${wallet.balance.toLocaleString(
-          'fr-FR'
-        )} FCFA.`
-      );
+    if (phoneInput.replace(/\D/g, '').length < 8) {
+      setErrorMessage('Veuillez saisir un numéro Mobile Money / WhatsApp valide (8 chiffres minimum).');
       return;
     }
 
-    // Move to Step 3: Review summary
+    // Move to Step 2: Review summary
     setFlowStep(2);
   };
 
   // Handle Step 2 to Step 3 : Final Submit Request (Generates reference and status 'En attente')
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = async () => {
+    if (isSubmitting) return;
     setErrorMessage(null);
+
+    const validationError = getWithdrawalOrAmountError(true);
+    if (validationError) {
+      setErrorMessage(validationError);
+      setFlowStep(1);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     const refPrefix = operationType === 'depot' ? 'DEP' : 'RET';
     const reference = `${refPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
     const sectorInfo = SECTOR_CONTACTS[selectedSector];
 
-    const newReq = onSubmitFundRequest({
-      reference,
-      type: operationType,
-      amount: numericAmount,
-      investorId,
-      investorName,
-      investorEmail,
-      investorPhone: `+226 ${phoneInput.trim()}`,
-      adminWhatsApp: sectorInfo.number,
-      sector: sectorInfo.sector,
-      paymentMethod: `${paymentMethod} (+226 ${phoneInput.trim()})`,
-      notes: `Demande de ${operationType === 'depot' ? 'dépôt' : 'retrait'} initiée pour le secteur ${sectorInfo.sector}.`
-    });
+    try {
+      const newReq = await onSubmitFundRequest({
+        reference,
+        idempotencyKey,
+        type: operationType,
+        amount: numericAmount,
+        investorId,
+        investorName,
+        investorEmail,
+        investorPhone: `+226 ${phoneInput.trim()}`,
+        adminWhatsApp: sectorInfo.number,
+        sector: sectorInfo.sector,
+        paymentMethod: `${paymentMethod} (+226 ${phoneInput.trim()})`,
+        notes: `Demande de ${operationType === 'depot' ? 'dépôt' : 'retrait'} initiée pour le secteur ${sectorInfo.sector}.`
+      });
 
-    setSubmittedRequest(newReq);
-    setFlowStep(3);
+      setSubmittedRequest(newReq);
+      setFlowStep(3);
+      setIdempotencyKey(generateIdempotencyKey(operationType));
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'La demande n’a pas pu être validée par le serveur.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Generate WhatsApp message according to exact specifications:
@@ -318,6 +461,7 @@ Merci de bien vouloir vérifier et confirmer cette opération dans le système a
                         onClick={() => {
                           setOperationType('depot');
                           setErrorMessage(null);
+                          setIdempotencyKey(generateIdempotencyKey('depot'));
                         }}
                         className={`p-3.5 rounded-xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
                           operationType === 'depot'
@@ -334,6 +478,7 @@ Merci de bien vouloir vérifier et confirmer cette opération dans le système a
                         onClick={() => {
                           setOperationType('retrait');
                           setErrorMessage(null);
+                          setIdempotencyKey(generateIdempotencyKey('retrait'));
                         }}
                         className={`p-3.5 rounded-xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
                           operationType === 'retrait'
@@ -353,40 +498,77 @@ Merci de bien vouloir vérifier et confirmer cette opération dans le système a
                       Étape 2 : Saisissez le montant souhaité (FCFA) :
                     </label>
                     <div className="grid grid-cols-4 gap-2">
-                      {['5000', '10000', '25000', '50000'].map((val) => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setAmountInput(val)}
-                          className={`py-2 px-1 rounded-xl text-center transition-all cursor-pointer font-syne font-bold text-xs ${
-                            amountInput === val
-                              ? 'border-2 border-amber-500 bg-amber-50 text-amber-900 shadow-sm'
-                              : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          {parseInt(val, 10).toLocaleString('fr-FR')} F
-                        </button>
-                      ))}
+                      {['5000', '10000', '25000', '50000'].map((val) => {
+                        const presetNum = parseInt(val, 10);
+                        const presetDisabled =
+                          operationType === 'retrait' && presetNum > effectiveAvailableForWithdrawal;
+                        return (
+                          <button
+                            key={val}
+                            type="button"
+                            disabled={presetDisabled}
+                            onClick={() => {
+                              setAmountInput(val);
+                              setErrorMessage(null);
+                              setIdempotencyKey(generateIdempotencyKey(operationType));
+                            }}
+                            className={`py-2 px-1 rounded-xl text-center transition-all font-syne font-bold text-xs ${
+                              presetDisabled
+                                ? 'border border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
+                                : amountInput === val
+                                ? 'border-2 border-amber-500 bg-amber-50 text-amber-900 shadow-sm cursor-pointer'
+                                : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 cursor-pointer'
+                            }`}
+                          >
+                            {presetNum.toLocaleString('fr-FR')} F
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <div className="relative mt-2">
                       <input
                         type="number"
-                        min="500"
-                        step="500"
+                        min={MIN_FUND_AMOUNT}
+                        max={operationType === 'retrait' ? Math.max(MIN_FUND_AMOUNT, effectiveAvailableForWithdrawal) : MAX_DEPOSIT_PER_TX}
+                        step="1"
                         required
                         value={amountInput}
-                        onChange={(e) => setAmountInput(e.target.value)}
+                        onChange={(e) => {
+                          setAmountInput(e.target.value);
+                          setErrorMessage(null);
+                          setIdempotencyKey(generateIdempotencyKey(operationType));
+                        }}
                         placeholder="Montant personnalisé..."
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 font-syne font-bold focus:bg-white focus:border-amber-500 outline-none pr-14"
+                        className={`w-full bg-slate-50 border rounded-xl p-2.5 text-xs text-slate-900 font-syne font-bold focus:bg-white outline-none pr-14 ${
+                          liveAmountError
+                            ? 'border-red-400 focus:border-red-500 bg-red-50/40'
+                            : 'border-slate-200 focus:border-amber-500'
+                        }`}
                       />
                       <span className="absolute right-3 top-2.5 text-[11px] text-slate-500 font-bold">FCFA</span>
                     </div>
 
                     {operationType === 'retrait' && (
-                      <p className="text-[11px] text-cyan-800 font-medium">
-                        Solde disponible pour retrait : <strong>{wallet.balance.toLocaleString('fr-FR')} FCFA</strong>
-                      </p>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-cyan-800 font-medium">
+                          Solde disponible réel pour retrait :{' '}
+                          <strong>{effectiveAvailableForWithdrawal.toLocaleString('fr-FR')} FCFA</strong>
+                          {pendingWithdrawalsTotal > 0 && (
+                            <span className="text-amber-800">
+                              {' '}
+                              ({pendingWithdrawalsTotal.toLocaleString('fr-FR')} FCFA réservés sur retraits en attente)
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {liveAmountError && (
+                      <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold flex items-start gap-1.5">
+                        <span className="material-symbols-outlined text-sm shrink-0 mt-0.5">block</span>
+                        <span>{liveAmountError}</span>
+                      </div>
                     )}
                   </div>
 
@@ -442,41 +624,57 @@ Merci de bien vouloir vérifier et confirmer cette opération dans le système a
                   {/* Étape : Choix du Secteur d'Investissement & Contact Dédié */}
                   <div className="space-y-1.5">
                     <label className="text-[11px] text-slate-800 font-extrabold uppercase tracking-wide block">
-                      Secteur d'Investissement Concerné :
+                      {operationType === 'depot'
+                        ? 'Boutique / Secteur Actif (opérations ouvertes) :'
+                        : 'Secteur d\'Investissement Concerné :'}
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {[
-                        { id: 'electronique', sector: 'Électronique', phone: '65 48 47 38', icon: 'memory' },
-                        { id: 'electrotechnique', sector: 'Électrotechnique', phone: '07 31 57 34', icon: 'bolt' },
-                        { id: 'informatique', sector: 'Informatique', phone: '56 28 35 26', icon: 'laptop_mac' }
-                      ].map((sec) => (
-                        <button
-                          key={sec.id}
-                          type="button"
-                          onClick={() => setSelectedSector(sec.id as any)}
-                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 ${
-                            selectedSector === sec.id
-                              ? 'border-amber-500 bg-amber-50 text-amber-950 font-bold shadow-xs'
-                              : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="material-symbols-outlined text-base text-amber-600">{sec.icon}</span>
-                            <span className="text-xs">{sec.sector}</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-cyan-800 font-semibold">+226 {sec.phone}</span>
-                        </button>
-                      ))}
-                    </div>
+                    {availableBoutiquesForStep1.length === 0 ? (
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-semibold flex items-center gap-2">
+                        <span className="material-symbols-outlined text-base text-amber-700">info</span>
+                        <span>Aucune boutique ne dispose d'une opération d'investissement ouverte actuellement.</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {availableBoutiquesForStep1.map((sec) => (
+                          <button
+                            key={sec.id}
+                            type="button"
+                            onClick={() => setSelectedSector(sec.id)}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 ${
+                              selectedSector === sec.id
+                                ? 'border-amber-500 bg-amber-50 text-amber-950 font-bold shadow-xs'
+                                : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-base text-amber-600">{sec.icon}</span>
+                              <span className="text-xs">{sec.sector}</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-cyan-800 font-semibold">+226 {sec.phone}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Bouton 4 : Valider */}
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl btn-gold-prestige font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm active:scale-98 cursor-pointer"
+                    disabled={isStep1Blocked}
+                    className={`w-full py-3 rounded-xl font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm ${
+                      isStep1Blocked
+                        ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        : 'btn-gold-prestige active:scale-98 cursor-pointer'
+                    }`}
                   >
-                    <span>Valider les Informations</span>
-                    <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                    <span>
+                      {operationType === 'retrait' && liveAmountError
+                        ? 'Montant supérieur au solde réel'
+                        : 'Valider les Informations'}
+                    </span>
+                    <span className="material-symbols-outlined text-sm">
+                      {operationType === 'retrait' && liveAmountError ? 'lock' : 'arrow_forward'}
+                    </span>
                   </button>
                 </form>
               )}
@@ -543,19 +741,24 @@ Merci de bien vouloir vérifier et confirmer cette opération dans le système a
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => setFlowStep(1)}
-                      className="px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setFlowStep(1);
+                        setIdempotencyKey(generateIdempotencyKey(operationType));
+                      }}
+                      className="px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer disabled:opacity-50"
                     >
                       Modifier
                     </button>
 
                     <button
                       type="button"
-                      onClick={handleFinalSubmit}
-                      className="flex-1 py-3 rounded-xl btn-gold-prestige font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer"
+                      disabled={isSubmitting}
+                      onClick={() => void handleFinalSubmit()}
+                      className="flex-1 py-3 rounded-xl btn-gold-prestige font-syne font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer disabled:opacity-50"
                     >
                       <span className="material-symbols-outlined text-base">send</span>
-                      <span>Soumettre ma Demande</span>
+                      <span>{isSubmitting ? 'En attente...' : 'Soumettre ma Demande'}</span>
                     </button>
                   </div>
                 </div>
