@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Product } from '../data/mockData.ts';
+import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 
 export interface ExportProductsModalProps {
   isOpen: boolean;
@@ -179,38 +180,33 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
     window.open(url, '_blank');
   };
 
-  // EXPORT EXCEL / CSV (NAMES & CHARACTERISTICS ONLY)
-  const handleExportCSV = () => {
-    if (targetExportProducts.length === 0) {
-      alert('Veuillez sélectionner au moins un produit.');
+  // EXPORT REAL EXCEL (.xlsx) WORKBOOK (SELECTION, FILTERED OR FULL CATALOG)
+  const handleExportXlsx = (scope: 'selected' | 'filtered' | 'all' = 'selected') => {
+    const itemsToExport =
+      scope === 'all'
+        ? products
+        : scope === 'filtered' && Array.isArray(currentFilteredProducts)
+        ? currentFilteredProducts
+        : targetExportProducts;
+
+    if (itemsToExport.length === 0) {
+      alert('Veuillez sélectionner au moins un produit à exporter.');
       return;
     }
 
-    const headers = ['Référence', 'Nom du Produit', 'Boutique', 'Famille / Catégorie', 'Caractéristiques Techniques'];
-    const rows = targetExportProducts.map((p) => {
-      const chars = getProductCharacteristics(p).join(' | ');
-      return [
-        `"${p.ref || ''}"`,
-        `"${(p.name || '').replace(/"/g, '""')}"`,
-        `"${p.domain || selectedBoutique}"`,
-        `"${(p.subGroupLabel || p.subGroup || p.category || '').replace(/"/g, '""')}"`,
-        `"${chars.replace(/"/g, '""')}"`
-      ];
+    const cleanDate = new Date().toISOString().slice(0, 10);
+    const scopeSuffix =
+      scope === 'all'
+        ? 'catalogue-complet'
+        : scope === 'filtered'
+        ? 'produits-filtres'
+        : selectedBoutique;
+    exportProductsToXlsx(itemsToExport, {
+      sheetName: scope === 'all' ? 'Catalogue ELECTRO-MEN' : getBoutiqueLabel(selectedBoutique),
+      filename: `ELECTRO-MEN_Catalogue_${scopeSuffix}_${cleanDate}.xlsx`
     });
 
-    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const cleanDate = new Date().toISOString().slice(0, 10);
-    link.href = url;
-    link.setAttribute('download', `ELECTRO-MEN_Caracteristiques_${selectedBoutique}_${cleanDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    showToast('Fichier Excel (CSV) téléchargé !');
+    showToast(`Fichier Excel (.xlsx) généré (${itemsToExport.length} produit(s)) !`);
   };
 
   const handlePrint = () => {
@@ -404,7 +400,19 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {Array.isArray(currentFilteredProducts) && currentFilteredProducts.length > 0 && currentFilteredProducts.length < products.length && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedBoutique('all');
+                        setSelectedIds(new Set(currentFilteredProducts.map((p) => p.id)));
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold cursor-pointer"
+                    >
+                      Filtre actif ({currentFilteredProducts.length})
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={selectAll}
@@ -636,6 +644,29 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* Bouton Exporter Sélection en Excel (.xlsx) */}
+            <button
+              type="button"
+              onClick={() => handleExportXlsx('selected')}
+              className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              title="Télécharger un fichier Excel (.xlsx) structuré avec la sélection actuelle"
+            >
+              <span className="material-symbols-outlined text-base">table_view</span>
+              <span>Excel (.xlsx) · Sélection ({targetExportProducts.length})</span>
+            </button>
+
+            {targetExportProducts.length !== products.length && (
+              <button
+                type="button"
+                onClick={() => handleExportXlsx('all')}
+                className="flex-1 sm:flex-none px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Télécharger tout le catalogue au format Excel (.xlsx)"
+              >
+                <span className="material-symbols-outlined text-base">download</span>
+                <span>Tout le catalogue (.xlsx)</span>
+              </button>
+            )}
+
             {/* Bouton Copier le Descriptif */}
             <button
               type="button"

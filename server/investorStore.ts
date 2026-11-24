@@ -320,7 +320,17 @@ export async function initializeUserStore(options: {
   }
 
   useMemoryStore = false;
-  pool = new Pool({ connectionString, connectionTimeoutMillis: 3000 });
+  const isVercel = Boolean(process.env.VERCEL);
+  pool = new Pool({
+    connectionString,
+    max: isVercel ? 3 : 10,
+    idleTimeoutMillis: isVercel ? 10000 : 30000,
+    connectionTimeoutMillis: isVercel ? 10000 : 3000,
+    allowExitOnIdle: isVercel
+  });
+  pool.on('error', (poolErr) => {
+    console.error('[PostgreSQL Pool Error]', poolErr.message);
+  });
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_users (
@@ -521,12 +531,23 @@ export async function initializeUserStore(options: {
     } finally {
       client.release();
     }
-    for (const legacyPath of [options.legacyInvestorFile, options.legacyClientFile]) {
-      if (existsSync(legacyPath)) renameSync(legacyPath, `${legacyPath}.migrated`);
+    if (!process.env.VERCEL) {
+      for (const legacyPath of [options.legacyInvestorFile, options.legacyClientFile]) {
+        if (existsSync(legacyPath)) {
+          try {
+            renameSync(legacyPath, `${legacyPath}.migrated`);
+          } catch (renameErr) {
+            console.warn('[AI Studio] Impossible de renommer le fichier hérité:', (renameErr as Error).message);
+          }
+        }
+      }
     }
   } catch (error) {
     await pool.end().catch(() => {});
     pool = undefined;
+    if (process.env.VERCEL) {
+      throw error;
+    }
     console.warn('[AI Studio] PostgreSQL indisponible — basculement vers le stockage en mémoire:', (error as Error).message);
     initializeMemoryUserStore(options);
   }

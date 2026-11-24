@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express, { Request, Response, type ErrorRequestHandler, type NextFunction } from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -69,6 +68,9 @@ import {
 } from './server/applicationStore.ts';
 import {
   INVESTOR_PASSWORD_ALGORITHM,
+  type InvestorPasswordEscrow,
+  decryptInvestorEscrowPassword,
+  encryptInvestorEscrowPassword,
   hashInvestorPassword,
   verifyInvestorPassword,
   withInvestorPassword
@@ -79,7 +81,8 @@ import {
   InvalidMediaUploadError,
   MediaStorageConfigurationError,
   parseBase64MediaUpload,
-  parseBase64VoiceUpload
+  parseBase64VoiceUpload,
+  resolveAllowedMediaUpload
 } from './server/supabaseStorage.ts';
 import {
   type AdminPermission,
@@ -103,6 +106,11 @@ import {
 } from './server/security.ts';
 
 const app = express();
+app.set('trust proxy', 1);
+
+app.use((_req: Request, _res: Response, next: NextFunction) => {
+  void ensureServerInitialized().then(() => next()).catch(next);
+});
 
 function asyncRoute(handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -163,10 +171,15 @@ app.get('/api/events/stream', (req: Request, res: Response) => {
   res.status(200).set({
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
-    Connection: 'keep-alive',
+    Connection: process.env.VERCEL ? 'close' : 'keep-alive',
     'X-Accel-Buffering': 'no'
   });
   res.flushHeaders();
+  if (process.env.VERCEL) {
+    res.write('retry: 15000\nevent: SYNC_REQUIRED\ndata: {}\n\n');
+    res.end();
+    return;
+  }
   dataEventClients.add(res);
   res.write('event: SYNC_REQUIRED\ndata: {}\n\n');
 
@@ -556,13 +569,14 @@ function publicInvestor(investor: ServerInvestorUser) {
   const {
     passwordHash,
     passwordSalt,
+    passwordEscrow: _passwordEscrow,
     assignedPassword,
     assignedPasswordPlainText: _assignedPasswordPlainText,
     ...safeInvestor
   } = investor;
   return {
     ...safeInvestor,
-    hasPasswordConfigured: Boolean((passwordHash && passwordSalt) || assignedPassword),
+    hasPasswordConfigured: Boolean((passwordHash && passwordSalt) || assignedPassword || investor.assignedPasswordPlainText),
     passwordAlgorithm: investor.passwordAlgorithm || (passwordHash ? INVESTOR_PASSWORD_ALGORITHM : undefined),
     passwordUpdatedAt: investor.passwordUpdatedAt,
     shareAllocations: Array.isArray(investor.shareAllocations) ? investor.shareAllocations : [],
@@ -784,6 +798,7 @@ export interface ServerInvestorUser extends StoredUser {
   passwordSalt: string;
   passwordAlgorithm?: typeof INVESTOR_PASSWORD_ALGORITHM;
   passwordUpdatedAt?: string;
+  passwordEscrow?: InvestorPasswordEscrow;
   assignedPassword?: string;
   assignedPasswordPlainText?: string;
   status: InvestorStatus;
@@ -1205,13 +1220,20 @@ app.post('/api/investor/change-password', sensitiveActionRateLimiter, asyncRoute
   }
 
   const { hash, salt } = hashInvestorPassword(newPassword);
+  const passwordEscrow = encryptInvestorEscrowPassword(newPassword);
   const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => {
-    const { assignedPassword: _assignedPassword, ...withoutLegacyPassword } = current;
+    const {
+      assignedPassword: _assignedPassword,
+      assignedPasswordPlainText: _assignedPasswordPlainText,
+      ...withoutLegacyPassword
+    } = current;
     return {
       ...withoutLegacyPassword,
       passwordHash: hash,
       passwordSalt: salt,
-      passwordAlgorithm: 'pbkdf2-sha512-v2'
+      passwordAlgorithm: INVESTOR_PASSWORD_ALGORITHM,
+      passwordUpdatedAt: new Date().toISOString(),
+      passwordEscrow
     };
   });
   if (!updatedInvestor) {
@@ -1454,6 +1476,7 @@ app.post('/api/investor/register', otpRegisterRateLimiter, async (req: Request, 
     }
 
     const { hash, salt } = hashInvestorPassword(password);
+    const passwordEscrow = encryptInvestorEscrowPassword(password);
     const fullName = `${cleanFirstName} ${cleanLastName}`;
     const newInvestor: ServerInvestorUser = {
       id: crypto.randomUUID(),
@@ -1464,7 +1487,9 @@ app.post('/api/investor/register', otpRegisterRateLimiter, async (req: Request, 
       phone: cleanPhone,
       passwordHash: hash,
       passwordSalt: salt,
-      passwordAlgorithm: 'pbkdf2-sha512-v2',
+      passwordAlgorithm: INVESTOR_PASSWORD_ALGORITHM,
+      passwordUpdatedAt: new Date().toISOString(),
+      passwordEscrow,
       status: 'en_attente',
       statusReason: 'Demande soumise par l’utilisateur, en cours d’examen par l’administrateur.',
       statusUpdatedAt: new Date().toLocaleDateString('fr-FR'),
@@ -1535,7 +1560,10 @@ app.post('/api/investor/login', authRateLimiter, async (req: Request, res: Respo
     ) {
       const upgradedInvestor = await updateInvestor<ServerInvestorUser>(
         investor.id,
-        (current) => withInvestorPassword(current, password)
+        (current) => ({
+          ...withInvestorPassword(current, password),
+          passwordEscrow: encryptInvestorEscrowPassword(password)
+        })
       );
       if (!upgradedInvestor) {
         return res.status(500).json({ success: false, error: 'La mise à jour sécurisée du compte a échoué.' });
@@ -3347,8 +3375,8 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
     return res.status(400).json({ success: false, error: 'Veuillez renseigner l’adresse e-mail et le mot de passe.' });
   }
   const cleanEmail = email.trim().toLowerCase();
-  if (password.length < 12 || password.length > 128) {
-    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
+  if (password.length < 8 || password.length > 128) {
+    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 8 et 128 caractères.' });
   }
 
   if (lastName !== undefined || firstName !== undefined || phone !== undefined) {
@@ -3399,6 +3427,7 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
     }
 
     const { hash, salt } = hashInvestorPassword(password);
+    const passwordEscrow = encryptInvestorEscrowPassword(password);
     const cleanLastName = lastName.trim();
     const cleanFirstName = firstName.trim();
     const fullName = `${cleanFirstName} ${cleanLastName}`;
@@ -3414,6 +3443,7 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
       passwordSalt: salt,
       passwordAlgorithm: INVESTOR_PASSWORD_ALGORITHM,
       passwordUpdatedAt: nowIso,
+      passwordEscrow,
       status: 'en_attente',
       statusReason: 'Compte créé par l’administrateur, en attente de validation.',
       statusUpdatedAt: new Date().toLocaleDateString('fr-FR'),
@@ -3460,7 +3490,10 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
 
   const updatedInvestor = await updateInvestor<ServerInvestorUser>(
     existingInvestor.id,
-    (current) => withInvestorPassword(current, password)
+    (current) => ({
+      ...withInvestorPassword(current, password),
+      passwordEscrow: encryptInvestorEscrowPassword(password)
+    })
   );
   if (!updatedInvestor) {
     return res.status(404).json({ success: false, error: 'Le compte investisseur n’existe plus.' });
@@ -3609,29 +3642,69 @@ app.patch('/api/admin/investors/:id', asyncRoute(async (req: Request, res: Respo
   }
 }));
 
-app.put('/api/admin/investors/:id/password', asyncRoute(async (req: Request, res: Response) => {
+app.get('/api/admin/investors/:id/password', sensitiveActionRateLimiter, asyncRoute(async (req: Request, res: Response) => {
+  const admin = await requireAdminPermission(req, res, 'manage_investors_password');
+  if (!admin) return;
+  const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
+  if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
+
+  const escrowedPassword = decryptInvestorEscrowPassword(investor.passwordEscrow);
+  const currentPassword =
+    escrowedPassword ||
+    (typeof investor.assignedPassword === 'string' && investor.assignedPassword.length > 0
+      ? investor.assignedPassword
+      : typeof investor.assignedPasswordPlainText === 'string' && investor.assignedPasswordPlainText.length > 0
+        ? investor.assignedPasswordPlainText
+        : null);
+
+  await addServerAuditLog(
+    admin.name,
+    'view_investor_password',
+    `Consultation du mot de passe du dossier investisseur ${investor.email}.`,
+    'investor',
+    investor.id
+  );
+
+  return res.json({
+    success: true,
+    hasPasswordConfigured: Boolean(
+      (investor.passwordHash && investor.passwordSalt) ||
+      investor.assignedPassword ||
+      investor.assignedPasswordPlainText
+    ),
+    passwordAlgorithm: investor.passwordAlgorithm || (investor.passwordHash ? INVESTOR_PASSWORD_ALGORITHM : undefined),
+    passwordUpdatedAt: investor.passwordUpdatedAt,
+    currentPassword
+  });
+}));
+
+app.put('/api/admin/investors/:id/password', sensitiveActionRateLimiter, asyncRoute(async (req: Request, res: Response) => {
   const admin = await requireAdminPermission(req, res, 'manage_investors_password');
   if (!admin) return;
   const { password } = req.body || {};
-  if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
-    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
+  if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 8 et 128 caractères.' });
   }
   const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
   if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
-  const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => withInvestorPassword(current, password));
+  const passwordEscrow = encryptInvestorEscrowPassword(password);
+  const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => ({
+    ...withInvestorPassword(current, password),
+    passwordEscrow
+  }));
   if (!updatedInvestor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
   await deleteInvestorSessions(updatedInvestor.id);
   await addServerAuditLog(
     admin.name,
     'reset_investor_password',
-    `Réinitialisation du mot de passe de ${updatedInvestor.email}; sessions existantes révoquées.`,
+    `Modification du mot de passe de ${updatedInvestor.email}; sessions existantes révoquées.`,
     'investor',
     updatedInvestor.id
   );
   broadcastDataChanged('investors');
   return res.json({
     success: true,
-    message: 'Mot de passe réinitialisé; l’investisseur devra se reconnecter.',
+    message: 'Mot de passe mis à jour; l’investisseur pourra se connecter immédiatement avec ce mot de passe.',
     investor: publicInvestor(updatedInvestor)
   });
 }));
@@ -4895,6 +4968,12 @@ app.post('/api/upload', asyncRoute(async (req: Request, res: Response) => {
 
   const filename = `media-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${parsedUpload.extension}`;
   if (!storage) {
+    if (process.env.VERCEL) {
+      return res.status(503).json({
+        success: false,
+        error: 'Stockage média Supabase requis en environnement serverless (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).'
+      });
+    }
     await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
     const destination = path.resolve(UPLOADS_DIR, filename);
     if (!destination.startsWith(UPLOADS_DIR + path.sep)) {
@@ -4927,6 +5006,58 @@ app.post('/api/upload', asyncRoute(async (req: Request, res: Response) => {
     success: true,
     url: data.publicUrl,
     size: parsedUpload.buffer.length,
+    filename,
+    storage: 'supabase'
+  });
+}));
+
+app.post('/api/upload/signed-url', asyncRoute(async (req: Request, res: Response) => {
+  const admin = await requireAdminAnyPermission(req, res, ['manage_products', 'manage_courses', 'manage_content']);
+  if (!admin) return;
+
+  const { mimeType } = req.body || {};
+  let uploadSpec;
+  try {
+    uploadSpec = resolveAllowedMediaUpload(mimeType);
+  } catch (err) {
+    if (err instanceof InvalidMediaUploadError) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    throw err;
+  }
+
+  let storage = null;
+  try {
+    storage = getSupabaseStorage();
+  } catch (error) {
+    if (error instanceof MediaStorageConfigurationError) {
+      return res.status(503).json({ success: false, error: error.message });
+    }
+    throw error;
+  }
+  if (!storage) {
+    return res.status(503).json({
+      success: false,
+      error: 'Supabase Storage non configuré pour le téléversement direct.'
+    });
+  }
+
+  const filename = `media-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${uploadSpec.extension}`;
+  const folder = uploadSpec.contentType.startsWith('video/') ? 'videos' : 'uploads';
+  const objectKey = createMediaObjectKey(folder, filename);
+  const { data, error } = await storage.client.storage.from(storage.bucket).createSignedUploadUrl(objectKey);
+  if (error || !data?.signedUrl) {
+    console.error('Supabase signed upload URL failed:', error?.message);
+    return res.status(502).json({ success: false, error: 'Impossible de préparer le téléversement vers Supabase Storage.' });
+  }
+  const { data: publicUrlData } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
+  return res.json({
+    success: true,
+    signedUrl: data.signedUrl,
+    token: data.token,
+    path: data.path,
+    publicUrl: publicUrlData.publicUrl,
+    contentType: uploadSpec.contentType,
     filename,
     storage: 'supabase'
   });
@@ -4997,6 +5128,12 @@ app.post('/api/messages/voice', sensitiveActionRateLimiter, asyncRoute(async (re
 
   const filename = `voice-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${parsedVoice.extension}`;
   if (!storage) {
+    if (process.env.VERCEL) {
+      return res.status(503).json({
+        success: false,
+        error: 'Stockage audio Supabase requis en environnement serverless (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).'
+      });
+    }
     await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
     const destination = path.resolve(UPLOADS_DIR, filename);
     if (!destination.startsWith(UPLOADS_DIR + path.sep)) {
@@ -5213,11 +5350,14 @@ function cleanStaleSessions(): boolean {
   return changed;
 }
 
-setInterval(() => {
-  if (cleanStaleSessions()) {
-    broadcastPresenceUpdate();
-  }
-}, 5000);
+if (!process.env.VERCEL) {
+  const presenceTimer = setInterval(() => {
+    if (cleanStaleSessions()) {
+      broadcastPresenceUpdate();
+    }
+  }, 5000);
+  presenceTimer.unref?.();
+}
 
 function getPresenceSnapshot() {
   const now = Date.now();
@@ -5343,9 +5483,15 @@ app.get('/api/presence/stream', asyncRoute(async (req: Request, res: Response) =
   if (!admin) return;
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Connection', process.env.VERCEL ? 'close' : 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
+
+  if (process.env.VERCEL) {
+    res.write(`retry: 5000\ndata: ${JSON.stringify(getPresenceSnapshot())}\n\n`);
+    res.end();
+    return;
+  }
 
   sseClients.add(res);
 
@@ -5380,6 +5526,10 @@ app.post('/api/admin/disconnect-session', sensitiveActionRateLimiter, asyncRoute
 // SERVER START & VITE SPA INTEGRATION
 // =========================================================================
 
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({ success: false, error: 'Route API introuvable.' });
+});
+
 const apiErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
   console.error('Unhandled API error:', error);
   if (res.headersSent) return next(error);
@@ -5387,7 +5537,19 @@ const apiErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
 };
 app.use(apiErrorHandler);
 
-async function startServer() {
+let initializationPromise: Promise<AdminConfig> | null = null;
+
+export function ensureServerInitialized(): Promise<AdminConfig> {
+  if (!initializationPromise) {
+    initializationPromise = initializeServerState().catch((err) => {
+      initializationPromise = null;
+      throw err;
+    });
+  }
+  return initializationPromise;
+}
+
+async function initializeServerState(): Promise<AdminConfig> {
   const legacyAdminConfig = readLegacyAdminConfig();
   const hasConfiguredAdminInJson = legacyAdminConfig.admins.length > 0;
   const initialEmail = process.env.ADMIN_INITIAL_EMAIL?.trim().toLowerCase();
@@ -5524,6 +5686,11 @@ async function startServer() {
     await writeJson(OPERATIONS_FILE, normalizedOperations);
   }
   await saveConfig({ ...config, admins: [], activeTokens: {}, masterPasswordHash: '', masterPasswordHint: '' });
+  return config;
+}
+
+async function startServer() {
+  const config = await ensureServerInitialized();
   const isProd = process.env.NODE_ENV === 'production';
   const distDir = path.resolve('dist');
   const publicDir = path.resolve('public');
@@ -5540,10 +5707,6 @@ async function startServer() {
       .catch(next);
   });
 
-  app.use('/api', (_req: Request, res: Response) => {
-    res.status(404).json({ success: false, error: 'Route API introuvable.' });
-  });
-
   if (isProd) {
     app.use(express.static(distDir));
     app.use(express.static(publicDir));
@@ -5552,6 +5715,7 @@ async function startServer() {
     });
   } else {
     app.use(express.static(publicDir));
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa'
@@ -5565,7 +5729,11 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
+
+export default app;

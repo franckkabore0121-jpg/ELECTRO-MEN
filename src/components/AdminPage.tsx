@@ -31,6 +31,7 @@ import {
   ShareAllocation
 } from './ScreenBourseIR.tsx';
 import { ExportProductsModal } from './ExportProductsModal.tsx';
+import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 import {
   ADMIN_PERMISSION_DEFINITIONS,
   ALL_ADMIN_PERMISSIONS,
@@ -530,6 +531,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [newProdStock, setNewProdStock] = useState(5);
   const [newProdStockStatus, setNewProdStockStatus] = useState<ProductStockStatus>('in_stock');
   const [productStockFilter, setProductStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'on_order'>('all');
+  const filteredCatalogProducts = products.filter((p) => {
+    if (productStockFilter === 'all') return true;
+    if ((productStockFilter as string) === 'featured') return Boolean(p.isFeaturedOnHome);
+    if ((productStockFilter as string) === 'flash') return Boolean(p.isFlashSale);
+    return getProductStockStatus(p) === productStockFilter;
+  });
   const [newProdDesc, setNewProdDesc] = useState('');
   const [newProdSpecs, setNewProdSpecs] = useState('');
   const [newProdImage, setNewProdImage] = useState('');
@@ -876,6 +883,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [subscriptionEditMessage, setSubscriptionEditMessage] = useState<string | null>(null);
   const [sessionTemporaryPasswords, setSessionTemporaryPasswords] = useState<Record<string, { password: string; updatedAt: string }>>({});
   const [revealedTempPasswordKeys, setRevealedTempPasswordKeys] = useState<Record<string, boolean>>({});
+  const [investorDossierPasswords, setInvestorDossierPasswords] = useState<
+    Record<string, { currentPassword: string | null; loading: boolean; error?: string }>
+  >({});
+  const [revealedDossierPasswordIds, setRevealedDossierPasswordIds] = useState<Record<string, boolean>>({});
   const [showNewInvestorPassword, setShowNewInvestorPassword] = useState(false);
   const [showResetInvestorPassword, setShowResetInvestorPassword] = useState(false);
   const [newInvestorAllocations, setNewInvestorAllocations] = useState<ShareAllocation[]>([]);
@@ -1127,6 +1138,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setShowResetInvestorPassword(false);
     setAllocationsTouched(false);
     setInvestorDetailLoading(true);
+    if (hasPerm('manage_investors_password')) {
+      setInvestorDossierPasswords((prev) => ({
+        ...prev,
+        [investorId]: {
+          currentPassword: prev[investorId]?.currentPassword ?? null,
+          loading: true
+        }
+      }));
+    }
     try {
       const response = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}`, {
         credentials: 'same-origin',
@@ -1138,6 +1158,43 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       }
       setInvestorDetail({ investor: data.investor, subscriptions: data.subscriptions });
       setInvestorEdit(data.investor);
+
+      if (hasPerm('manage_investors_password')) {
+        try {
+          const pwdResponse = await fetch(`/api/admin/investors/${encodeURIComponent(investorId)}/password`, {
+            credentials: 'same-origin',
+            cache: 'no-store'
+          });
+          const pwdData = await pwdResponse.json();
+          if (pwdResponse.ok && pwdData.success) {
+            setInvestorDossierPasswords((prev) => ({
+              ...prev,
+              [investorId]: {
+                currentPassword: typeof pwdData.currentPassword === 'string' ? pwdData.currentPassword : null,
+                loading: false
+              }
+            }));
+          } else {
+            setInvestorDossierPasswords((prev) => ({
+              ...prev,
+              [investorId]: {
+                currentPassword: prev[investorId]?.currentPassword ?? null,
+                loading: false,
+                error: pwdData.error || 'Impossible de récupérer le mot de passe actuel.'
+              }
+            }));
+          }
+        } catch {
+          setInvestorDossierPasswords((prev) => ({
+            ...prev,
+            [investorId]: {
+              currentPassword: prev[investorId]?.currentPassword ?? null,
+              loading: false,
+              error: 'Erreur réseau lors de la lecture du mot de passe.'
+            }
+          }));
+        }
+      }
     } catch (error) {
       setInvestorDetailError(error instanceof Error ? error.message : 'Impossible de charger le dossier investisseur.');
     } finally {
@@ -1184,9 +1241,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setInvestorPasswordError(null);
     setInvestorPasswordMessage(null);
     const submittedPassword = investorResetPassword;
+    const targetInvestorId = investorDetail.investor.id;
     const emailKey = investorDetail.investor.email.trim().toLowerCase();
     try {
-      await onResetInvestorPassword(investorDetail.investor.id, submittedPassword);
+      await onResetInvestorPassword(targetInvestorId, submittedPassword);
       setSessionTemporaryPasswords((prev) => ({
         ...prev,
         [emailKey]: {
@@ -1195,6 +1253,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         }
       }));
       setRevealedTempPasswordKeys((prev) => ({ ...prev, [emailKey]: true }));
+      setInvestorDossierPasswords((prev) => ({
+        ...prev,
+        [targetInvestorId]: { currentPassword: submittedPassword, loading: false }
+      }));
+      setRevealedDossierPasswordIds((prev) => ({ ...prev, [targetInvestorId]: true }));
       setInvestorResetPassword('');
       setInvestorDetail((prev) =>
         prev
@@ -1203,15 +1266,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               investor: {
                 ...prev.investor,
                 hasPasswordConfigured: true,
-                passwordAlgorithm: 'scrypt-v1',
+                passwordAlgorithm: 'pbkdf2-sha512-v2',
                 passwordUpdatedAt: new Date().toISOString()
               }
             }
           : prev
       );
-      setInvestorPasswordMessage('Mot de passe réinitialisé; l’investisseur devra se reconnecter. Le mot de passe provisoire est affiché pour cette session uniquement.');
+      setInvestorPasswordMessage('Mot de passe enregistré et actif immédiatement pour la connexion de l’investisseur.');
     } catch (error) {
-      setInvestorPasswordError(error instanceof Error ? error.message : 'La réinitialisation du mot de passe a échoué.');
+      setInvestorPasswordError(error instanceof Error ? error.message : 'La modification du mot de passe a échoué.');
     } finally {
       setInvestorManagementLoading(false);
     }
@@ -1566,10 +1629,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  // Strict Server-Backed Upload Helper (no silent base64 client fallback)
+  // Strict Server-Backed Upload Helper (signed direct upload to Supabase for >3 MB, server upload otherwise)
   const uploadFileToServer = async (file: File): Promise<string> => {
     setUploadStatus({ isUploading: true, message: `Téléversement de "${file.name}" en cours...` });
     try {
+      if (file.size > 3 * 1024 * 1024) {
+        const prepRes = await fetch('/api/upload/signed-url', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type
+          })
+        });
+        const prepData = await prepRes.json().catch(() => ({}));
+        if (prepRes.ok && prepData.success && prepData.signedUrl && prepData.publicUrl) {
+          const putRes = await fetch(prepData.signedUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': prepData.contentType || file.type || 'application/octet-stream'
+            },
+            body: file
+          });
+          if (!putRes.ok) {
+            throw new Error(`Échec du téléversement direct vers Supabase Storage (HTTP ${putRes.status}).`);
+          }
+          setUploadStatus({ isUploading: false, message: 'Fichier enregistré sur Supabase Storage.' });
+          return prepData.publicUrl as string;
+        }
+      }
+
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
@@ -3448,15 +3538,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsExportProductsOpen(true)}
-                  className="ml-auto sm:ml-2 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs border border-amber-400 active:scale-95"
-                  title="Exporter les produits du catalogue pour envoyer à un client (PDF, Devis, WhatsApp, Excel)"
-                >
-                  <span className="material-symbols-outlined text-sm font-bold">ios_share</span>
-                  <span>Exporter pour un Client</span>
-                </button>
+                <div className="ml-auto sm:ml-2 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      const isFiltered = productStockFilter !== 'all';
+                      const target = isFiltered ? filteredCatalogProducts : products;
+                      if (target.length === 0) return;
+                      exportProductsToXlsx(target, {
+                        sheetName: isFiltered ? 'Catalogue Filtré' : 'Catalogue Produits',
+                        filename: `ELECTRO-MEN_Catalogue_${isFiltered ? 'Filtre_' : ''}${today}.xlsx`
+                      });
+                    }}
+                    disabled={(productStockFilter === 'all' ? products.length : filteredCatalogProducts.length) === 0}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95"
+                    title="Télécharger directement un fichier tableau Excel (.xlsx) prêt à envoyer à un client"
+                  >
+                    <span className="material-symbols-outlined text-sm font-bold">table_view</span>
+                    <span>Excel (.xlsx)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsExportProductsOpen(true)}
+                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs border border-amber-400 active:scale-95"
+                    title="Exporter les produits du catalogue pour envoyer à un client (PDF, Devis, WhatsApp, Excel .xlsx)"
+                  >
+                    <span className="material-symbols-outlined text-sm font-bold">ios_share</span>
+                    <span>Exporter pour un Client</span>
+                  </button>
+                </div>
               </div>
 
               {/* Filtre par État de Disponibilité */}
@@ -3537,13 +3648,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[550px] overflow-y-auto">
-              {products
-                .filter((p) => {
-                  if (productStockFilter === 'all') return true;
-                  if ((productStockFilter as string) === 'featured') return Boolean(p.isFeaturedOnHome);
-                  if ((productStockFilter as string) === 'flash') return Boolean(p.isFlashSale);
-                  return getProductStockStatus(p) === productStockFilter;
-                })
+              {filteredCatalogProducts
                 .map((prod) => {
                   const status = getProductStockStatus(prod);
                   return (
@@ -4635,7 +4740,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 )}
                 <input required type="email" autoComplete="email" value={newInvestor.email} onChange={(event) => setNewInvestor({ ...newInvestor, email: event.target.value })} placeholder={investorProvisioningMode === 'existing' ? 'Adresse e-mail déjà enregistrée' : 'Adresse e-mail'} className="rounded-lg border border-slate-300 p-2 text-xs" />
                 <div className="flex items-center gap-1.5">
-                  <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 p-2 text-xs font-mono" />
+                  <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={8} maxLength={128} value={newInvestor.password} onChange={(event) => setNewInvestor({ ...newInvestor, password: event.target.value })} placeholder="Mot de passe provisoire (8+ caractères)" className="flex-1 rounded-lg border border-slate-300 p-2 text-xs font-mono" />
                   <button
                     type="button"
                     onClick={() => {
@@ -4667,7 +4772,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     </button>
                   )}
                 </div>
-                <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={newInvestor.passwordConfirm} onChange={(event) => setNewInvestor({ ...newInvestor, passwordConfirm: event.target.value })} placeholder="Confirmer le mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs font-mono" />
+                <input required type={showNewInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={8} maxLength={128} value={newInvestor.passwordConfirm} onChange={(event) => setNewInvestor({ ...newInvestor, passwordConfirm: event.target.value })} placeholder="Confirmer le mot de passe" className="rounded-lg border border-slate-300 p-2 text-xs font-mono" />
                 {investorProvisioningMode === 'new' && (
                   <>
                     <label className="text-[11px] text-slate-600">Montant déjà investi (FCFA)<input type="number" min="0" step="1" value={newInvestor.totalInvested} onChange={(event) => setNewInvestor({ ...newInvestor, totalInvested: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs" /></label>
@@ -5064,41 +5169,121 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               <span className="text-slate-500">Sécurité mot de passe</span>
                               <strong className="block text-slate-900">
                                 {investorDetail.investor.hasPasswordConfigured
-                                  ? `Configuré (${investorDetail.investor.passwordAlgorithm || 'scrypt'}${investorDetail.investor.passwordUpdatedAt ? ` · ${investorDetail.investor.passwordUpdatedAt}` : ''})`
+                                  ? `Configuré (${investorDetail.investor.passwordAlgorithm || 'pbkdf2-sha512-v2'}${investorDetail.investor.passwordUpdatedAt ? ` · ${investorDetail.investor.passwordUpdatedAt}` : ''})`
                                   : 'Aucun mot de passe défini'}
                               </strong>
                             </div>
                           </section>
 
-                          {sessionTemp && (
-                            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-950">
-                              <div className="space-y-0.5">
-                                <span className="font-bold block">Mot de passe provisoire défini durant cette session ({sessionTemp.updatedAt}) :</span>
-                                <code className="font-mono text-sm font-bold text-slate-900">
-                                  {isTempRevealed ? sessionTemp.password : '••••••••••••••••'}
-                                </code>
-                                <span className="block text-[10px] text-amber-800">Affiché uniquement en mémoire de session (non persisté en clair).</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setRevealedTempPasswordKeys((prev) => ({ ...prev, [emailKey]: !prev[emailKey] }))
-                                  }
-                                  className="px-2.5 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-bold text-[11px] cursor-pointer"
-                                >
-                                  {isTempRevealed ? 'Masquer' : 'Afficher'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyText(sessionTemp.password, `tmp_dossier_${inv.id}`)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer"
-                                >
-                                  {copiedKey === `tmp_dossier_${inv.id}` ? 'Copié !' : 'Copier'}
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          {hasPerm('manage_investors_password') && (() => {
+                            const dossierPwdState = investorDossierPasswords[inv.id];
+                            const effectiveDossierPassword = dossierPwdState?.currentPassword ?? sessionTemp?.password ?? null;
+                            const isDossierPwdRevealed = Boolean(revealedDossierPasswordIds[inv.id] ?? true);
+                            return (
+                              <section className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 space-y-2.5 text-xs text-amber-950">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <h4 className="font-bold text-slate-900">Mot de passe du compte investisseur</h4>
+                                    <p className="text-[10px] text-amber-900">
+                                      Consultez le mot de passe actuel ou définissez-en un nouveau directement enregistré en base de données.
+                                    </p>
+                                  </div>
+                                  {effectiveDossierPassword && (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setRevealedDossierPasswordIds((prev) => ({
+                                            ...prev,
+                                            [inv.id]: !(prev[inv.id] ?? true)
+                                          }))
+                                        }
+                                        className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-900 font-bold text-[11px] cursor-pointer"
+                                      >
+                                        {isDossierPwdRevealed ? 'Masquer' : 'Afficher'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyText(effectiveDossierPassword, `dossier_pwd_${inv.id}`)}
+                                        className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer"
+                                      >
+                                        {copiedKey === `dossier_pwd_${inv.id}` ? 'Copié !' : 'Copier'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-semibold text-slate-600">Mot de passe actuel :</span>
+                                  {dossierPwdState?.loading ? (
+                                    <span className="text-[11px] text-slate-500">Chargement…</span>
+                                  ) : effectiveDossierPassword ? (
+                                    <code className="font-mono text-sm font-bold text-slate-950 select-all">
+                                      {isDossierPwdRevealed ? effectiveDossierPassword : '••••••••••••••••'}
+                                    </code>
+                                  ) : dossierPwdState?.error ? (
+                                    <span className="text-[11px] font-semibold text-red-700">{dossierPwdState.error}</span>
+                                  ) : investorDetail.investor.hasPasswordConfigured ? (
+                                    <span className="text-[11px] text-amber-900 font-medium">
+                                      Protégé par hachage irréversible (définissez un nouveau mot de passe ci-dessous pour le rendre consultable et actif).
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-500">Aucun mot de passe défini pour ce compte.</span>
+                                  )}
+                                </div>
+
+                                {onResetInvestorPassword && (
+                                  <form onSubmit={handleResetInvestorPassword} className="space-y-2 pt-1">
+                                    <label className="block text-[11px] font-bold text-slate-800">
+                                      Modifier le mot de passe
+                                    </label>
+                                    <div className="flex flex-col sm:flex-row gap-2">
+                                      <div className="flex flex-1 items-center gap-1.5">
+                                        <input
+                                          required
+                                          type={showResetInvestorPassword ? 'text' : 'password'}
+                                          autoComplete="new-password"
+                                          minLength={8}
+                                          maxLength={128}
+                                          value={investorResetPassword}
+                                          onChange={(event) => setInvestorResetPassword(event.target.value)}
+                                          placeholder="Nouveau mot de passe (8+ caractères)"
+                                          className="flex-1 rounded-lg border border-slate-300 bg-white p-2 text-xs font-mono text-slate-900"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setInvestorResetPassword(generateProvisionalPassword());
+                                            setShowResetInvestorPassword(true);
+                                          }}
+                                          className="px-2.5 py-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] shrink-0 cursor-pointer"
+                                        >
+                                          Générer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setShowResetInvestorPassword((v) => !v)}
+                                          className="px-2 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+                                          title={showResetInvestorPassword ? 'Masquer' : 'Afficher'}
+                                        >
+                                          <span className="material-symbols-outlined text-sm">{showResetInvestorPassword ? 'visibility_off' : 'visibility'}</span>
+                                        </button>
+                                      </div>
+                                      <button
+                                        type="submit"
+                                        disabled={investorManagementLoading}
+                                        className="rounded-lg bg-amber-600 hover:bg-amber-700 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-50 cursor-pointer"
+                                      >
+                                        Enregistrer le mot de passe
+                                      </button>
+                                    </div>
+                                    {investorPasswordError && <p role="alert" className="text-xs font-semibold text-red-700">{investorPasswordError}</p>}
+                                    {investorPasswordMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorPasswordMessage}</p>}
+                                  </form>
+                                )}
+                              </section>
+                            );
+                          })()}
 
                           {Array.isArray(investorDetail.investor.shareAllocations) && investorDetail.investor.shareAllocations.length > 0 && (
                             <section className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-1.5 text-[11px]">
@@ -5306,36 +5491,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </form>
                           )}
 
-                          {hasPerm('manage_investors_password') && onResetInvestorPassword && (
-                            <form onSubmit={handleResetInvestorPassword} className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
-                              <h4 className="text-xs font-bold text-slate-900">Réinitialiser le mot de passe</h4>
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <div className="flex flex-1 items-center gap-1.5">
-                                  <input required type={showResetInvestorPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={128} value={investorResetPassword} onChange={(event) => setInvestorResetPassword(event.target.value)} placeholder="Nouveau mot de passe provisoire (12+ caractères)" className="flex-1 rounded-lg border border-slate-300 bg-white p-2 text-xs font-mono" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setInvestorResetPassword(generateProvisionalPassword());
-                                      setShowResetInvestorPassword(true);
-                                    }}
-                                    className="px-2.5 py-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] shrink-0 cursor-pointer"
-                                  >
-                                    Générer
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowResetInvestorPassword((v) => !v)}
-                                    className="px-2 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
-                                  >
-                                    <span className="material-symbols-outlined text-sm">{showResetInvestorPassword ? 'visibility_off' : 'visibility'}</span>
-                                  </button>
-                                </div>
-                                <button type="submit" disabled={investorManagementLoading} className="rounded-lg bg-amber-600 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Réinitialiser</button>
-                              </div>
-                              {investorPasswordError && <p role="alert" className="text-xs font-semibold text-red-700">{investorPasswordError}</p>}
-                              {investorPasswordMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{investorPasswordMessage}</p>}
-                            </form>
-                          )}
 
                           <section className="rounded-xl border border-slate-200 p-3 space-y-2">
                             <h4 className="text-xs font-bold text-slate-900">Historique complet des souscriptions ({investorDetail.subscriptions.length})</h4>
@@ -8818,11 +8973,7 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
         shopTitle="Catalogue Général Produits"
         domain="all"
         products={products}
-        currentFilteredProducts={
-          productStockFilter === 'all'
-            ? products
-            : products.filter((p) => getProductStockStatus(p) === productStockFilter)
-        }
+        currentFilteredProducts={filteredCatalogProducts}
       />
     </div>
   );

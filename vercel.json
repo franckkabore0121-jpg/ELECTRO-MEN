@@ -1,7 +1,22 @@
 {
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/(.*)",
+      "destination": "/api/index?__pathname=/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "/api/index?__pathname=/uploads/$1"
+    },
+    {
+      "source": "/assets/videos/(.*)",
+      "destination": "/api/index?__pathname=/assets/videos/$1"
+    },
+    {
+      "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
   ]

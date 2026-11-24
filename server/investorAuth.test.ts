@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  decryptInvestorEscrowPassword,
+  encryptInvestorEscrowPassword,
   hashInvestorPassword,
   verifyInvestorPassword,
   withInvestorPassword
@@ -41,4 +43,12 @@ describe('investor password credentials', () => {
     expect(updated).not.toHaveProperty('assignedPasswordPlainText');
     expect(verifyInvestorPassword('NewSecurePassword123!', updated)).toBe(true);
   }, 20000);
+
+  it('encrypts and decrypts escrow passwords and rejects tampered payloads', () => {
+    const escrow = encryptInvestorEscrowPassword('InvestPass2026!');
+    expect(escrow.alg).toBe('aes-256-gcm');
+    expect(escrow.ciphertext).not.toContain('InvestPass2026!');
+    expect(decryptInvestorEscrowPassword(escrow)).toBe('InvestPass2026!');
+    expect(decryptInvestorEscrowPassword({ ...escrow, tag: '00'.repeat(16) })).toBeNull();
+  });
 });
