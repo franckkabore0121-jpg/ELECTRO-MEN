@@ -32,6 +32,9 @@ import {
   findUserBySession,
   initializeUserStore,
   isMemoryStoreActive,
+  getSafePostgresTarget,
+  logPostgresError,
+  redactPostgresCredentials,
   initializeAdminSecurity,
   initializeOperationInventory,
   getAdminSecuritySettings,
@@ -5554,74 +5557,90 @@ app.use('/api', (_req: Request, res: Response) => {
 });
 
 export function formatTechnicalErrorMessage(error: unknown): { code: string; message: string } {
-  const chain: Array<{ message?: string; code?: string }> = [];
+  const chain: Array<{ message?: string; code?: string; detail?: string }> = [];
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current; depth += 1) {
     if (typeof current === 'object') {
-      const record = current as { message?: unknown; code?: unknown; cause?: unknown };
+      const record = current as { message?: unknown; code?: unknown; detail?: unknown; cause?: unknown };
       chain.push({
-        message: typeof record.message === 'string' ? record.message : undefined,
-        code: typeof record.code === 'string' ? record.code : undefined
+        message: typeof record.message === 'string' ? redactPostgresCredentials(record.message) : undefined,
+        code: typeof record.code === 'string' ? record.code : undefined,
+        detail: typeof record.detail === 'string' ? redactPostgresCredentials(record.detail) : undefined
       });
       current = record.cause;
     } else {
-      chain.push({ message: String(current) });
+      chain.push({ message: redactPostgresCredentials(String(current)) });
       break;
     }
   }
 
-  const codes = new Set(chain.map((item) => item.code).filter((c): c is string => Boolean(c)));
+  const codes = Array.from(new Set(chain.map((item) => item.code).filter((c): c is string => Boolean(c))));
+  const codeSet = new Set(codes);
+  const rawPgCode = codes[codes.length - 1] || codes[0];
+  const pgMessage = [...chain].reverse().find((item) => item.message)?.message;
+  const pgDetail = [...chain].reverse().find((item) => item.detail)?.detail;
   const combinedText = chain.map((item) => item.message || '').join(' | ').toLowerCase();
+  const target = getSafePostgresTarget(process.env.DATABASE_URL);
+  const targetHint = [
+    target.host ? `hôte=${target.host}` : null,
+    target.database ? `base=${target.database}` : null,
+    target.user ? `user=${target.user}` : null
+  ].filter(Boolean).join(', ');
+  const detailSuffix = [
+    rawPgCode ? `code=${rawPgCode}` : null,
+    targetHint || null,
+    pgDetail || pgMessage || null
+  ].filter(Boolean).join(' | ');
 
-  if (codes.has('28P01') || codes.has('28000') || combinedText.includes('password authentication failed')) {
+  if (codeSet.has('28P01') || codeSet.has('28000') || combinedText.includes('password authentication failed')) {
     return {
-      code: 'PG_AUTH_FAILED',
-      message: 'Authentification PostgreSQL refusée : vérifiez le mot de passe et l’encodage (%40) dans DATABASE_URL.'
+      code: rawPgCode || 'PG_AUTH_FAILED',
+      message: `Authentification PostgreSQL refusée (${detailSuffix || 'vérifiez DATABASE_URL'}).`
     };
   }
   if (
-    codes.has('SELF_SIGNED_CERT_IN_CHAIN') ||
-    codes.has('DEPTH_ZERO_SELF_SIGNED_CERT') ||
-    codes.has('UNABLE_TO_VERIFY_LEAF_SIGNATURE') ||
+    codeSet.has('SELF_SIGNED_CERT_IN_CHAIN') ||
+    codeSet.has('DEPTH_ZERO_SELF_SIGNED_CERT') ||
+    codeSet.has('UNABLE_TO_VERIFY_LEAF_SIGNATURE') ||
     combinedText.includes('self-signed certificate') ||
     combinedText.includes('certificate')
   ) {
     return {
-      code: 'PG_SSL_ERROR',
-      message: 'Erreur SSL/TLS lors de la connexion à PostgreSQL.'
+      code: rawPgCode || 'PG_SSL_ERROR',
+      message: `Erreur SSL/TLS PostgreSQL (${detailSuffix || 'vérifiez la configuration SSL de DATABASE_URL'}).`
     };
   }
   if (
-    codes.has('ENETUNREACH') ||
-    codes.has('ECONNREFUSED') ||
-    codes.has('ENOTFOUND') ||
-    codes.has('EAI_AGAIN')
+    codeSet.has('ENETUNREACH') ||
+    codeSet.has('ECONNREFUSED') ||
+    codeSet.has('ENOTFOUND') ||
+    codeSet.has('EAI_AGAIN')
   ) {
     return {
-      code: 'PG_UNREACHABLE',
-      message: 'Serveur PostgreSQL injoignable depuis Vercel (vérifiez DATABASE_URL et l’hôte Pooler).'
+      code: rawPgCode || 'PG_UNREACHABLE',
+      message: `Serveur PostgreSQL injoignable (${detailSuffix || 'vérifiez hôte/port dans DATABASE_URL'}).`
     };
   }
   if (
-    codes.has('ETIMEDOUT') ||
+    codeSet.has('ETIMEDOUT') ||
     combinedText.includes('timeout') ||
     combinedText.includes('connection terminated')
   ) {
     return {
-      code: 'PG_TIMEOUT',
-      message: 'Délai de connexion à PostgreSQL dépassé (vérifiez DATABASE_URL).'
+      code: rawPgCode || 'PG_TIMEOUT',
+      message: `Délai de connexion PostgreSQL dépassé (${detailSuffix || 'vérifiez DATABASE_URL'}).`
     };
   }
-  if (codes.has('23503')) {
+  if (codeSet.has('23503')) {
     return {
-      code: 'PG_FOREIGN_KEY_ERROR',
-      message: 'Incohérence de référence en base (vérifiez que app_users.id et payload.id correspondent).'
+      code: '23503',
+      message: `Incohérence de référence en base (${detailSuffix || 'app_users.id / payload.id'}).`
     };
   }
-  if (codes.has('42P01') || codes.has('42703')) {
+  if (codeSet.has('42P01') || codeSet.has('42703')) {
     return {
-      code: 'PG_SCHEMA_ERROR',
-      message: 'Table ou colonne PostgreSQL manquante en base.'
+      code: rawPgCode || 'PG_SCHEMA_ERROR',
+      message: `Table ou colonne PostgreSQL manquante (${detailSuffix || 'schéma incomplet'}).`
     };
   }
   if (combinedText.includes('non initialisée')) {
@@ -5631,13 +5650,15 @@ export function formatTechnicalErrorMessage(error: unknown): { code: string; mes
     };
   }
   return {
-    code: 'SERVER_ERROR',
-    message: 'Une erreur technique serveur est survenue. Consultez les logs Vercel (/api/health).'
+    code: rawPgCode || 'SERVER_ERROR',
+    message: detailSuffix
+      ? `Erreur technique serveur (${detailSuffix}).`
+      : 'Une erreur technique serveur est survenue. Consultez les logs Vercel (/api/health).'
   };
 }
 
-const apiErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
-  console.error('Unhandled API error:', error);
+const apiErrorHandler: ErrorRequestHandler = (error, req, res, next) => {
+  logPostgresError(`API ${req.method} ${req.originalUrl || req.path}`, error, process.env.DATABASE_URL);
   if (res.headersSent) return next(error);
   const formatted = formatTechnicalErrorMessage(error);
   res.status(500).json({ success: false, code: formatted.code, error: formatted.message });

@@ -306,9 +306,127 @@ function initializeMemoryUserStore(options: {
   }
 }
 
+export function sanitizeDatabaseUrlInput(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  let cleaned = raw.trim();
+  if (!cleaned) return undefined;
+  if (/^DATABASE_URL\s*=/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^DATABASE_URL\s*=\s*/i, '').trim();
+  }
+  if (/^psql\s+/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^psql\s+/i, '').trim();
+  }
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"') && cleaned.length >= 2) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'") && cleaned.length >= 2)
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned || undefined;
+}
+
+function stripSslModeQueryParam(connectionString: string): string {
+  const qIndex = connectionString.indexOf('?');
+  if (qIndex === -1) return connectionString;
+  const basePart = connectionString.slice(0, qIndex);
+  const hashIndex = connectionString.indexOf('#', qIndex);
+  const queryPart = hashIndex === -1
+    ? connectionString.slice(qIndex + 1)
+    : connectionString.slice(qIndex + 1, hashIndex);
+  const hashPart = hashIndex === -1 ? '' : connectionString.slice(hashIndex);
+  const filteredParams = queryPart
+    .split('&')
+    .filter((pair) => pair.length > 0 && !/^sslmode=/i.test(pair));
+  return filteredParams.length > 0
+    ? `${basePart}?${filteredParams.join('&')}${hashPart}`
+    : `${basePart}${hashPart}`;
+}
+
+export function getSafePostgresTarget(connectionString?: string): {
+  host?: string;
+  port?: string;
+  database?: string;
+  user?: string;
+  sslMode?: string;
+} {
+  const sanitized = sanitizeDatabaseUrlInput(connectionString);
+  if (!sanitized) return {};
+  try {
+    const parsed = new URL(sanitized);
+    return {
+      host: parsed.hostname || undefined,
+      port: parsed.port || undefined,
+      database: parsed.pathname.replace(/^\//, '') || undefined,
+      user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      sslMode: parsed.searchParams.get('sslmode') || undefined
+    };
+  } catch {
+    const hostMatch = /@([^/:?#]+)/.exec(sanitized);
+    const userMatch = /^postgres(?:ql)?:\/\/([^:@/?#]+)/i.exec(sanitized);
+    const dbMatch = /@[^/]+\/([^?#]+)/.exec(sanitized);
+    return {
+      host: hostMatch?.[1],
+      user: userMatch?.[1],
+      database: dbMatch?.[1]
+    };
+  }
+}
+
+export function redactPostgresCredentials(text: string): string {
+  return text
+    .replace(/(postgres(?:ql)?:\/\/[^:\s/@]+:)[^@\s/]+@/gi, '$1***@')
+    .replace(/(password\s*=\s*)[^\s;]+/gi, '$1***');
+}
+
+export function logPostgresError(context: string, error: unknown, connectionString?: string): void {
+  const errObj = typeof error === 'object' && error !== null
+    ? (error as {
+        code?: unknown;
+        errno?: unknown;
+        syscall?: unknown;
+        severity?: unknown;
+        detail?: unknown;
+        hint?: unknown;
+        routine?: unknown;
+        message?: unknown;
+        cause?: unknown;
+      })
+    : undefined;
+  const causeObj = errObj && typeof errObj.cause === 'object' && errObj.cause !== null
+    ? (errObj.cause as {
+        code?: unknown;
+        errno?: unknown;
+        syscall?: unknown;
+        severity?: unknown;
+        detail?: unknown;
+        hint?: unknown;
+        message?: unknown;
+      })
+    : undefined;
+
+  console.error(`[ELECTRO-MEN PG ERROR] ${context}`, {
+    code: typeof errObj?.code === 'string' ? errObj.code : undefined,
+    errno: errObj?.errno,
+    syscall: typeof errObj?.syscall === 'string' ? errObj.syscall : undefined,
+    severity: typeof errObj?.severity === 'string' ? errObj.severity : undefined,
+    detail: typeof errObj?.detail === 'string' ? redactPostgresCredentials(errObj.detail) : undefined,
+    hint: typeof errObj?.hint === 'string' ? redactPostgresCredentials(errObj.hint) : undefined,
+    routine: typeof errObj?.routine === 'string' ? errObj.routine : undefined,
+    message: redactPostgresCredentials(
+      error instanceof Error ? error.message : String(error)
+    ),
+    causeCode: typeof causeObj?.code === 'string' ? causeObj.code : undefined,
+    causeSeverity: typeof causeObj?.severity === 'string' ? causeObj.severity : undefined,
+    causeDetail: typeof causeObj?.detail === 'string' ? redactPostgresCredentials(causeObj.detail) : undefined,
+    causeMessage: typeof causeObj?.message === 'string' ? redactPostgresCredentials(causeObj.message) : undefined,
+    target: getSafePostgresTarget(connectionString)
+  });
+}
+
 export function buildPostgresPoolConfig(connectionString: string, isVercel: boolean): PoolConfig {
+  const normalizedUrl = sanitizeDatabaseUrlInput(connectionString) ?? connectionString.trim();
   const base: PoolConfig = {
-    connectionString,
+    connectionString: normalizedUrl,
     max: isVercel ? 3 : 10,
     idleTimeoutMillis: isVercel ? 10000 : 30000,
     connectionTimeoutMillis: 10000,
@@ -316,7 +434,7 @@ export function buildPostgresPoolConfig(connectionString: string, isVercel: bool
   };
 
   try {
-    const parsed = new URL(connectionString);
+    const parsed = new URL(normalizedUrl);
     const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
     const hasRootCert = parsed.searchParams.has('sslrootcert');
     const hostname = parsed.hostname.toLowerCase();
@@ -337,21 +455,30 @@ export function buildPostgresPoolConfig(connectionString: string, isVercel: bool
       isSupabaseHost ||
       (isVercel && !isLocalHost)
     ) {
-      // pg-connection-string >= 2.x treats sslmode=require/prefer/verify-ca as verify-full
-      // and overwrites Pool's ssl option inside pg.Client unless sslmode is stripped.
-      parsed.searchParams.delete('sslmode');
+      // Remove only sslmode=... from the query string so user/password/host/other params remain byte-for-byte intact
+      // and pg.Client keeps ssl: { rejectUnauthorized: false }.
       return {
         ...base,
-        connectionString: parsed.toString(),
+        connectionString: stripSslModeQueryParam(normalizedUrl),
         ssl: { rejectUnauthorized: false }
       };
     }
   } catch {
-    if (isVercel) {
-      return {
-        ...base,
-        ssl: { rejectUnauthorized: false }
-      };
+    const hasSslDisable = /[?&]sslmode=disable\b/i.test(normalizedUrl);
+    const hasSslVerifyFull = /[?&]sslmode=verify-full\b/i.test(normalizedUrl);
+    const hasRootCert = /[?&]sslrootcert=/i.test(normalizedUrl);
+    if (!hasSslDisable && !hasSslVerifyFull && !hasRootCert) {
+      const hasCloudHint =
+        /\.neon\.(tech|build)\b/i.test(normalizedUrl) ||
+        /\.supabase\.(co|com)\b/i.test(normalizedUrl) ||
+        /[?&]sslmode=(require|prefer|verify-ca|no-verify)\b/i.test(normalizedUrl);
+      if (hasCloudHint || isVercel) {
+        return {
+          ...base,
+          connectionString: stripSslModeQueryParam(normalizedUrl),
+          ssl: { rejectUnauthorized: false }
+        };
+      }
     }
   }
 
@@ -364,7 +491,7 @@ export async function initializeUserStore(options: {
   legacyAdmins: () => StoredUser[];
   bootstrapAdmin?: StoredUser;
 }): Promise<void> {
-  const connectionString = process.env.DATABASE_URL?.trim();
+  const connectionString = sanitizeDatabaseUrlInput(process.env.DATABASE_URL);
   if (!connectionString) {
     console.warn('[AI Studio] DATABASE_URL non configurée — utilisation du stockage en mémoire.');
     initializeMemoryUserStore(options);
@@ -375,7 +502,7 @@ export async function initializeUserStore(options: {
   const isVercel = Boolean(process.env.VERCEL);
   pool = new Pool(buildPostgresPoolConfig(connectionString, isVercel));
   pool.on('error', (poolErr) => {
-    console.error('[PostgreSQL Pool Error]', poolErr.message);
+    logPostgresError('pg.Pool', poolErr, connectionString);
   });
   try {
     await pool.query(`
@@ -589,6 +716,7 @@ export async function initializeUserStore(options: {
       }
     }
   } catch (error) {
+    logPostgresError('initializeUserStore', error, connectionString);
     await pool.end().catch(() => {});
     pool = undefined;
     if (process.env.VERCEL) {

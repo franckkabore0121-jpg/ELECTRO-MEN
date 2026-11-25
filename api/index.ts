@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import app, { ensureServerInitialized, formatTechnicalErrorMessage } from '../server.ts';
+import { logPostgresError } from '../server/investorStore.ts';
 
 export default async function handler(
   req: IncomingMessage & { url?: string },
@@ -8,9 +9,7 @@ export default async function handler(
   try {
     await ensureServerInitialized();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const causeMessage = error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined;
-    console.error('[ELECTRO-MEN Vercel Init Error]', causeMessage ? `${message} (${causeMessage})` : message);
+    logPostgresError('Vercel Init', error, process.env.DATABASE_URL);
     const formatted = formatTechnicalErrorMessage(error);
     if (!res.headersSent) {
       res.statusCode = 500;
