@@ -2977,7 +2977,15 @@ export default function App() {
           </div>
         </main>
       ) : (
-        <main className={currentTab === 'accueil' ? "max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-2" : "max-w-4xl mx-auto px-3 sm:px-4 pt-4"}>
+        <main className={
+          currentTab === 'accueil' ||
+          currentTab === 'boutique_electronique' ||
+          currentTab === 'composants' ||
+          currentTab === 'boutique_electrotechnique' ||
+          currentTab === 'boutique_informatique'
+            ? "max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-2"
+            : "max-w-4xl mx-auto px-3 sm:px-4 pt-4"
+        }>
           {/* PAGE D'ACCUEIL FLAGSHIP : ÉLECTROTECHNIQUE & ÉLECTRONIQUE */}
           {currentTab === 'accueil' && (
           <ScreenAccueil
@@ -3012,43 +3020,61 @@ export default function App() {
         )}
 
         {/* BOUTIQUE 1 : COMPOSANTS ÉLECTRONIQUES */}
-        {(currentTab === 'boutique_electronique' || currentTab === 'composants') && (
-          <ScreenBoutiqueElectronique
-            products={products}
-            isLoadingProducts={isLoadingProducts}
-            groups={domainGroups.electronique}
-            onAddToCart={(prod) => handleAddToCart(prod, 1)}
-            onSelectProduct={(prod) => setSelectedProduct(prod)}
-            onOpenCart={() => setIsCartOpen(true)}
-            onGoTab={(tab) => setCurrentTab(tab)}
-          />
-        )}
+        {(currentTab === 'boutique_electronique' || currentTab === 'composants') && (() => {
+          const shopMeta = marketplaceBoutiques.find((b) => b.category === 'electronique');
+          return (
+            <ScreenBoutiqueElectronique
+              products={products}
+              isLoadingProducts={isLoadingProducts}
+              cartCount={cartCount}
+              logoUrl={shopMeta?.logoUrl}
+              locationLabel={shopMeta?.location}
+              groups={domainGroups.electronique}
+              onAddToCart={(prod) => handleAddToCart(prod, 1)}
+              onSelectProduct={(prod) => setSelectedProduct(prod)}
+              onOpenCart={() => setIsCartOpen(true)}
+              onGoTab={(tab) => setCurrentTab(tab)}
+            />
+          );
+        })()}
 
         {/* BOUTIQUE 2 : COMPOSANTS ÉLECTROTECHNIQUES & PUISSANCE */}
-        {currentTab === 'boutique_electrotechnique' && (
-          <ScreenBoutiqueElectrotechnique
-            products={products}
-            isLoadingProducts={isLoadingProducts}
-            groups={domainGroups.electrotechnique}
-            onAddToCart={(prod) => handleAddToCart(prod, 1)}
-            onSelectProduct={(prod) => setSelectedProduct(prod)}
-            onOpenCart={() => setIsCartOpen(true)}
-            onGoTab={(tab) => setCurrentTab(tab)}
-          />
-        )}
+        {currentTab === 'boutique_electrotechnique' && (() => {
+          const shopMeta = marketplaceBoutiques.find((b) => b.category === 'electrotechnique');
+          return (
+            <ScreenBoutiqueElectrotechnique
+              products={products}
+              isLoadingProducts={isLoadingProducts}
+              cartCount={cartCount}
+              logoUrl={shopMeta?.logoUrl}
+              locationLabel={shopMeta?.location}
+              groups={domainGroups.electrotechnique}
+              onAddToCart={(prod) => handleAddToCart(prod, 1)}
+              onSelectProduct={(prod) => setSelectedProduct(prod)}
+              onOpenCart={() => setIsCartOpen(true)}
+              onGoTab={(tab) => setCurrentTab(tab)}
+            />
+          );
+        })()}
 
         {/* BOUTIQUE 3 : ÉQUIPEMENTS INFORMATIQUES */}
-        {currentTab === 'boutique_informatique' && (
-          <ScreenBoutiqueInformatique
-            products={products}
-            isLoadingProducts={isLoadingProducts}
-            groups={domainGroups.informatique}
-            onAddToCart={(prod) => handleAddToCart(prod, 1)}
-            onSelectProduct={(prod) => setSelectedProduct(prod)}
-            onOpenCart={() => setIsCartOpen(true)}
-            onGoTab={(tab) => setCurrentTab(tab)}
-          />
-        )}
+        {currentTab === 'boutique_informatique' && (() => {
+          const shopMeta = marketplaceBoutiques.find((b) => b.category === 'informatique');
+          return (
+            <ScreenBoutiqueInformatique
+              products={products}
+              isLoadingProducts={isLoadingProducts}
+              cartCount={cartCount}
+              logoUrl={shopMeta?.logoUrl}
+              locationLabel={shopMeta?.location}
+              groups={domainGroups.informatique}
+              onAddToCart={(prod) => handleAddToCart(prod, 1)}
+              onSelectProduct={(prod) => setSelectedProduct(prod)}
+              onOpenCart={() => setIsCartOpen(true)}
+              onGoTab={(tab) => setCurrentTab(tab)}
+            />
+          );
+        })()}
 
         {/* PAGE 2 : SOLUTIONS & ACADÉMIE (3 SECTIONS : ÉLECTRONIQUE, ÉLECTROTECH, INFORMATIQUE) */}
         {currentTab === 'solutions' && (
