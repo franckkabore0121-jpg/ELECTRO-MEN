@@ -2995,10 +2995,89 @@ const DEFAULT_COURSE_CATEGORIES = [
 // CATALOGUE PRODUITS CRUD (PERSISTANCE POSTGRESQL)
 // =========================================================================
 
-app.get('/api/products', asyncRoute(async (_req: Request, res: Response) => {
+function normalizeTokenText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function inferProductDomain(raw: Record<string, unknown>): 'electronique' | 'electrotechnique' | 'informatique' {
+  const domainNorm = normalizeTokenText(raw.domain);
+  if (domainNorm === 'electrotechnique' || domainNorm.includes('electrotech')) return 'electrotechnique';
+  if (domainNorm === 'informatique' || domainNorm === 'info') return 'informatique';
+  if (domainNorm === 'electronique' || domainNorm.includes('microelectron')) return 'electronique';
+
+  const catNorm = normalizeTokenText(raw.category);
+  const subNorm = normalizeTokenText(raw.subGroup);
+  if (
+    catNorm === 'electrotechnique' ||
+    ['protection', 'commande', 'variateurs', 'alimentation', 'cablage'].includes(subNorm)
+  ) {
+    return 'electrotechnique';
+  }
+  if (
+    catNorm === 'informatique' ||
+    ['ordinateurs', 'composants_pc', 'peripheriques', 'reseau', 'energie_pc'].includes(subNorm)
+  ) {
+    return 'informatique';
+  }
+  return 'electronique';
+}
+
+function normalizeProductRecord(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const item = raw as Record<string, unknown>;
+  const domain = inferProductDomain(item);
+  const parsedPrice = Number(item.price);
+  const parsedOldPrice = item.oldPrice !== undefined && item.oldPrice !== null && item.oldPrice !== '' ? Number(item.oldPrice) : undefined;
+  const parsedStock = Number(item.stock);
+  const isDraft = item.isDraft === true || item.isDraft === 'true';
+  const isPublished = item.isPublished === false || item.isPublished === 'false' ? false : !isDraft;
+
+  return {
+    ...item,
+    domain,
+    price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0,
+    ...(parsedOldPrice !== undefined && Number.isFinite(parsedOldPrice) && parsedOldPrice > 0 ? { oldPrice: parsedOldPrice } : {}),
+    stock: Number.isFinite(parsedStock) && parsedStock >= 0 ? parsedStock : 0,
+    isDraft,
+    isPublished
+  };
+}
+
+app.get('/api/products', asyncRoute(async (req: Request, res: Response) => {
   applyNoCacheHeaders(res);
-  const products = await readJson<any[]>(PRODUCTS_FILE, []);
-  res.json({ success: true, products });
+  const [rawProducts, storedGroups] = await Promise.all([
+    readJson<any[]>(PRODUCTS_FILE, []),
+    readJson<Record<string, unknown>>(GROUPS_FILE, {})
+  ]);
+  const domainFilter = normalizeTokenText(req.query.domain);
+  const products = rawProducts
+    .map(normalizeProductRecord)
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .filter((item) => !domainFilter || item.domain === domainFilter);
+  res.json({ success: true, products, groups: storedGroups });
+}));
+
+app.get('/api/groups', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const groups = await readJson<Record<string, unknown>>(GROUPS_FILE, {});
+  res.json({ success: true, groups });
+}));
+
+app.put('/api/admin/groups', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const admin = await requireAdminPermission(req, res, 'manage_products');
+  if (!admin) return;
+  const body = req.body?.groups ?? req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ success: false, error: 'Données de catégories invalides.' });
+  }
+  await writeJson(GROUPS_FILE, body);
+  res.json({ success: true, groups: body });
 }));
 
 app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) => {

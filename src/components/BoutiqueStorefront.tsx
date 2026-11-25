@@ -75,23 +75,58 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     }, 2600);
   };
 
+  const normalizeToken = (value?: string): string =>
+    (value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
   // Visible published products for this storefront
   const publishedShopProducts = useMemo(
-    () => allDomainProducts.filter((p) => p.isPublished !== false && !p.isDraft),
+    () =>
+      allDomainProducts.filter(
+        (p) => (p.isPublished as unknown) !== false && (p.isPublished as unknown) !== 'false' && !p.isDraft
+      ),
     [allDomainProducts]
   );
 
-  // Category chips (always starting with "Tout")
+  // Category chips (always starting with "Tout" + official groups + any subgroups found on live products)
   const categoryOptions = useMemo(() => {
     const customCategories = groups.filter((g) => g.id !== 'all');
-    return [{ id: 'all', label: 'Tout', icon: 'apps' }, ...customCategories];
-  }, [groups]);
+    const seenIds = new Set(customCategories.map((g) => normalizeToken(g.id)));
+    const discovered: CategoryGroup[] = [];
+    for (const product of publishedShopProducts) {
+      const subId = (product.subGroup || '').trim();
+      const subNorm = normalizeToken(subId);
+      if (subId && subNorm !== 'all' && !seenIds.has(subNorm)) {
+        seenIds.add(subNorm);
+        discovered.push({
+          id: subId,
+          label: product.subGroupLabel || product.categoryLabel || subId,
+          icon: 'category'
+        });
+      }
+    }
+    return [{ id: 'all', label: 'Tout', icon: 'apps' }, ...customCategories, ...discovered];
+  }, [groups, publishedShopProducts]);
 
   // Filtered products based on selected category & search query
   const displayedProducts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    const selectedNorm = normalizeToken(selectedGroup);
+    const selectedLabelNorm = normalizeToken(
+      categoryOptions.find((c) => c.id === selectedGroup)?.label
+    );
+
     return publishedShopProducts.filter((p) => {
-      const matchGroup = selectedGroup === 'all' || p.subGroup === selectedGroup;
+      const matchGroup =
+        selectedGroup === 'all' ||
+        normalizeToken(p.subGroup) === selectedNorm ||
+        normalizeToken(p.category) === selectedNorm ||
+        (selectedLabelNorm.length > 0 &&
+          (normalizeToken(p.subGroupLabel) === selectedLabelNorm ||
+            normalizeToken(p.categoryLabel) === selectedLabelNorm));
       const matchSearch =
         !q ||
         p.name.toLowerCase().includes(q) ||
@@ -102,7 +137,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
         (p.description || '').toLowerCase().includes(q);
       return matchGroup && matchSearch;
     });
-  }, [publishedShopProducts, selectedGroup, searchQuery]);
+  }, [publishedShopProducts, selectedGroup, searchQuery, categoryOptions]);
 
   // Curated sections when viewing "Tout" with no search query
   const curatedSections = useMemo(() => {
@@ -235,7 +270,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
         }}
         role="button"
         tabIndex={0}
-        className="group bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 hover:border-slate-300 hover:shadow-sm p-1.5 sm:p-2.5 flex flex-col justify-between cursor-pointer transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+        className="group min-w-0 overflow-hidden bg-white rounded-xl sm:rounded-2xl border border-slate-200/90 hover:border-slate-300 hover:shadow-sm p-1.5 sm:p-2.5 flex flex-col justify-between cursor-pointer transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
       >
         <div>
           {/* Image carrée légèrement arrondie */}
@@ -293,12 +328,12 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
 
         {/* Prix actuel en gras + ancien prix barré */}
         <div className="mt-1.5 space-y-0.5">
-          <div className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0.5">
-            <span className="text-[11px] sm:text-sm font-extrabold text-slate-950 font-mono tabular-nums whitespace-nowrap">
+          <div className="flex items-baseline flex-wrap gap-x-1 gap-y-0.5">
+            <span className="text-[10.5px] sm:text-sm font-extrabold text-slate-950 font-mono tabular-nums tracking-tight whitespace-nowrap">
               {prod.price.toLocaleString('fr-FR')} FCFA
             </span>
             {hasDiscount && (
-              <span className="text-[10px] sm:text-[11px] text-slate-400 line-through font-mono tabular-nums whitespace-nowrap">
+              <span className="text-[9.5px] sm:text-[11px] text-slate-400 line-through font-mono tabular-nums whitespace-nowrap">
                 {prod.oldPrice!.toLocaleString('fr-FR')} FCFA
               </span>
             )}
@@ -368,7 +403,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
             </div>
 
             <div className="min-w-0">
-              <h1 className="font-syne text-sm sm:text-lg font-extrabold text-slate-950 truncate leading-tight">
+              <h1 className="font-syne text-sm sm:text-lg font-extrabold text-slate-950 line-clamp-2 leading-tight">
                 {shopTitle}
               </h1>
               <p className="text-[11px] sm:text-xs text-slate-500 truncate mt-0.5">

@@ -333,10 +333,18 @@ export async function readApplicationData<T>(key: ApplicationDataKey, defaultVal
   const pool = getDatabasePool();
   if (isCollectionKey(key)) {
     const { table } = collections[key];
-    const result = await pool.query<{ payload: T }>(
-      `SELECT payload FROM ${table} ORDER BY position ASC, id ASC`
+    const result = await pool.query<{ id: string; payload: T }>(
+      `SELECT id, payload FROM ${table} ORDER BY position ASC, id ASC`
     );
-    if (result.rows.length > 0) return result.rows.map((row) => row.payload) as T;
+    if (result.rows.length > 0) {
+      return result.rows.map((row) => {
+        if (typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)) {
+          const obj = row.payload as Record<string, unknown>;
+          return (obj.id ? obj : { ...obj, id: row.id }) as T;
+        }
+        return row.payload;
+      }) as T;
+    }
 
     const migration = await pool.query<{ source_present: boolean; explicitly_written: boolean }>(
       'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',

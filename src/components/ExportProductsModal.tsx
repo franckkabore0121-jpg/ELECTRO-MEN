@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Product } from '../data/mockData.ts';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 
@@ -42,6 +42,16 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
 
   // Selected product IDs for custom export
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(products.map((p) => p.id)));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSelectedIds((prev) => {
+      const validIds = new Set(boutiqueProducts.map((p) => p.id));
+      const kept = Array.from(prev).filter((id) => validIds.has(id));
+      if (kept.length > 0) return new Set(kept);
+      return new Set(boutiqueProducts.map((p) => p.id));
+    });
+  }, [isOpen, boutiqueProducts]);
 
   // If boutique changes, ensure we select the items in that boutique
   const handleBoutiqueChange = (b: 'all' | 'electronique' | 'electrotechnique' | 'informatique') => {

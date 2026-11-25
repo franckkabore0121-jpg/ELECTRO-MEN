@@ -39,7 +39,17 @@ export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProp
   }, [propGroups, customGroups]);
 
   const infoProducts = useMemo(() => {
-    return products.filter((p) => p.domain === 'informatique');
+    const norm = (val?: string) =>
+      (val || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    return products.filter((p) => {
+      const domainNorm = norm(p.domain);
+      return domainNorm === 'informatique' || domainNorm === 'info';
+    });
   }, [products]);
 
   return (

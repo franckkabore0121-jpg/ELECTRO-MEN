@@ -5,7 +5,6 @@ import { ScreenAccueil } from './components/ScreenAccueil.tsx';
 import { ScreenBoutiqueElectronique } from './components/ScreenBoutiqueElectronique.tsx';
 import { ScreenBoutiqueElectrotechnique } from './components/ScreenBoutiqueElectrotechnique.tsx';
 import { ScreenBoutiqueInformatique } from './components/ScreenBoutiqueInformatique.tsx';
-import { ScreenComposants } from './components/ScreenComposants.tsx';
 import { ScreenSolutions } from './components/ScreenSolutions.tsx';
 import {
   ScreenBourseIR,
@@ -72,9 +71,31 @@ const DEFAULT_PROFILE: InvestorProfile = {
   registeredDate: '21 Octobre 2026'
 };
 
+const VALID_PUBLIC_TABS: ReadonlySet<TabType> = new Set<TabType>([
+  'accueil',
+  'boutiques',
+  'boutique_electronique',
+  'boutique_electrotechnique',
+  'boutique_informatique',
+  'solutions',
+  'bourse',
+  'profil',
+  'composants'
+]);
+
 export default function App() {
-  // Flagship Accueil is the default landing tab
-  const [currentTab, setCurrentTab] = useState<TabType>('accueil');
+  // Flagship Accueil is the default landing tab (or ?tab= deep link)
+  const [currentTab, setCurrentTab] = useState<TabType>(() => {
+    try {
+      const tabParam = new URLSearchParams(window.location.search).get('tab') as TabType | null;
+      if (tabParam && VALID_PUBLIC_TABS.has(tabParam)) {
+        return tabParam;
+      }
+    } catch {
+      // ignore
+    }
+    return 'accueil';
+  });
   const [currentAdminRole, setCurrentAdminRole] = useState<AdminRole | null>(null);
   const [currentAdminName, setCurrentAdminName] = useState<string>('');
   const [currentAdminPermissions, setCurrentAdminPermissions] = useState<AdminPermission[]>([]);
@@ -113,6 +134,7 @@ export default function App() {
   const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
   const productsRequestRef = useRef<AbortController | null>(null);
   const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
+  const isInitialTabEffectRef = useRef<boolean>(true);
 
   const fetchProductsNow = useCallback(async (showSpinner = false): Promise<void> => {
     productsRequestRef.current?.abort();
@@ -130,9 +152,26 @@ export default function App() {
         signal: controller.signal
       });
       if (!response.ok) return;
-      const data = await response.json().catch(() => null) as { products?: Product[] } | null;
+      const data = await response.json().catch(() => null) as {
+        products?: Product[];
+        groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
+      } | null;
       if (!controller.signal.aborted && data && Array.isArray(data.products)) {
         setProducts(data.products);
+        if (data.groups && typeof data.groups === 'object' && !Array.isArray(data.groups)) {
+          const g = data.groups;
+          if (
+            (Array.isArray(g.electronique) && g.electronique.length > 0) ||
+            (Array.isArray(g.electrotechnique) && g.electrotechnique.length > 0) ||
+            (Array.isArray(g.informatique) && g.informatique.length > 0)
+          ) {
+            setDomainGroups((prev) => ({
+              electronique: Array.isArray(g.electronique) && g.electronique.length > 0 ? g.electronique : prev.electronique,
+              electrotechnique: Array.isArray(g.electrotechnique) && g.electrotechnique.length > 0 ? g.electrotechnique : prev.electrotechnique,
+              informatique: Array.isArray(g.informatique) && g.informatique.length > 0 ? g.informatique : prev.informatique
+            }));
+          }
+        }
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
@@ -157,6 +196,23 @@ export default function App() {
       productsRequestRef.current?.abort();
     };
   }, [fetchProductsNow]);
+
+  useEffect(() => {
+    if (isInitialTabEffectRef.current) {
+      isInitialTabEffectRef.current = false;
+      return;
+    }
+    if (
+      currentTab === 'accueil' ||
+      currentTab === 'boutiques' ||
+      currentTab === 'boutique_electronique' ||
+      currentTab === 'boutique_electrotechnique' ||
+      currentTab === 'boutique_informatique' ||
+      currentTab === 'composants'
+    ) {
+      void fetchProductsNow(false);
+    }
+  }, [currentTab, fetchProductsNow]);
 
   // Courses state with Admin mutability (empty by default; controlled entirely by administrator)
   const [courses, setCourses] = useState<Course[]>(() => {
@@ -621,11 +677,11 @@ export default function App() {
     }
   };
 
-  // Deep Link handling: automatically open product if ?prod=<id> is in query string
+  // Deep Link handling: automatically open product if ?prod=<id> or ?product=<id> is in query string
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const prodId = params.get('prod');
+      const prodId = params.get('prod') || params.get('product');
       if (prodId) {
         const found = products.find((p) => p.id === prodId);
         if (found) {
@@ -2471,11 +2527,31 @@ export default function App() {
   };
 
   // Group Management Handlers (Admin can add & delete any group including defaults)
+  const persistDomainGroups = (nextGroups: typeof domainGroups) => {
+    void fetch('/api/admin/groups', {
+      method: 'PUT',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache'
+      },
+      body: JSON.stringify({ groups: nextGroups })
+    }).catch((err) => {
+      console.error('Unable to persist groups to PostgreSQL:', err);
+    });
+  };
+
   const handleAdminAddGroup = (domain: 'electronique' | 'electrotechnique' | 'informatique', group: CategoryGroup) => {
-    setDomainGroups((prev) => ({
-      ...prev,
-      [domain]: [...prev[domain], group]
-    }));
+    setDomainGroups((prev) => {
+      const next = {
+        ...prev,
+        [domain]: [...prev[domain], group]
+      };
+      persistDomainGroups(next);
+      return next;
+    });
     handleAddAuditLog({
       author: currentAdminName,
       date: new Date().toLocaleString('fr-FR'),
@@ -2486,10 +2562,14 @@ export default function App() {
   };
 
   const handleAdminDeleteGroup = (domain: 'electronique' | 'electrotechnique' | 'informatique', groupId: string) => {
-    setDomainGroups((prev) => ({
-      ...prev,
-      [domain]: prev[domain].filter((g) => g.id !== groupId)
-    }));
+    setDomainGroups((prev) => {
+      const next = {
+        ...prev,
+        [domain]: prev[domain].filter((g) => g.id !== groupId)
+      };
+      persistDomainGroups(next);
+      return next;
+    });
     handleAddAuditLog({
       author: currentAdminName,
       date: new Date().toLocaleString('fr-FR'),

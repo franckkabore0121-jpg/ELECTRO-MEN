@@ -39,16 +39,22 @@ export const ScreenBoutiqueElectronique: React.FC<ScreenBoutiqueElectroniqueProp
   }, [propGroups, customGroups]);
 
   const electroniqueProducts = useMemo(() => {
-    return products.filter(
-      (p) =>
-        p.domain === 'electronique' ||
-        p.category === 'kit' ||
-        p.category === 'module' ||
-        p.category === 'ic' ||
-        p.category === 'sensor' ||
-        p.category === 'passif' ||
-        p.category === 'tool'
-    );
+    const norm = (val?: string) =>
+      (val || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    return products.filter((p) => {
+      const domainNorm = norm(p.domain);
+      if (domainNorm === 'electronique' || domainNorm.includes('microelectron')) return true;
+      if (!domainNorm) {
+        const catNorm = norm(p.category);
+        return ['kit', 'kits', 'module', 'modules', 'ic', 'sensor', 'sensors', 'passif', 'passifs', 'tool', 'tools', 'electronique'].includes(catNorm);
+      }
+      return false;
+    });
   }, [products]);
 
   return (

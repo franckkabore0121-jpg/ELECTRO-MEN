@@ -39,7 +39,17 @@ export const ScreenBoutiqueElectrotechnique: React.FC<ScreenBoutiqueElectrotechn
   }, [propGroups, customGroups]);
 
   const electrotechProducts = useMemo(() => {
-    return products.filter((p) => p.domain === 'electrotechnique');
+    const norm = (val?: string) =>
+      (val || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    return products.filter((p) => {
+      const domainNorm = norm(p.domain);
+      return domainNorm === 'electrotechnique' || domainNorm.includes('electrotech');
+    });
   }, [products]);
 
   return (
