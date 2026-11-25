@@ -709,18 +709,27 @@ export default function App() {
 
   // Sync custom URL & /electromenG from browser location on mount & route changes
   useEffect(() => {
+    const normalizeRoutePath = (p: string) => (p.replace(/\/+$/, '') || '/').toLowerCase();
+    const isSecretAdminLocation = () => {
+      const currentPath = normalizeRoutePath(window.location.pathname);
+      const currentHash = normalizeRoutePath(window.location.hash.replace(/^#/, ''));
+      const normalizedCustom = normalizeRoutePath(adminCustomUrl || '/electromen-gestion');
+      return (
+        currentPath === normalizedCustom ||
+        currentPath === '/electromeng' ||
+        currentHash === normalizedCustom ||
+        currentHash === '/electromeng'
+      );
+    };
+
     const checkPath = () => {
-      const currentPath = window.location.pathname;
-      const currentHash = window.location.hash;
-
-      const isMatch =
-        currentPath === adminCustomUrl ||
-        currentPath === '/electromenG' ||
-        currentHash === `#${adminCustomUrl}` ||
-        currentHash === '#/electromenG';
-
-      if (isMatch) {
-        setIsAdminAuthModalOpen(true);
+      if (isSecretAdminLocation()) {
+        if (currentAdminRole) {
+          setCurrentTab('admin');
+          setIsAdminAuthModalOpen(false);
+        } else {
+          setIsAdminAuthModalOpen(true);
+        }
       }
     };
     checkPath();
@@ -730,14 +739,20 @@ export default function App() {
       window.removeEventListener('popstate', checkPath);
       window.removeEventListener('hashchange', checkPath);
     };
-  }, [adminCustomUrl]);
+  }, [adminCustomUrl, currentAdminRole]);
 
   useEffect(() => {
     let active = true;
+    const normalizeRoutePath = (p: string) => (p.replace(/\/+$/, '') || '/').toLowerCase();
     fetch('/api/auth/verify', {
       method: 'POST',
+      cache: 'no-store',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache'
+      },
       body: JSON.stringify({})
     })
       .then(async (response) => {
@@ -752,8 +767,9 @@ export default function App() {
         setCurrentAdminRole(data.user.role);
         setCurrentAdminName(data.user.name);
         setCurrentAdminPermissions(resolveAdminPermissions(data.user.role, data.user.permissions));
-        const pathMatchesAdmin =
-          window.location.pathname === adminCustomUrl || window.location.pathname === '/electromenG';
+        const currentPath = normalizeRoutePath(window.location.pathname);
+        const normalizedCustom = normalizeRoutePath(adminCustomUrl || '/electromen-gestion');
+        const pathMatchesAdmin = currentPath === normalizedCustom || currentPath === '/electromeng';
         if (pathMatchesAdmin) {
           setCurrentTab('admin');
           setIsAdminAuthModalOpen(false);
@@ -1351,8 +1367,13 @@ export default function App() {
       try {
         const res = await fetch('/api/auth/verify', {
           method: 'POST',
+          cache: 'no-store',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache'
+          },
           body: JSON.stringify({})
         });
         const data = await res.json();

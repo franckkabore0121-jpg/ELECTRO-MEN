@@ -4542,6 +4542,7 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
 }));
 
 app.get('/api/health', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   await checkUserStoreConnection();
   const products = await readJson<unknown[]>(PRODUCTS_FILE, []);
   const admins = await listAdmins<ServerAdminUser>();
@@ -4564,6 +4565,7 @@ app.get('/api/health', asyncRoute(async (_req: Request, res: Response) => {
 }));
 
 app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const config = await loadConfig();
   const security = await getAdminSecuritySettings();
   const admins = await listAdmins<ServerAdminUser>();
@@ -4584,6 +4586,7 @@ app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => 
 }));
 
 app.post('/api/auth/setup-admin', authRateLimiter, asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const existingPrincipal = await findAdminByRole<ServerAdminUser>('admin_principal');
   const security = await getAdminSecuritySettings();
   const hasEnvMaster = Boolean(process.env.ADMIN_MASTER_PASSWORD?.trim());
@@ -4656,6 +4659,7 @@ app.post('/api/auth/setup-admin', authRateLimiter, asyncRoute(async (req: Reques
 }));
 
 app.post('/api/auth/login', authRateLimiter, asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const { email, password, masterPin } = req.body || {};
   const security = await getAdminSecuritySettings();
   const customAdminUrl = security?.customAdminUrl || (await loadConfig()).customAdminUrl;
@@ -4824,6 +4828,7 @@ app.post('/api/auth/logout', asyncRoute(async (req: Request, res: Response) => {
 }));
 
 app.post('/api/auth/verify', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const token = typeof req.body?.token === 'string' ? req.body.token : getAdminSessionToken(req);
   if (!token) return res.json({ valid: false });
   const user = await findUserBySession<ServerAdminUser>(crypto.createHash('sha256').update(token).digest('hex'));
