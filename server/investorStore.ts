@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { Pool, type PoolClient } from 'pg';
+import { Pool, type PoolClient, type PoolConfig } from 'pg';
 
 export interface InvestorIdentity {
   id: string;
@@ -228,7 +228,7 @@ async function insertBootstrapAdmin(client: Pick<PoolClient, 'query'>, user: Sto
          payload = (app_users.payload - 'assignedPassword' - 'assignedPasswordPlainText')
            || EXCLUDED.payload
            || jsonb_build_object('id', app_users.id)
-     WHERE app_users.role IN ('investor', 'admin_secondaire')
+     WHERE app_users.role IN ('client', 'investor', 'admin_secondaire')
      RETURNING id`,
     [
       user.id,
@@ -306,6 +306,58 @@ function initializeMemoryUserStore(options: {
   }
 }
 
+export function buildPostgresPoolConfig(connectionString: string, isVercel: boolean): PoolConfig {
+  const base: PoolConfig = {
+    connectionString,
+    max: isVercel ? 3 : 10,
+    idleTimeoutMillis: isVercel ? 10000 : 30000,
+    connectionTimeoutMillis: 10000,
+    allowExitOnIdle: isVercel
+  };
+
+  try {
+    const parsed = new URL(connectionString);
+    const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase();
+    const hasRootCert = parsed.searchParams.has('sslrootcert');
+    const hostname = parsed.hostname.toLowerCase();
+    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const isNeonHost = hostname.endsWith('.neon.tech') || hostname.endsWith('.neon.build');
+    const isSupabaseHost = hostname.endsWith('.supabase.co') || hostname.endsWith('.supabase.com');
+
+    if (sslMode === 'disable' || sslMode === 'verify-full' || hasRootCert) {
+      return base;
+    }
+
+    if (
+      sslMode === 'require' ||
+      sslMode === 'prefer' ||
+      sslMode === 'verify-ca' ||
+      sslMode === 'no-verify' ||
+      isNeonHost ||
+      isSupabaseHost ||
+      (isVercel && !isLocalHost)
+    ) {
+      // pg-connection-string >= 2.x treats sslmode=require/prefer/verify-ca as verify-full
+      // and overwrites Pool's ssl option inside pg.Client unless sslmode is stripped.
+      parsed.searchParams.delete('sslmode');
+      return {
+        ...base,
+        connectionString: parsed.toString(),
+        ssl: { rejectUnauthorized: false }
+      };
+    }
+  } catch {
+    if (isVercel) {
+      return {
+        ...base,
+        ssl: { rejectUnauthorized: false }
+      };
+    }
+  }
+
+  return base;
+}
+
 export async function initializeUserStore(options: {
   legacyInvestorFile: string;
   legacyClientFile: string;
@@ -321,13 +373,7 @@ export async function initializeUserStore(options: {
 
   useMemoryStore = false;
   const isVercel = Boolean(process.env.VERCEL);
-  pool = new Pool({
-    connectionString,
-    max: isVercel ? 3 : 10,
-    idleTimeoutMillis: isVercel ? 10000 : 30000,
-    connectionTimeoutMillis: isVercel ? 10000 : 3000,
-    allowExitOnIdle: isVercel
-  });
+  pool = new Pool(buildPostgresPoolConfig(connectionString, isVercel));
   pool.on('error', (poolErr) => {
     console.error('[PostgreSQL Pool Error]', poolErr.message);
   });

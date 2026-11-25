@@ -71,12 +71,19 @@ function migrationSource(dataDir: string, filename: string): { filePath: string;
   return { filePath, exists: existsSync(filePath) };
 }
 
-async function hasMigration(client: PoolClient, key: ApplicationDataKey): Promise<boolean> {
-  const result = await client.query(
-    'SELECT 1 FROM app_data_migrations WHERE resource_key = $1',
+async function getMigrationState(
+  client: PoolClient,
+  key: ApplicationDataKey
+): Promise<{ sourcePresent: boolean; explicitlyWritten: boolean } | undefined> {
+  const result = await client.query<{ source_present: boolean; explicitly_written: boolean }>(
+    'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',
     [key]
   );
-  return result.rowCount !== 0;
+  if (result.rowCount === 0) return undefined;
+  return {
+    sourcePresent: Boolean(result.rows[0]?.source_present),
+    explicitlyWritten: Boolean(result.rows[0]?.explicitly_written)
+  };
 }
 
 async function markMigration(
@@ -90,7 +97,13 @@ async function markMigration(
     `INSERT INTO app_data_migrations
        (resource_key, source_file, source_present, imported_count, completed_at)
      VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (resource_key) DO NOTHING`,
+     ON CONFLICT (resource_key) DO UPDATE
+     SET source_file = EXCLUDED.source_file,
+         source_present = EXCLUDED.source_present,
+         imported_count = EXCLUDED.imported_count,
+         completed_at = NOW()
+     WHERE app_data_migrations.explicitly_written = FALSE
+       AND app_data_migrations.source_present = FALSE`,
     [key, filename, sourcePresent, importedCount]
   );
 }
@@ -100,10 +113,15 @@ async function migrateCollection(
   dataDir: string,
   key: CollectionKey
 ): Promise<void> {
-  if (await hasMigration(client, key)) return;
+  const existingMigration = await getMigrationState(client, key);
+  if (existingMigration && (existingMigration.sourcePresent || existingMigration.explicitlyWritten)) {
+    return;
+  }
 
   const { table, filename } = collections[key];
   const source = migrationSource(dataDir, filename);
+  if (existingMigration && !source.exists) return;
+
   const count = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${table}`);
   let importedCount = 0;
 
@@ -138,10 +156,15 @@ async function migrateDocument(
   key: 'admin-config' | 'groups',
   defaultValue: Record<string, unknown>
 ): Promise<void> {
-  if (await hasMigration(client, key)) return;
+  const existingMigration = await getMigrationState(client, key);
+  if (existingMigration && (existingMigration.sourcePresent || existingMigration.explicitlyWritten)) {
+    return;
+  }
 
   const { table, filename } = documents[key];
   const source = migrationSource(dataDir, filename);
+  if (existingMigration && !source.exists) return;
+
   const count = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${table}`);
   let importedCount = 0;
 

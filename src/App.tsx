@@ -2763,12 +2763,30 @@ export default function App() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (!res.ok || !data.success || !data.user) {
-        setAdminAuthError(data.error || 'Identifiants administrateur incorrects.');
+      const rawText = await res.text().catch(() => '');
+      let data: { success?: boolean; user?: any; error?: string } | null = null;
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = null;
+        }
+      }
+      if (!res.ok || !data?.success || !data?.user) {
+        setAdminAuthError(
+          data?.error ||
+            (res.status >= 500
+              ? `Erreur technique serveur (HTTP ${res.status}). Vérifiez /api/health et les logs Vercel (DATABASE_URL).`
+              : res.status === 404
+                ? 'Route d’authentification introuvable (HTTP 404). Vérifiez le routage Vercel (/api/auth/login).'
+                : 'Identifiants administrateur incorrects.')
+        );
         return;
       }
       setCurrentAdminRole(data.user.role);
@@ -2781,7 +2799,7 @@ export default function App() {
       const targetUrl = window.location.pathname === '/electromenG' ? '/electromenG' : adminCustomUrl;
       window.history.pushState({}, '', targetUrl);
     } catch {
-      setAdminAuthError('Le serveur d’authentification est indisponible. Veuillez réessayer.');
+      setAdminAuthError('Impossible de joindre l’API d’authentification (/api/auth/login). Vérifiez votre connexion réseau ou /api/health.');
     } finally {
       setAdminLoginLoading(false);
     }
@@ -2810,15 +2828,31 @@ export default function App() {
       const res = await fetch('/api/auth/setup-admin', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
         body: JSON.stringify({ email: cleanEmail, password: cleanPass })
       });
-      const data = await res.json();
-      if (!res.ok || !data.success || !data.user) {
+      const rawText = await res.text().catch(() => '');
+      let data: { success?: boolean; user?: any; error?: string } | null = null;
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = null;
+        }
+      }
+      if (!res.ok || !data?.success || !data?.user) {
         if (res.status === 403) {
           setNeedsAdminSetup(false);
         }
-        setAdminAuthError(data.error || 'La configuration du compte administrateur a échoué.');
+        setAdminAuthError(
+          data?.error ||
+            (res.status >= 500
+              ? `Erreur technique serveur (HTTP ${res.status}). Vérifiez /api/health et les logs Vercel.`
+              : 'La configuration du compte administrateur a échoué.')
+        );
         return;
       }
       setNeedsAdminSetup(false);
@@ -2832,7 +2866,7 @@ export default function App() {
       const targetUrl = window.location.pathname === '/electromenG' ? '/electromenG' : adminCustomUrl;
       window.history.pushState({}, '', targetUrl);
     } catch {
-      setAdminAuthError('Le serveur d’authentification est indisponible. Veuillez réessayer.');
+      setAdminAuthError('Impossible de joindre l’API d’authentification (/api/auth/setup-admin). Vérifiez votre connexion réseau ou /api/health.');
     } finally {
       setAdminLoginLoading(false);
     }

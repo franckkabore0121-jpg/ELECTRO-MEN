@@ -1,11 +1,29 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import app, { ensureServerInitialized } from '../server.ts';
+import app, { ensureServerInitialized, formatTechnicalErrorMessage } from '../server.ts';
 
 export default async function handler(
   req: IncomingMessage & { url?: string },
   res: ServerResponse
 ) {
-  await ensureServerInitialized();
+  try {
+    await ensureServerInitialized();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const causeMessage = error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined;
+    console.error('[ELECTRO-MEN Vercel Init Error]', causeMessage ? `${message} (${causeMessage})` : message);
+    const formatted = formatTechnicalErrorMessage(error);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({
+        success: false,
+        code: formatted.code,
+        error: formatted.message
+      }));
+    }
+    return;
+  }
+
   if (typeof req.url === 'string') {
     const parsed = new URL(req.url, 'http://localhost');
     const targetPath = parsed.searchParams.get('__pathname');

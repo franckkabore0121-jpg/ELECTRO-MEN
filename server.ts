@@ -31,6 +31,7 @@ import {
   findUserById,
   findUserBySession,
   initializeUserStore,
+  isMemoryStoreActive,
   initializeAdminSecurity,
   initializeOperationInventory,
   getAdminSecuritySettings,
@@ -475,7 +476,7 @@ async function restoreJsonItem<T extends { id: string }>(filePath: string, value
 function verifyEnvSecretMatch(submitted: string, envValue: string | undefined): boolean {
   const expected = envValue?.trim();
   const actual = submitted.trim();
-  if (!expected || !actual || expected.length < 6 || expected.length > 128 || actual.length > 128) {
+  if (!expected || !actual || expected.length < 4 || expected.length > 128 || actual.length > 128) {
     return false;
   }
   const actualDigest = crypto.createHash('sha256').update(actual).digest();
@@ -4436,7 +4437,24 @@ app.post('/api/admin/archives/:id/restore', asyncRoute(async (req: Request, res:
 
 app.get('/api/health', asyncRoute(async (_req: Request, res: Response) => {
   await checkUserStoreConnection();
-  res.json({ success: true });
+  const products = await readJson<unknown[]>(PRODUCTS_FILE, []);
+  const admins = await listAdmins<ServerAdminUser>();
+  res.json({
+    success: true,
+    storage: isMemoryStoreActive() ? 'memory' : 'postgresql',
+    productsCount: Array.isArray(products) ? products.length : 0,
+    hasPrincipalAdmin: admins.some((a) => a.role === 'admin_principal'),
+    envStatus: {
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
+      hasSupabaseUrl: Boolean(process.env.SUPABASE_URL?.trim()),
+      hasSupabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
+      hasSupabaseBucket: Boolean(process.env.SUPABASE_STORAGE_BUCKET?.trim()),
+      hasInvestorCredentialKey: Boolean(process.env.INVESTOR_CREDENTIAL_KEY?.trim()),
+      hasAdminInitialEmail: Boolean(process.env.ADMIN_INITIAL_EMAIL?.trim()),
+      hasAdminInitialPassword: Boolean(process.env.ADMIN_INITIAL_PASSWORD?.trim()),
+      hasAdminMasterPassword: Boolean(process.env.ADMIN_MASTER_PASSWORD?.trim())
+    }
+  });
 }));
 
 app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => {
@@ -4627,9 +4645,14 @@ app.post('/api/auth/login', authRateLimiter, asyncRoute(async (req: Request, res
       cleanEmail === envInitialEmail &&
       verifyEnvSecretMatch(cleanPass, process.env.ADMIN_INITIAL_PASSWORD)
     );
+    const matchesEnvMasterWithInitialEmail = Boolean(
+      envInitialEmail &&
+      cleanEmail === envInitialEmail &&
+      verifyEnvSecretMatch(cleanPass, process.env.ADMIN_MASTER_PASSWORD)
+    );
     let admin = await findUserByEmail<ServerAdminUser>(cleanEmail);
 
-    if (!admin && matchesEnvInitial) {
+    if (!admin && (matchesEnvInitial || matchesEnvMasterWithInitialEmail)) {
       admin = await ensurePrincipalAdmin(cleanPass);
     }
 
@@ -5530,10 +5553,94 @@ app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Route API introuvable.' });
 });
 
+export function formatTechnicalErrorMessage(error: unknown): { code: string; message: string } {
+  const chain: Array<{ message?: string; code?: string }> = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === 'object') {
+      const record = current as { message?: unknown; code?: unknown; cause?: unknown };
+      chain.push({
+        message: typeof record.message === 'string' ? record.message : undefined,
+        code: typeof record.code === 'string' ? record.code : undefined
+      });
+      current = record.cause;
+    } else {
+      chain.push({ message: String(current) });
+      break;
+    }
+  }
+
+  const codes = new Set(chain.map((item) => item.code).filter((c): c is string => Boolean(c)));
+  const combinedText = chain.map((item) => item.message || '').join(' | ').toLowerCase();
+
+  if (codes.has('28P01') || codes.has('28000') || combinedText.includes('password authentication failed')) {
+    return {
+      code: 'PG_AUTH_FAILED',
+      message: 'Authentification PostgreSQL refusée : vérifiez le mot de passe et l’encodage (%40) dans DATABASE_URL.'
+    };
+  }
+  if (
+    codes.has('SELF_SIGNED_CERT_IN_CHAIN') ||
+    codes.has('DEPTH_ZERO_SELF_SIGNED_CERT') ||
+    codes.has('UNABLE_TO_VERIFY_LEAF_SIGNATURE') ||
+    combinedText.includes('self-signed certificate') ||
+    combinedText.includes('certificate')
+  ) {
+    return {
+      code: 'PG_SSL_ERROR',
+      message: 'Erreur SSL/TLS lors de la connexion à PostgreSQL.'
+    };
+  }
+  if (
+    codes.has('ENETUNREACH') ||
+    codes.has('ECONNREFUSED') ||
+    codes.has('ENOTFOUND') ||
+    codes.has('EAI_AGAIN')
+  ) {
+    return {
+      code: 'PG_UNREACHABLE',
+      message: 'Serveur PostgreSQL injoignable depuis Vercel (vérifiez DATABASE_URL et l’hôte Pooler).'
+    };
+  }
+  if (
+    codes.has('ETIMEDOUT') ||
+    combinedText.includes('timeout') ||
+    combinedText.includes('connection terminated')
+  ) {
+    return {
+      code: 'PG_TIMEOUT',
+      message: 'Délai de connexion à PostgreSQL dépassé (vérifiez DATABASE_URL).'
+    };
+  }
+  if (codes.has('23503')) {
+    return {
+      code: 'PG_FOREIGN_KEY_ERROR',
+      message: 'Incohérence de référence en base (vérifiez que app_users.id et payload.id correspondent).'
+    };
+  }
+  if (codes.has('42P01') || codes.has('42703')) {
+    return {
+      code: 'PG_SCHEMA_ERROR',
+      message: 'Table ou colonne PostgreSQL manquante en base.'
+    };
+  }
+  if (combinedText.includes('non initialisée')) {
+    return {
+      code: 'DB_NOT_INITIALIZED',
+      message: 'La connexion à la base de données n’est pas initialisée (vérifiez DATABASE_URL).'
+    };
+  }
+  return {
+    code: 'SERVER_ERROR',
+    message: 'Une erreur technique serveur est survenue. Consultez les logs Vercel (/api/health).'
+  };
+}
+
 const apiErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
   console.error('Unhandled API error:', error);
   if (res.headersSent) return next(error);
-  res.status(500).json({ success: false, error: 'Une erreur serveur est survenue.' });
+  const formatted = formatTechnicalErrorMessage(error);
+  res.status(500).json({ success: false, code: formatted.code, error: formatted.message });
 };
 app.use(apiErrorHandler);
 
@@ -5560,15 +5667,15 @@ async function initializeServerState(): Promise<AdminConfig> {
   if (Boolean(initialEmail) !== Boolean(initialPassword)) {
     console.warn('[AI Studio] ADMIN_INITIAL_EMAIL et ADMIN_INITIAL_PASSWORD doivent être configurées ensemble pour initialiser le compte administrateur.');
   }
-  if (initialPassword && (initialPassword.length < 6 || initialPassword.length > 128)) {
-    console.warn('[AI Studio] ADMIN_INITIAL_PASSWORD ignoré : longueur invalide (6 à 128 caractères attendus).');
+  if (initialPassword && (initialPassword.length < 4 || initialPassword.length > 128)) {
+    console.warn('[AI Studio] ADMIN_INITIAL_PASSWORD ignoré : longueur invalide (4 à 128 caractères attendus).');
   }
 
   const shouldBootstrapAdmin =
     !hasConfiguredAdminInJson &&
     Boolean(initialEmail) &&
     Boolean(initialPassword) &&
-    initialPassword!.length >= 6 &&
+    initialPassword!.length >= 4 &&
     initialPassword!.length <= 128;
 
   const bootstrapAdmin: ServerAdminUser | undefined = shouldBootstrapAdmin && initialEmail && initialPassword
@@ -5608,8 +5715,8 @@ async function initializeServerState(): Promise<AdminConfig> {
   const envMasterPassword = process.env.ADMIN_MASTER_PASSWORD?.trim();
   let initialMasterPassword = { hash: '', salt: '' };
   if (envMasterPassword) {
-    if (envMasterPassword.length < 6 || envMasterPassword.length > 128) {
-      console.warn('[AI Studio] ADMIN_MASTER_PASSWORD ignoré : longueur invalide (6 à 128 caractères attendus).');
+    if (envMasterPassword.length < 4 || envMasterPassword.length > 128) {
+      console.warn('[AI Studio] ADMIN_MASTER_PASSWORD ignoré : longueur invalide (4 à 128 caractères attendus).');
     } else {
       initialMasterPassword = hashInvestorPassword(envMasterPassword);
     }
@@ -5647,7 +5754,8 @@ async function initializeServerState(): Promise<AdminConfig> {
       continue;
     }
     if (!investor.assignedPassword) {
-      throw new Error(`L’investisseur ${investor.id} ne possède aucun mot de passe récupérable. Corrigez ce compte avant le démarrage.`);
+      console.error(`[ELECTRO-MEN] Compte investisseur ${investor.id} sans mot de passe récupérable — ignoré au démarrage pour préserver l’accès administrateur.`);
+      continue;
     }
     const { hash, salt } = hashInvestorPassword(investor.assignedPassword);
     const { assignedPassword: _legacyPassword, ...withoutLegacyPassword } = investor;
