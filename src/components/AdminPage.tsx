@@ -93,6 +93,7 @@ export interface AdminPageProps {
   onChangeFormationsVideoUrl?: (newUrl: string) => void;
 
   products: Product[];
+  isLoadingProducts?: boolean;
   onUpdateProduct: (p: Product) => void | Promise<void>;
   onAddProduct: (p: Product) => void | Promise<void>;
   onDeleteProduct: (id: string) => void;
@@ -220,6 +221,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   formationsVideoUrl = '/assets/videos/electromen-hero.mp4',
   onChangeFormationsVideoUrl,
   products,
+  isLoadingProducts = false,
   onUpdateProduct,
   onAddProduct,
   onDeleteProduct,
@@ -3648,7 +3650,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
 
             <div className="divide-y divide-slate-100 max-h-[550px] overflow-y-auto">
-              {filteredCatalogProducts
+              {isLoadingProducts && filteredCatalogProducts.length === 0 ? (
+                <div className="p-8 text-center space-y-2" role="status" aria-live="polite">
+                  <span className="material-symbols-outlined text-3xl text-amber-600 animate-spin inline-block">progress_activity</span>
+                  <p className="text-xs font-bold text-slate-700">Chargement des produits depuis PostgreSQL Neon...</p>
+                </div>
+              ) : filteredCatalogProducts.length === 0 ? (
+                <div className="p-8 text-center space-y-1 text-slate-500">
+                  <span className="material-symbols-outlined text-2xl text-slate-300">inventory_2</span>
+                  <p className="text-xs font-bold text-slate-700">Aucun produit dans cette sélection.</p>
+                </div>
+              ) : filteredCatalogProducts
                 .map((prod) => {
                   const status = getProductStockStatus(prod);
                   return (

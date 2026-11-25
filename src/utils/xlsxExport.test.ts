@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildProductsXlsxBytes } from './xlsxExport.ts';
+import { buildProductsXlsxBytes, computeExcelLegacyPasswordHash } from './xlsxExport.ts';
 import type { Product } from '../data/mockData.ts';
 
 describe('buildProductsXlsxBytes', () => {
-  it('generates a valid PKZIP OOXML .xlsx workbook with product headers, columns, and values', () => {
+  it('generates a valid PKZIP OOXML .xlsx workbook with strict range, table-only borders, and read-only password protection', () => {
     const sampleProducts: Product[] = [
       {
         id: 'p-1',
@@ -46,6 +46,15 @@ describe('buildProductsXlsxBytes', () => {
     const decoded = new TextDecoder().decode(bytes);
     expect(decoded).toContain('[Content_Types].xml');
     expect(decoded).toContain('xl/worksheets/sheet1.xml');
+    expect(decoded).toContain('<dimension ref="A1:K3"/>');
+    expect(decoded).toContain('<autoFilter ref="A1:K3"/>');
+    expect(decoded).not.toContain('<row r="4"');
+    expect(decoded).not.toContain('<col min="12"');
+    expect(decoded).not.toContain('r="L1"');
+    expect(decoded).toContain('<protection locked="1"/>');
+    expect(decoded).toMatch(/<sheetProtection password="[0-9A-F]{4}" sheet="1" objects="1" scenarios="1" formatCells="1" formatColumns="1" formatRows="1" insertColumns="1" insertRows="1" insertHyperlinks="1" deleteColumns="1" deleteRows="1" sort="1" autoFilter="1" pivotTables="1"/);
+    expect(decoded).toContain('<fileSharing readOnlyRecommended="1"/>');
+    expect(decoded).toMatch(/<workbookProtection workbookPassword="[0-9A-F]{4}" lockStructure="1" lockWindows="1"\/>/);
     expect(decoded).toContain('Nom du produit');
     expect(decoded).toContain('Prix (FCFA)');
     expect(decoded).toContain('Disponibilité');
@@ -54,6 +63,15 @@ describe('buildProductsXlsxBytes', () => {
     expect(decoded).toContain('<v>16000</v>');
     expect(decoded).toContain('Disponible sur commande');
     expect(decoded).toContain('&lt;script&gt;test&lt;/script&gt;');
-    expect(decoded).toContain('<autoFilter ref="A1:K3"/>');
+  });
+
+  it('bounds !ref strictly to A1:K1 when exporting an empty product list and computes standard Excel 16-bit password hashes', () => {
+    const emptyBytes = buildProductsXlsxBytes([]);
+    const decoded = new TextDecoder().decode(emptyBytes);
+    expect(decoded).toContain('<dimension ref="A1:K1"/>');
+    expect(decoded).not.toContain('<row r="2"');
+    // Known Excel 16-bit XOR password hash reference check
+    expect(computeExcelLegacyPasswordHash('test')).toBe('CBEB');
   });
 });
+

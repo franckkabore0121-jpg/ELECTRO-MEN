@@ -5,6 +5,7 @@ import { ImageZoomModal } from './ImageZoomModal.tsx';
 
 interface ScreenBoutiqueInformatiqueProps {
   products: Product[];
+  isLoadingProducts?: boolean;
   onAddToCart: (product: Product) => void;
   onSelectProduct: (product: Product) => void;
   onOpenCart: () => void;
@@ -15,6 +16,7 @@ interface ScreenBoutiqueInformatiqueProps {
 
 export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProps> = ({
   products,
+  isLoadingProducts = false,
   onAddToCart,
   onSelectProduct,
   onOpenCart,
@@ -226,7 +228,12 @@ export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProp
           grid-cols-2 gap-3 sm:gap-4
           ========================================================================= */}
       <section className="space-y-3">
-        {displayedProducts.length === 0 ? (
+        {isLoadingProducts && displayedProducts.length === 0 ? (
+          <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 space-y-2" role="status" aria-live="polite">
+            <span className="material-symbols-outlined text-4xl text-indigo-600 animate-spin inline-block">progress_activity</span>
+            <p className="text-slate-800 font-bold text-sm">Chargement des équipements informatiques en cours...</p>
+          </div>
+        ) : displayedProducts.length === 0 ? (
           <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 space-y-2">
             <span className="material-symbols-outlined text-4xl text-slate-300">laptop_mac</span>
             <p className="text-slate-800 font-bold text-sm">Aucun équipement informatique trouvé</p>

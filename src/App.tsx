@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header.tsx';
 import { Navigation, TabType } from './components/Navigation.tsx';
 import { ScreenAccueil } from './components/ScreenAccueil.tsx';
@@ -108,27 +108,55 @@ export default function App() {
     }
   }, [currentProfile]);
 
-  // Catalog Products state with Admin mutability (empty by default; controlled entirely by administrator)
-  const [products, setProducts] = useState<Product[]>(() => {
+  // Catalog Products state loaded directly from PostgreSQL Neon (zero stale client cache)
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
+  const productsRequestRef = useRef<AbortController | null>(null);
+  const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
+
+  const fetchProductsNow = useCallback(async (showSpinner = false): Promise<void> => {
+    productsRequestRef.current?.abort();
+    const controller = new AbortController();
+    productsRequestRef.current = controller;
+    if (showSpinner) setIsLoadingProducts(true);
     try {
-      const saved = localStorage.getItem('electromen_products');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+      const response = await fetch('/api/products', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache'
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => null) as { products?: Product[] } | null;
+      if (!controller.signal.aborted && data && Array.isArray(data.products)) {
+        setProducts(data.products);
       }
-    } catch {
-      // fallback
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        console.error('Unable to load live products from PostgreSQL:', error);
+      }
+    } finally {
+      if (productsRequestRef.current === controller) {
+        productsRequestRef.current = null;
+        setIsLoadingProducts(false);
+      }
     }
-    return [];
-  });
+  }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem('electromen_products', JSON.stringify(products));
+      localStorage.removeItem('electromen_products');
     } catch {
       // ignore
     }
-  }, [products]);
+    void fetchProductsNow(true);
+    return () => {
+      productsRequestRef.current?.abort();
+    };
+  }, [fetchProductsNow]);
 
   // Courses state with Admin mutability (empty by default; controlled entirely by administrator)
   const [courses, setCourses] = useState<Course[]>(() => {
@@ -1232,6 +1260,10 @@ export default function App() {
         const response = await fetch(url, {
           cache: 'no-store',
           credentials: 'same-origin',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache'
+          },
           signal
         });
         if (!response.ok) return null;
@@ -1294,9 +1326,14 @@ export default function App() {
       const canReadMessagesAndProfits = Boolean(currentAdminRole || currentProfile?.email);
 
       const operationUrl = canReadAdminOperations ? '/api/admin/operations' : '/api/operations';
+      if (hasSkippedInitialProductsSyncRef.current) {
+        void fetchProductsNow(false);
+      } else {
+        hasSkippedInitialProductsSyncRef.current = true;
+      }
+
       const [
         operationData,
-        productData,
         courseData,
         activityData,
         documentData,
@@ -1309,7 +1346,6 @@ export default function App() {
         profitDistributionsData
       ] = await Promise.all([
         fetchSnapshot<{ operations: InvestmentProject[] }>(operationUrl, controller.signal),
-        fetchSnapshot<{ products: Product[] }>('/api/products', controller.signal),
         fetchSnapshot<{ courses: Course[] }>('/api/courses', controller.signal),
         fetchSnapshot<{ activities: InvestorActivity[] }>('/api/activities', controller.signal),
         fetchSnapshot<{ documents: InvestorDocument[] }>('/api/documents', controller.signal),
@@ -1353,7 +1389,6 @@ export default function App() {
 
       if (!active || controller.signal.aborted) return;
       if (operationData && Array.isArray(operationData.operations)) setProjects(operationData.operations);
-      if (productData && Array.isArray(productData.products)) setProducts(productData.products);
       if (courseData && Array.isArray(courseData.courses)) setCourses(courseData.courses);
       if (activityData && Array.isArray(activityData.activities)) setInvestorActivities(activityData.activities);
       if (documentData && Array.isArray(documentData.documents)) setInvestorDocuments(documentData.documents);
@@ -1447,7 +1482,7 @@ export default function App() {
       eventSource.close();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email]);
+  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email, fetchProductsNow]);
 
   const cartCount = cartItems.reduce((acc, it) => acc + it.quantity, 0);
 
@@ -1647,8 +1682,13 @@ export default function App() {
     try {
       const res = await fetch(`/api/admin/products/${encodeURIComponent(updated.id)}`, {
         method: 'PUT',
+        cache: 'no-store',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache'
+        },
         body: JSON.stringify(updated)
       });
       const data = await res.json().catch(() => ({}));
@@ -1672,8 +1712,13 @@ export default function App() {
     try {
       const res = await fetch('/api/admin/products', {
         method: 'POST',
+        cache: 'no-store',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache'
+        },
         body: JSON.stringify(newProd)
       });
       const data = await res.json().catch(() => ({}));
@@ -1697,7 +1742,12 @@ export default function App() {
     try {
       const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        credentials: 'same-origin'
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache'
+        }
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -2932,6 +2982,7 @@ export default function App() {
           {currentTab === 'accueil' && (
           <ScreenAccueil
             products={products}
+            isLoadingProducts={isLoadingProducts}
             courses={courses}
             projects={projects}
             heroVideoUrl={heroVideoUrl}
@@ -2964,6 +3015,7 @@ export default function App() {
         {(currentTab === 'boutique_electronique' || currentTab === 'composants') && (
           <ScreenBoutiqueElectronique
             products={products}
+            isLoadingProducts={isLoadingProducts}
             groups={domainGroups.electronique}
             onAddToCart={(prod) => handleAddToCart(prod, 1)}
             onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -2976,6 +3028,7 @@ export default function App() {
         {currentTab === 'boutique_electrotechnique' && (
           <ScreenBoutiqueElectrotechnique
             products={products}
+            isLoadingProducts={isLoadingProducts}
             groups={domainGroups.electrotechnique}
             onAddToCart={(prod) => handleAddToCart(prod, 1)}
             onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -2988,6 +3041,7 @@ export default function App() {
         {currentTab === 'boutique_informatique' && (
           <ScreenBoutiqueInformatique
             products={products}
+            isLoadingProducts={isLoadingProducts}
             groups={domainGroups.informatique}
             onAddToCart={(prod) => handleAddToCart(prod, 1)}
             onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -3091,6 +3145,7 @@ export default function App() {
             formationsVideoUrl={formationsVideoUrl}
             onChangeFormationsVideoUrl={setFormationsVideoUrl}
             products={products}
+            isLoadingProducts={isLoadingProducts}
             onUpdateProduct={handleAdminUpdateProduct}
             onAddProduct={handleAdminAddProduct}
             onDeleteProduct={handleAdminDeleteProduct}

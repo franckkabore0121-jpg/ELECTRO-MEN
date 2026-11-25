@@ -162,11 +162,21 @@ function broadcastDataChanged(resource: LiveResource): void {
   }
 }
 
+app.set('etag', false);
+
+function applyNoCacheHeaders(res: Response): void {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+  res.removeHeader('ETag');
+}
+
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET') {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+  if (req.method === 'GET' || req.method === 'HEAD' || req.path.startsWith('/products') || req.path.startsWith('/admin/products')) {
+    applyNoCacheHeaders(res);
   }
   next();
 });
@@ -2986,11 +2996,13 @@ const DEFAULT_COURSE_CATEGORIES = [
 // =========================================================================
 
 app.get('/api/products', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const products = await readJson<any[]>(PRODUCTS_FILE, []);
   res.json({ success: true, products });
 }));
 
 app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const admin = await requireAdminPermission(req, res, 'manage_products');
   if (!admin) return;
   const prod = req.body;
@@ -3037,6 +3049,7 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
 }));
 
 app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const admin = await requireAdminPermission(req, res, 'manage_products');
   if (!admin) return;
   const id = validateSafeId(req.params.id);
@@ -3084,6 +3097,7 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
 }));
 
 app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const admin = await requireAdminPermission(req, res, 'delete_products');
   if (!admin) return;
   const id = validateSafeId(req.params.id);
@@ -3101,7 +3115,7 @@ app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Respo
     throw error;
   }
   await addServerAuditLog(admin.name, 'archive_product', `Archivage du produit "${target.name}" (${target.ref})`, 'product', id);
-  res.json({ success: true, message: 'Produit déplacé dans la corbeille.' });
+  res.json({ success: true, deletedId: id, message: 'Produit déplacé dans la corbeille.' });
 }));
 
 app.get('/api/courses', asyncRoute(async (_req: Request, res: Response) => {

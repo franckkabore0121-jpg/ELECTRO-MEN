@@ -171,6 +171,38 @@ function buildStoredZip(entries: ZipEntry[]): Uint8Array {
   return archive;
 }
 
+export function computeExcelLegacyPasswordHash(password: string): string {
+  const length = password.length;
+  if (length === 0) return '0000';
+  let hash = 0;
+  for (let i = length - 1; i >= 0; i--) {
+    const charCode = password.charCodeAt(i) & 0xff;
+    hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7fff);
+    hash ^= charCode;
+  }
+  hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7fff);
+  hash ^= length ^ 0xce4b;
+  return (hash & 0xffff).toString(16).toUpperCase().padStart(4, '0');
+}
+
+function generateRandomProtectionPassword(length = 24): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*_-+=';
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  const randomBytes = new Uint8Array(length);
+  if (cryptoApi?.getRandomValues) {
+    cryptoApi.getRandomValues(randomBytes);
+  } else {
+    for (let i = 0; i < length; i++) {
+      randomBytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += alphabet[randomBytes[i] % alphabet.length];
+  }
+  return password;
+}
+
 export function buildProductsXlsxBytes(
   productsToExport: Product[],
   options: ProductXlsxExportOptions = {}
@@ -239,13 +271,16 @@ export function buildProductsXlsxBytes(
 
   const lastColLetter = toColumnLetter(headers.length - 1);
   const lastRowNumber = rows.length + 1;
+  const sheetRef = `A1:${lastColLetter}${lastRowNumber}`;
+  const sheetPasswordHash = computeExcelLegacyPasswordHash(generateRandomProtectionPassword());
+  const workbookPasswordHash = computeExcelLegacyPasswordHash(generateRandomProtectionPassword());
 
-  // Styles:
-  // 0: default body text (wrapText)
+  // Styles (all locked=1; borders and fills only applied to populated A1:K{lastRowNumber} cells):
+  // 0: Normal default (no border, no fill — cells outside the product table remain unformatted)
   // 1: header cell (bold white on dark slate #0F172A + thin border)
-  // 2: body numeric integer #,##0 (right-aligned + thin border)
-  // 3: body text (wrapText + thin border)
-  // 4: centered index / status (thin border)
+  // 2 / 5: body numeric integer #,##0 (right-aligned + thin border, white / subtle zebra)
+  // 3 / 6: body text (wrapText + thin border, white / subtle zebra)
+  // 4 / 7: centered index / status (thin border, white / subtle zebra)
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <numFmts count="1">
@@ -274,19 +309,37 @@ export function buildProductsXlsxBytes(
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="5">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+  <cellXfs count="8">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1">
+      <protection locked="1"/>
+    </xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
+      <protection locked="1"/>
     </xf>
-    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1">
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1" applyProtection="1">
       <alignment horizontal="right" vertical="center"/>
+      <protection locked="1"/>
     </xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1" applyProtection="1">
       <alignment horizontal="left" vertical="center" wrapText="1"/>
+      <protection locked="1"/>
     </xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1" applyProtection="1">
       <alignment horizontal="center" vertical="center"/>
+      <protection locked="1"/>
+    </xf>
+    <xf numFmtId="164" fontId="0" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">
+      <alignment horizontal="right" vertical="center"/>
+      <protection locked="1"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">
+      <alignment horizontal="left" vertical="center" wrapText="1"/>
+      <protection locked="1"/>
+    </xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">
+      <alignment horizontal="center" vertical="center"/>
+      <protection locked="1"/>
     </xf>
   </cellXfs>
   <cellStyles count="1">
@@ -304,14 +357,18 @@ export function buildProductsXlsxBytes(
   const bodyRowsXml = rows
     .map((row, rowIdx) => {
       const rowNum = rowIdx + 2;
+      const isEvenRow = rowIdx % 2 === 1;
+      const numStyle = isEvenRow ? 5 : 2;
+      const textStyle = isEvenRow ? 6 : 3;
+      const centerStyle = isEvenRow ? 7 : 4;
       const cells = row
         .map((val, colIdx) => {
           const ref = `${toColumnLetter(colIdx)}${rowNum}`;
           if (typeof val === 'number') {
-            const styleId = colIdx === 0 ? 4 : 2;
+            const styleId = colIdx === 0 ? centerStyle : numStyle;
             return `<c r="${ref}" s="${styleId}"><v>${val}</v></c>`;
           }
-          const styleId = colIdx === 9 ? 4 : 3;
+          const styleId = colIdx === 9 ? centerStyle : textStyle;
           return `<c r="${ref}" t="inlineStr" s="${styleId}"><is><t xml:space="preserve">${escapeXml(val)}</t></is></c>`;
         })
         .join('');
@@ -321,6 +378,7 @@ export function buildProductsXlsxBytes(
 
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="${sheetRef}"/>
   <sheetViews>
     <sheetView workbookViewId="0">
       <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
@@ -332,7 +390,8 @@ export function buildProductsXlsxBytes(
     <row r="1" ht="28" customHeight="1">${headerCellsXml}</row>
     ${bodyRowsXml}
   </sheetData>
-  <autoFilter ref="A1:${lastColLetter}${lastRowNumber}"/>
+  <sheetProtection password="${sheetPasswordHash}" sheet="1" objects="1" scenarios="1" formatCells="1" formatColumns="1" formatRows="1" insertColumns="1" insertRows="1" insertHyperlinks="1" deleteColumns="1" deleteRows="1" sort="1" autoFilter="1" pivotTables="1" selectLockedCells="0" selectUnlockedCells="0"/>
+  <autoFilter ref="${sheetRef}"/>
 </worksheet>`;
 
   const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -351,6 +410,8 @@ export function buildProductsXlsxBytes(
 
   const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <fileSharing readOnlyRecommended="1"/>
+  <workbookProtection workbookPassword="${workbookPasswordHash}" lockStructure="1" lockWindows="1"/>
   <sheets>
     <sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/>
   </sheets>

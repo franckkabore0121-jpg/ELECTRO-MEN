@@ -11,6 +11,7 @@ import { buildBoutiqueWhatsAppUrl } from '../utils/whatsapp.ts';
 
 interface ScreenAccueilProps {
   products: Product[];
+  isLoadingProducts?: boolean;
   courses: Course[];
   projects?: InvestmentProject[];
   heroVideoUrl?: string;
@@ -28,6 +29,7 @@ interface ScreenAccueilProps {
 
 export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
   products,
+  isLoadingProducts = false,
   courses,
   onGoTab,
   onSelectProduct,
@@ -441,7 +443,17 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
           - Interaction complète fiche / panier
           ========================================================================= */}
       <section className="space-y-3">
-        {displayedProducts.length === 0 ? (
+        {isLoadingProducts && displayedProducts.length === 0 ? (
+          <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-2" role="status" aria-live="polite">
+            <span className="material-symbols-outlined text-3xl text-amber-600 animate-spin inline-block">progress_activity</span>
+            <h4 className="font-syne text-xs sm:text-sm font-bold text-slate-800">
+              Chargement instantané du catalogue produits...
+            </h4>
+            <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+              Récupération des équipements en direct depuis la base PostgreSQL.
+            </p>
+          </div>
+        ) : displayedProducts.length === 0 ? (
           <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
             <span className="material-symbols-outlined text-2xl text-slate-400">inventory_2</span>
             <h4 className="font-syne text-xs font-bold text-slate-800">
