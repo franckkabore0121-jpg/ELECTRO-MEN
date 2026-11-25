@@ -685,6 +685,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [savingAdminPermId, setSavingAdminPermId] = useState<string | null>(null);
   const [adminPermFeedback, setAdminPermFeedback] = useState<string | null>(null);
   const [adminPermDrafts, setAdminPermDrafts] = useState<Record<string, AdminPermission[]>>({});
+  const [expandedPermAdminId, setExpandedPermAdminId] = useState<string | null>(null);
 
   // Sync admin users from backend API (Principal Admin only)
   useEffect(() => {
@@ -1004,9 +1005,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     setIsAddProjectOpen(false);
   };
 
-  // Secondary admin appointment by simple email entry
+  // Secondary admin appointment (collapsible accordion state & inputs)
+  const [isAddSecondaryAdminOpen, setIsAddSecondaryAdminOpen] = useState(false);
   const [secondaryAdminEmailInput, setSecondaryAdminEmailInput] = useState('');
-  const [secondaryAdminFeedback, setSecondaryAdminFeedback] = useState<string | null>(null);
+  const [secondaryAdminNameInput, setSecondaryAdminNameInput] = useState('');
+  const [secondaryAdminPhoneInput, setSecondaryAdminPhoneInput] = useState('');
+  const [isCreatingSecondaryAdmin, setIsCreatingSecondaryAdmin] = useState(false);
+  const [secondaryAdminFormError, setSecondaryAdminFormError] = useState<string | null>(null);
+  const [secondaryAdminFeedback, setSecondaryAdminFeedback] = useState<{
+    message: string;
+    email?: string;
+    tempPassword?: string;
+  } | null>(null);
+  const [copiedTempPass, setCopiedTempPass] = useState(false);
 
   // Handle URL Change (Only Principal Admin)
   const handleSaveUrl = async (e: React.FormEvent) => {
@@ -1967,30 +1978,46 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     });
   };
 
-  // Handle Secondary Admin by simple email entry
+  // Cancel & collapse secondary admin creation form
+  const handleCancelSecondaryAdminForm = () => {
+    setSecondaryAdminEmailInput('');
+    setSecondaryAdminNameInput('');
+    setSecondaryAdminPhoneInput('');
+    setSecondaryAdminPermissions([]);
+    setSecondaryAdminFormError(null);
+    setIsAddSecondaryAdminOpen(false);
+  };
+
+  // Handle Secondary Admin creation
   const handleAddSecondaryAdminByEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isPrincipal) {
-      alert('Action restreinte : Seul l’administrateur principal peut nommer un administrateur secondaire.');
+      setSecondaryAdminFormError('Action restreinte : Seul l’administrateur principal peut nommer un administrateur secondaire.');
       return;
     }
 
     const cleanEmail = secondaryAdminEmailInput.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      alert('Veuillez saisir une adresse email valide.');
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setSecondaryAdminFormError('Veuillez saisir une adresse email professionnelle valide.');
       return;
     }
 
     const existing = adminUsers.find((u) => u.email.toLowerCase() === cleanEmail);
     if (existing) {
-      setSecondaryAdminFeedback(`L'utilisateur ${cleanEmail} est déjà administrateur (${existing.role}).`);
+      setSecondaryAdminFormError(`L'utilisateur ${cleanEmail} est déjà administrateur (${existing.role === 'admin_principal' ? 'Principal' : 'Secondaire'}).`);
       return;
     }
 
     const investor = registeredInvestors.find((inv) => inv.email.toLowerCase() === cleanEmail);
-    const assignedName = investor?.name || cleanEmail.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-    const assignedPhone = investor?.phone || '+226 -- -- -- --';
+    const assignedName =
+      secondaryAdminNameInput.trim() ||
+      investor?.name ||
+      cleanEmail.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const assignedPhone = secondaryAdminPhoneInput.trim() || investor?.phone || '+226 -- -- -- --';
     const initialPass = `SEC-${Math.floor(1000 + Math.random() * 9000)}-ELM`;
+
+    setIsCreatingSecondaryAdmin(true);
+    setSecondaryAdminFormError(null);
 
     let response: Response;
     let result: { success?: boolean; error?: string; admin?: AdminUser };
@@ -2010,32 +2037,42 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       });
       result = await response.json();
     } catch {
-      alert('Le serveur est momentanément indisponible. Le compte administrateur n’a pas été créé.');
+      setIsCreatingSecondaryAdmin(false);
+      setSecondaryAdminFormError('Le serveur est momentanément indisponible. Le compte administrateur n’a pas été créé.');
       return;
     }
+
+    setIsCreatingSecondaryAdmin(false);
+
     if (!response.ok || !result.success || !result.admin) {
-      alert(result.error || 'La création du compte administrateur a échoué.');
+      setSecondaryAdminFormError(result.error || 'La création du compte administrateur a échoué.');
       return;
     }
 
     const newAdminUser = result.admin;
+    const grantedCount = (newAdminUser.permissions || secondaryAdminPermissions).length;
     setAdminUsers((prev) => [...prev, newAdminUser]);
     setSecondaryAdminEmailInput('');
-    setSecondaryAdminFeedback(
-      `Administrateur nommé avec succès : ${cleanEmail} (${(newAdminUser.permissions || secondaryAdminPermissions).length} droit(s) accordé(s) • Mot de passe provisoire : ${initialPass})`
-    );
+    setSecondaryAdminNameInput('');
+    setSecondaryAdminPhoneInput('');
     setSecondaryAdminPermissions([]);
+    setSecondaryAdminFormError(null);
+    setIsAddSecondaryAdminOpen(false);
+    setCopiedTempPass(false);
+    setSecondaryAdminFeedback({
+      message: `${assignedName} (${cleanEmail}) a été nommé administrateur secondaire avec ${grantedCount} droit${grantedCount > 1 ? 's' : ''}.`,
+      email: cleanEmail,
+      tempPassword: initialPass
+    });
 
     onAddAuditLog({
       author: currentAdminName,
       date: new Date().toLocaleString('fr-FR'),
       actionType: 'add_secondary_admin',
-      description: `Nomination de ${assignedName} (${cleanEmail}) comme Administrateur Secondaire (${(newAdminUser.permissions || secondaryAdminPermissions).length} permission(s))`,
+      description: `Nomination de ${assignedName} (${cleanEmail}) comme Administrateur Secondaire (${grantedCount} permission(s))`,
       entityType: 'role',
       newState: newAdminUser
     });
-
-    setTimeout(() => setSecondaryAdminFeedback(null), 9000);
   };
 
   // Principal Admin updates Secondary Admin granular permissions (including full revocation)
@@ -2064,6 +2101,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         delete next[user.id];
         return next;
       });
+      setExpandedPermAdminId(null);
       setAdminPermFeedback(
         `Droits de ${user.name} mis à jour (${updatedPermissions.length} droit(s) actif(s)).`
       );
@@ -2075,7 +2113,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         entityType: 'role',
         newState: updatedPermissions
       });
-      setTimeout(() => setAdminPermFeedback(null), 4000);
+      setTimeout(() => setAdminPermFeedback(null), 5000);
     } catch {
       alert('Impossible de joindre le serveur pour mettre à jour les droits.');
     } finally {
@@ -2118,46 +2156,56 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       entityType: 'role'
     });
 
+    setAdminPermFeedback(`Mot de passe de ${editingSecondaryAdminPass.user.name} modifié avec succès.`);
+    setTimeout(() => setAdminPermFeedback(null), 5000);
     setEditingSecondaryAdminPass(null);
   };
 
   // Principal Admin deletes Secondary Admin
-  const handleDeleteSecondaryAdmin = async (userId: string, userName: string, userEmail: string) => {
+  const handleDeleteSecondaryAdmin = (userId: string, userName: string, userEmail: string) => {
     if (!isPrincipal) {
       alert("Action refusée : Seul le Super-Administrateur Principal peut supprimer un compte administrateur.");
       return;
     }
-    if (!confirm(`Supprimer définitivement le compte de l'administrateur secondaire "${userName}" (${userEmail}) ?\nCet utilisateur perdra immédiatement tous ses accès à l'administration.`)) {
-      return;
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Révoquer cet administrateur secondaire ?',
+      message: `Supprimer définitivement le compte "${userName}" (${userEmail}) ? Il perdra immédiatement tout accès à l'administration.`,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            alert(result.error || 'La suppression du compte administrateur a échoué.');
+            return;
+          }
+        } catch {
+          alert('Le serveur est momentanément indisponible. Le compte administrateur n’a pas été supprimé.');
+          return;
+        }
 
-    try {
-      const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-        method: 'DELETE',
-        credentials: 'same-origin'
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        alert(result.error || 'La suppression du compte administrateur a échoué.');
-        return;
+        setAdminUsers((prev) => prev.filter((u) => u.id !== userId));
+        if (expandedPermAdminId === userId) {
+          setExpandedPermAdminId(null);
+        }
+
+        onAddAuditLog({
+          author: currentAdminName,
+          date: new Date().toLocaleString('fr-FR'),
+          actionType: 'delete_secondary_admin',
+          description: `Révocation et suppression définitive du compte administrateur secondaire : ${userName} (${userEmail})`,
+          entityType: 'role'
+        });
+
+        setSecondaryAdminFeedback({
+          message: `Le compte administrateur secondaire « ${userName} » (${userEmail}) a été révoqué et supprimé.`
+        });
       }
-    } catch {
-      alert('Le serveur est momentanément indisponible. Le compte administrateur n’a pas été supprimé.');
-      return;
-    }
-
-    setAdminUsers((prev) => prev.filter((u) => u.id !== userId));
-
-    onAddAuditLog({
-      author: currentAdminName,
-      date: new Date().toLocaleString('fr-FR'),
-      actionType: 'delete_secondary_admin',
-      description: `Révocation et suppression définitive du compte administrateur secondaire : ${userName} (${userEmail})`,
-      entityType: 'role'
     });
-
-    setSecondaryAdminFeedback(`Le compte administrateur secondaire "${userName}" a été supprimé avec succès.`);
-    setTimeout(() => setSecondaryAdminFeedback(null), 6000);
   };
 
   // Handle Course Create
@@ -7587,262 +7635,544 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           ========================================================================= */}
       {activeTab === 'roles' && (
         <div className="space-y-4 animate-fadeIn">
-          <div>
-            <h2 className="font-syne text-base sm:text-lg font-bold text-slate-900">
-              Rôles Administrateurs &amp; Sécurité des Accès
-            </h2>
-            <p className="text-xs text-slate-500">
-              Nommez des administrateurs secondaires par simple email et gérez les mots de passe maîtres.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="font-syne text-base sm:text-lg font-bold text-slate-900">
+                Rôles Administrateurs &amp; Sécurité des Accès
+              </h2>
+              <p className="text-xs text-slate-500">
+                Déléguez les accès aux administrateurs secondaires et gérez la sécurité du compte principal.
+              </p>
+            </div>
+            <div className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+              {adminUsers.filter((u) => u.role === 'admin_principal').length} principal ·{' '}
+              {adminUsers.filter((u) => u.role === 'admin_secondaire').length} secondaire(s)
+            </div>
           </div>
 
-          {/* Security Permissions Notice */}
-          <div className="p-3.5 rounded-2xl bg-cyan-50 border border-cyan-200 text-xs text-cyan-950 space-y-1">
-            <span className="font-bold flex items-center gap-1.5 text-cyan-900">
-              <span className="material-symbols-outlined text-sm">shield</span>
-              <span>Délégation Granulaire des Droits Administrateurs</span>
-            </span>
-            <p className="text-[11px] text-cyan-800">
-              En tant que Super-Administrateur Principal, vous choisissez exactement les droits accordés à chaque administrateur secondaire (jusqu’à 0 droit si tout est révoqué). Chaque permission est vérifiée à la fois dans l’interface et côté serveur sur les routes API. Les opérations système critiques (gestion des rôles, URL secrète, code maître, remise à zéro, SEO) restent strictement réservées au Principal.
-            </p>
-          </div>
-
+          {/* Feedback global permissions / création / suppression */}
           {adminPermFeedback && (
-            <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold">
-              {adminPermFeedback}
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold"
+            >
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base text-emerald-700">check_circle</span>
+                <span>{adminPermFeedback}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminPermFeedback(null)}
+                className="text-emerald-700 hover:text-emerald-950 p-1 rounded cursor-pointer"
+                aria-label="Fermer le message"
+              >
+                <span className="material-symbols-outlined text-base">close</span>
+              </button>
             </div>
           )}
 
-          {/* Nomination Admin Secondaire par simple Email + Sélection des droits */}
-          {isPrincipal && (
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-              <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[#b48c1e] text-base">person_add</span>
-                <span>Nommer un Administrateur Secondaire par Email</span>
-              </h3>
-
-              {secondaryAdminFeedback && (
-                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold">
-                  {secondaryAdminFeedback}
-                </div>
-              )}
-
-              <form onSubmit={handleAddSecondaryAdminByEmail} className="space-y-3">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="email"
-                    required
-                    value={secondaryAdminEmailInput}
-                    onChange={(e) => setSecondaryAdminEmailInput(e.target.value)}
-                    placeholder="Saisissez l'email de la personne (ex: collaborateur@electromen.bf)..."
-                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-amber-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer shrink-0"
-                  >
-                    Nommer Administrateur
-                  </button>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-slate-800">
-                      Droits initiaux attribués ({secondaryAdminPermissions.length} / {ALL_ADMIN_PERMISSIONS.length})
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <button
-                        type="button"
-                        onClick={() => setSecondaryAdminPermissions([...ALL_ADMIN_PERMISSIONS])}
-                        className="px-2 py-1 rounded bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold cursor-pointer"
-                      >
-                        Tout cocher
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSecondaryAdminPermissions([])}
-                        className="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold cursor-pointer"
-                      >
-                        Tout décocher (0)
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {ADMIN_PERMISSION_DEFINITIONS.map((perm) => {
-                      const checked = secondaryAdminPermissions.includes(perm.id);
-                      return (
-                        <label
-                          key={perm.id}
-                          className={`flex items-start gap-2 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
-                            checked ? 'bg-cyan-50/70 border-cyan-300 text-slate-900' : 'bg-white border-slate-200 text-slate-600'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setSecondaryAdminPermissions((prev) =>
-                                prev.includes(perm.id) ? prev.filter((id) => id !== perm.id) : [...prev, perm.id]
-                              )
+          {secondaryAdminFeedback && (
+            <div
+              role="status"
+              className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs space-y-2"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-base text-emerald-700 mt-0.5">verified_user</span>
+                  <div className="space-y-1">
+                    <p className="font-bold text-emerald-900">{secondaryAdminFeedback.message}</p>
+                    {secondaryAdminFeedback.tempPassword && (
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-800">
+                        <span>Mot de passe provisoire :</span>
+                        <code className="px-2 py-0.5 rounded bg-white border border-emerald-200 font-mono font-bold text-slate-900 select-all">
+                          {secondaryAdminFeedback.tempPassword}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (secondaryAdminFeedback.tempPassword && navigator.clipboard) {
+                              void navigator.clipboard.writeText(secondaryAdminFeedback.tempPassword);
+                              setCopiedTempPass(true);
+                              setTimeout(() => setCopiedTempPass(false), 2500);
                             }
-                            className="mt-0.5 rounded text-cyan-700 focus:ring-0"
-                          />
-                          <div>
-                            <span className="font-bold block leading-tight">{perm.label}</span>
-                            <span className="text-[10px] text-slate-500 block leading-snug">{perm.description}</span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Liste des Administrateurs & Matrice de Permissions Secondaires */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-3 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-800">
-              Équipe d'Administration Active ({adminUsers.length})
-            </div>
-            <div className="divide-y divide-slate-100">
-              {adminUsers.map((u) => {
-                const savedPerms: AdminPermission[] =
-                  u.role === 'admin_principal'
-                    ? [...ALL_ADMIN_PERMISSIONS]
-                    : Array.isArray(u.permissions)
-                    ? u.permissions
-                    : DEFAULT_SECONDARY_ADMIN_PERMISSIONS;
-                const draftPerms: AdminPermission[] = adminPermDrafts[u.id] ?? savedPerms;
-                const isDirty =
-                  u.role === 'admin_secondaire' &&
-                  (draftPerms.length !== savedPerms.length ||
-                    draftPerms.some((p) => !savedPerms.includes(p)));
-
-                return (
-                <div key={u.id} className="p-3.5 space-y-3">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-slate-900 text-xs">{u.name}</span>
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                            u.role === 'admin_principal'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-cyan-100 text-cyan-800'
-                          }`}
+                          }}
+                          className="px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-[11px] cursor-pointer whitespace-nowrap"
                         >
-                          {u.role === 'admin_principal'
-                            ? 'Principal (Accès Total)'
-                            : `Secondaire (${savedPerms.length} droit${savedPerms.length > 1 ? 's' : ''})`}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        {u.email} • {u.phone} • Mot de passe stocké de manière sécurisée
-                      </div>
-                    </div>
-
-                    {isPrincipal && !u.isProtected && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setEditingSecondaryAdminPass({ user: u, newPass: '' })}
-                          className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] cursor-pointer"
-                        >
-                          Modifier mot de passe
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSecondaryAdmin(u.id, u.name, u.email)}
-                          className="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[11px] cursor-pointer flex items-center gap-1 transition-colors"
-                          title="Supprimer définitivement cet administrateur secondaire"
-                        >
-                          <span className="material-symbols-outlined text-xs">delete</span>
-                          <span>Supprimer</span>
+                          {copiedTempPass ? 'Copié' : 'Copier'}
                         </button>
                       </div>
                     )}
                   </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSecondaryAdminFeedback(null)}
+                  className="text-emerald-700 hover:text-emerald-950 p-1 rounded cursor-pointer shrink-0"
+                  aria-label="Fermer la confirmation"
+                >
+                  <span className="material-symbols-outlined text-base">close</span>
+                </button>
+              </div>
+            </div>
+          )}
 
-                  {isPrincipal && u.role === 'admin_secondaire' && (
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+          {/* Panneau déroulant replié par défaut : Nommer un Administrateur Secondaire */}
+          {isPrincipal && (
+            <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+              <button
+                type="button"
+                aria-expanded={isAddSecondaryAdminOpen}
+                aria-controls="secondary-admin-form-panel"
+                onClick={() => {
+                  setIsAddSecondaryAdminOpen((prev) => !prev);
+                  setSecondaryAdminFormError(null);
+                }}
+                className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left bg-white hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 text-[#996515] flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-lg">person_add</span>
+                  </span>
+                  <div className="min-w-0">
+                    <span className="font-syne text-sm font-bold text-slate-900 block truncate">
+                      + Nommer un administrateur secondaire
+                    </span>
+                    <span className="text-[11px] text-slate-500 block truncate">
+                      Créer un accès délégué avec mot de passe provisoire et droits ciblés
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="hidden sm:inline text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                    {isAddSecondaryAdminOpen ? 'Réduire' : 'Ouvrir'}
+                  </span>
+                  <span
+                    className={`material-symbols-outlined text-slate-500 transition-transform duration-200 ${
+                      isAddSecondaryAdminOpen ? 'rotate-180' : ''
+                    }`}
+                  >
+                    expand_more
+                  </span>
+                </div>
+              </button>
+
+              <div
+                id="secondary-admin-form-panel"
+                aria-hidden={!isAddSecondaryAdminOpen}
+                className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+                  isAddSecondaryAdminOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                }`}
+              >
+                <div className={`overflow-hidden ${!isAddSecondaryAdminOpen ? 'invisible' : ''}`}>
+                  <form
+                    onSubmit={handleAddSecondaryAdminByEmail}
+                    className="px-4 pb-4 pt-3 border-t border-slate-200 bg-slate-50/40 space-y-4"
+                  >
+                    {secondaryAdminFormError && (
+                      <div
+                        role="alert"
+                        className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs font-semibold flex items-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-base text-red-600 shrink-0">error</span>
+                        <span>{secondaryAdminFormError}</span>
+                      </div>
+                    )}
+
+                    {/* Identité & Coordonnées */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <label htmlFor="sec-admin-email" className="block text-[11px] font-bold text-slate-700">
+                          Adresse email professionnelle *
+                        </label>
+                        <input
+                          id="sec-admin-email"
+                          type="email"
+                          required
+                          disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                          value={secondaryAdminEmailInput}
+                          onChange={(e) => {
+                            setSecondaryAdminEmailInput(e.target.value);
+                            if (secondaryAdminFormError) setSecondaryAdminFormError(null);
+                          }}
+                          placeholder="collaborateur@electromen.bf"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 outline-none focus:border-amber-600"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label htmlFor="sec-admin-name" className="block text-[11px] font-bold text-slate-700">
+                          Nom complet <span className="font-normal text-slate-400">(optionnel)</span>
+                        </label>
+                        <input
+                          id="sec-admin-name"
+                          type="text"
+                          maxLength={80}
+                          disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                          value={secondaryAdminNameInput}
+                          onChange={(e) => setSecondaryAdminNameInput(e.target.value)}
+                          placeholder="Déduit de l'email si vide"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 outline-none focus:border-amber-600"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label htmlFor="sec-admin-phone" className="block text-[11px] font-bold text-slate-700">
+                          Téléphone <span className="font-normal text-slate-400">(optionnel)</span>
+                        </label>
+                        <input
+                          id="sec-admin-phone"
+                          type="tel"
+                          maxLength={30}
+                          disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                          value={secondaryAdminPhoneInput}
+                          onChange={(e) => setSecondaryAdminPhoneInput(e.target.value)}
+                          placeholder="+226 70 00 00 00"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 outline-none focus:border-amber-600 tabular-nums"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Attribution des permissions par domaine */}
+                    <div className="pt-2 border-t border-slate-200 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-[11px] font-bold text-slate-800 flex items-center gap-2">
-                          <span>Droits attribués à {u.name} : {draftPerms.length} / {ALL_ADMIN_PERMISSIONS.length}</span>
-                          {isDirty && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[9px] font-extrabold uppercase">
-                              Modifications en attente
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 block">
+                            Droits initiaux attribués{' '}
+                            <span className="text-slate-500 font-semibold tabular-nums">
+                              ({secondaryAdminPermissions.length} / {ALL_ADMIN_PERMISSIONS.length})
                             </span>
-                          )}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Modifiables ou révocables à tout moment après création.
+                          </span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            disabled={savingAdminPermId === u.id}
-                            onClick={() =>
-                              setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [...ALL_ADMIN_PERMISSIONS] }))
-                            }
-                            className="px-2 py-1 rounded bg-cyan-100 hover:bg-cyan-200 text-cyan-900 font-bold cursor-pointer disabled:opacity-50"
+                            disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                            onClick={() => setSecondaryAdminPermissions([...ALL_ADMIN_PERMISSIONS])}
+                            className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-[11px] font-semibold cursor-pointer whitespace-nowrap"
                           >
-                            Tout accorder
+                            Tout cocher
                           </button>
                           <button
                             type="button"
-                            disabled={savingAdminPermId === u.id}
-                            onClick={() =>
-                              setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [] }))
-                            }
-                            className="px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-800 font-bold cursor-pointer disabled:opacity-50"
+                            disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                            onClick={() => setSecondaryAdminPermissions([])}
+                            className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold cursor-pointer whitespace-nowrap"
                           >
-                            Tout révoquer (0 droit)
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingAdminPermId === u.id}
-                            onClick={() => void handleUpdateAdminPermissions(u, draftPerms)}
-                            className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {savingAdminPermId === u.id ? 'Enregistrement…' : 'Enregistrer les droits'}
+                            Tout décocher (0)
                           </button>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
-                        {ADMIN_PERMISSION_DEFINITIONS.map((perm) => {
-                          const checked = draftPerms.includes(perm.id);
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {(
+                          [
+                            'Catalogue & Académie',
+                            'Investisseurs & Opérations',
+                            'Trésorerie & Logistique',
+                            'Contenu & Supervision'
+                          ] as const
+                        ).map((categoryName) => {
+                          const items = ADMIN_PERMISSION_DEFINITIONS.filter((p) => p.category === categoryName);
                           return (
-                            <label
-                              key={perm.id}
-                              className={`flex items-start gap-2 p-2 rounded-lg border text-[10px] cursor-pointer transition-colors ${
-                                checked ? 'bg-white border-cyan-300 text-slate-900 shadow-2xs' : 'bg-slate-100/70 border-slate-200 text-slate-500'
-                              }`}
+                            <div
+                              key={categoryName}
+                              className="p-3 rounded-lg bg-white border border-slate-200 space-y-2"
                             >
-                              <input
-                                type="checkbox"
-                                disabled={savingAdminPermId === u.id}
-                                checked={checked}
-                                onChange={() => {
-                                  const next = checked
-                                    ? draftPerms.filter((id) => id !== perm.id)
-                                    : [...draftPerms, perm.id];
-                                  setAdminPermDrafts((prev) => ({ ...prev, [u.id]: next }));
-                                }}
-                                className="mt-0.5 rounded text-cyan-700 focus:ring-0"
-                              />
-                              <div>
-                                <span className="font-bold block leading-tight">{perm.label}</span>
-                                <span className="text-[9px] text-slate-500 block leading-snug">{perm.category}</span>
+                              <div className="text-[11px] font-bold text-slate-800 pb-1 border-b border-slate-100">
+                                {categoryName}
                               </div>
-                            </label>
+                              <div className="space-y-1.5">
+                                {items.map((perm) => {
+                                  const checked = secondaryAdminPermissions.includes(perm.id);
+                                  return (
+                                    <label
+                                      key={perm.id}
+                                      className={`flex items-start gap-2.5 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                                        checked
+                                          ? 'bg-amber-50/60 border-amber-300 text-slate-900'
+                                          : 'bg-slate-50/60 border-transparent hover:border-slate-200 text-slate-600'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                                        checked={checked}
+                                        onChange={() =>
+                                          setSecondaryAdminPermissions((prev) =>
+                                            prev.includes(perm.id)
+                                              ? prev.filter((id) => id !== perm.id)
+                                              : [...prev, perm.id]
+                                          )
+                                        }
+                                        className="mt-0.5 rounded text-amber-700 focus:ring-0"
+                                      />
+                                      <div className="min-w-0">
+                                        <span className="font-semibold text-slate-900 block leading-tight">
+                                          {perm.label}
+                                        </span>
+                                        <span className="text-[10px] text-slate-500 block leading-snug mt-0.5">
+                                          {perm.description}
+                                        </span>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
                     </div>
-                  )}
+
+                    {/* Barre d'actions distincte */}
+                    <div className="pt-2 border-t border-slate-200 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <span className="text-[11px] text-slate-500">
+                        Un mot de passe provisoire sécurisé sera généré automatiquement.
+                      </span>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={isCreatingSecondaryAdmin}
+                          onClick={handleCancelSecondaryAdminForm}
+                          className="px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-xs cursor-pointer whitespace-nowrap"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={!isAddSecondaryAdminOpen || isCreatingSecondaryAdmin}
+                          className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer whitespace-nowrap"
+                        >
+                          {isCreatingSecondaryAdmin ? 'Création en cours…' : 'Nommer administrateur'}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
                 </div>
-                );
-              })}
+              </div>
             </div>
+          )}
+
+          {/* Liste compacte et lisible des administrateurs */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-800 tabular-nums">
+                Équipe d'administration active ({adminUsers.length})
+              </span>
+              <span className="text-[11px] text-slate-500 hidden sm:inline">
+                Vérification des droits appliquée côté interface et serveur PostgreSQL
+              </span>
+            </div>
+
+            {adminUsers.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                Aucun compte administrateur chargé.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {adminUsers.map((u) => {
+                  const savedPerms: AdminPermission[] =
+                    u.role === 'admin_principal'
+                      ? [...ALL_ADMIN_PERMISSIONS]
+                      : Array.isArray(u.permissions)
+                      ? u.permissions
+                      : DEFAULT_SECONDARY_ADMIN_PERMISSIONS;
+                  const draftPerms: AdminPermission[] = adminPermDrafts[u.id] ?? savedPerms;
+                  const isDirty =
+                    u.role === 'admin_secondaire' &&
+                    (draftPerms.length !== savedPerms.length ||
+                      draftPerms.some((p) => !savedPerms.includes(p)));
+                  const isPermPanelOpen = expandedPermAdminId === u.id;
+
+                  return (
+                    <div key={u.id} className="px-4 py-3 space-y-2.5">
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 text-xs sm:text-sm truncate">
+                              {u.name}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300">·</span>
+                            <span
+                              className={`text-[11px] font-semibold tabular-nums ${
+                                u.role === 'admin_principal'
+                                  ? 'text-amber-800'
+                                  : savedPerms.length > 0
+                                  ? 'text-cyan-800'
+                                  : 'text-slate-500'
+                              }`}
+                            >
+                              {u.role === 'admin_principal'
+                                ? 'Principal (accès complet)'
+                                : `Secondaire · ${savedPerms.length} / ${ALL_ADMIN_PERMISSIONS.length} droit${savedPerms.length > 1 ? 's' : ''}`}
+                            </span>
+                            {isDirty && (
+                              <span className="text-[11px] font-semibold text-amber-700">
+                                · Modifications non enregistrées
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
+                            <span className="truncate">{u.email}</span>
+                            {u.phone && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>{u.phone}</span>
+                              </>
+                            )}
+                            {u.addedDate && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>Ajouté le {u.addedDate}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {isPrincipal && !u.isProtected && (
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            {u.role === 'admin_secondaire' && (
+                              <button
+                                type="button"
+                                aria-expanded={isPermPanelOpen}
+                                onClick={() =>
+                                  setExpandedPermAdminId((prev) => (prev === u.id ? null : u.id))
+                                }
+                                className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                                  isPermPanelOpen || isDirty
+                                    ? 'bg-slate-900 border-slate-900 text-white'
+                                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-800'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-sm">tune</span>
+                                <span>Droits ({draftPerms.length})</span>
+                                <span
+                                  className={`material-symbols-outlined text-sm transition-transform duration-200 ${
+                                    isPermPanelOpen ? 'rotate-180' : ''
+                                  }`}
+                                >
+                                  expand_more
+                                </span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setEditingSecondaryAdminPass({ user: u, newPass: '' })}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-800 font-semibold text-[11px] cursor-pointer whitespace-nowrap"
+                            >
+                              <span className="material-symbols-outlined text-sm">key</span>
+                              <span>Mot de passe</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSecondaryAdmin(u.id, u.name, u.email)}
+                              className="px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 font-semibold text-[11px] cursor-pointer whitespace-nowrap"
+                              title="Révoquer et supprimer cet administrateur secondaire"
+                            >
+                              <span className="material-symbols-outlined text-sm">delete</span>
+                              <span>Supprimer</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {isPrincipal && u.role === 'admin_secondaire' && isPermPanelOpen && (
+                        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-slate-800 tabular-nums">
+                              Permissions de {u.name} ({draftPerms.length} / {ALL_ADMIN_PERMISSIONS.length})
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <button
+                                type="button"
+                                disabled={savingAdminPermId === u.id}
+                                onClick={() =>
+                                  setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [...ALL_ADMIN_PERMISSIONS] }))
+                                }
+                                className="px-2.5 py-1 rounded-md bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 font-semibold cursor-pointer disabled:opacity-50"
+                              >
+                                Tout accorder
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingAdminPermId === u.id}
+                                onClick={() =>
+                                  setAdminPermDrafts((prev) => ({ ...prev, [u.id]: [] }))
+                                }
+                                className="px-2.5 py-1 rounded-md bg-white border border-red-200 hover:bg-red-50 text-red-700 font-semibold cursor-pointer disabled:opacity-50"
+                              >
+                                Tout révoquer
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingAdminPermId === u.id}
+                                onClick={() => {
+                                  setAdminPermDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[u.id];
+                                    return next;
+                                  });
+                                  setExpandedPermAdminId(null);
+                                }}
+                                className="px-2.5 py-1 rounded-md bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold cursor-pointer"
+                              >
+                                Fermer
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!isDirty || savingAdminPermId === u.id}
+                                onClick={() => void handleUpdateAdminPermissions(u, draftPerms)}
+                                className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                {savingAdminPermId === u.id ? 'Enregistrement…' : 'Enregistrer'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {ADMIN_PERMISSION_DEFINITIONS.map((perm) => {
+                              const checked = draftPerms.includes(perm.id);
+                              return (
+                                <label
+                                  key={perm.id}
+                                  className={`flex items-start gap-2 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                                    checked
+                                      ? 'bg-white border-cyan-300 text-slate-900'
+                                      : 'bg-slate-100/60 border-slate-200 text-slate-500'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={savingAdminPermId === u.id}
+                                    checked={checked}
+                                    onChange={() => {
+                                      const next = checked
+                                        ? draftPerms.filter((id) => id !== perm.id)
+                                        : [...draftPerms, perm.id];
+                                      setAdminPermDrafts((prev) => ({ ...prev, [u.id]: next }));
+                                    }}
+                                    className="mt-0.5 rounded text-cyan-700 focus:ring-0"
+                                  />
+                                  <div className="min-w-0">
+                                    <span className="font-semibold block leading-tight">{perm.label}</span>
+                                    <span className="text-[10px] text-slate-500 block leading-snug">
+                                      {perm.category}
+                                    </span>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Sécurité & accès administrateur */}
