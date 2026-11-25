@@ -22,6 +22,8 @@ interface BoutiqueStorefrontProps {
   allDomainProducts: Product[];
   groups: CategoryGroup[];
   isLoadingProducts?: boolean;
+  productsLoadError?: string | null;
+  onRetryLoadProducts?: () => void;
   cartCount?: number;
   onAddToCart: (product: Product) => void;
   onSelectProduct: (product: Product) => void;
@@ -51,6 +53,8 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
   allDomainProducts,
   groups,
   isLoadingProducts = false,
+  productsLoadError = null,
+  onRetryLoadProducts,
   cartCount = 0,
   onAddToCart,
   onSelectProduct,
@@ -591,6 +595,31 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
           <p className="text-xs text-slate-500">
             Récupération en direct depuis la base PostgreSQL Neon.
           </p>
+        </section>
+      ) : productsLoadError && publishedShopProducts.length === 0 ? (
+        <section
+          role="alert"
+          className="py-10 px-4 text-center bg-rose-50 rounded-2xl border border-rose-200 space-y-3"
+        >
+          <span className="material-symbols-outlined text-4xl text-rose-500">
+            cloud_off
+          </span>
+          <div className="space-y-1 max-w-md mx-auto">
+            <p className="text-sm font-bold text-rose-900">
+              Erreur de chargement du catalogue
+            </p>
+            <p className="text-xs text-rose-700">{productsLoadError}</p>
+          </div>
+          {onRetryLoadProducts && (
+            <button
+              type="button"
+              onClick={onRetryLoadProducts}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <span className="material-symbols-outlined text-base">refresh</span>
+              <span>Réessayer</span>
+            </button>
+          )}
         </section>
       ) : displayedProducts.length === 0 ? (
         <section className="py-12 px-4 text-center bg-white rounded-2xl border border-slate-200 space-y-3">

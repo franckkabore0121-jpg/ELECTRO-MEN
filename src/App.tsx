@@ -14,7 +14,6 @@ import {
   ShareAllocation
 } from './components/ScreenBourseIR.tsx';
 import { ScreenProfil } from './components/ScreenProfil.tsx';
-import { ScreenAdmin } from './components/ScreenAdmin.tsx';
 import { AdminPage, AdminRole, AuditAction } from './components/AdminPage.tsx';
 import { AdminPermission, resolveAdminPermissions } from './data/adminPermissions.ts';
 import { CreateAccountModal } from './components/CreateAccountModal.tsx';
@@ -132,6 +131,7 @@ export default function App() {
   // Catalog Products state loaded directly from PostgreSQL Neon (zero stale client cache)
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
+  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
   const productsRequestRef = useRef<AbortController | null>(null);
   const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
   const isInitialTabEffectRef = useRef<boolean>(true);
@@ -141,6 +141,7 @@ export default function App() {
     const controller = new AbortController();
     productsRequestRef.current = controller;
     if (showSpinner) setIsLoadingProducts(true);
+    setProductsLoadError(null);
     try {
       const response = await fetch('/api/products', {
         cache: 'no-store',
@@ -151,13 +152,23 @@ export default function App() {
         },
         signal: controller.signal
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => null) as { error?: string } | null;
+        if (!controller.signal.aborted) {
+          setProductsLoadError(
+            errPayload?.error ||
+              `Impossible de charger les produits depuis PostgreSQL (HTTP ${response.status}).`
+          );
+        }
+        return;
+      }
       const data = await response.json().catch(() => null) as {
         products?: Product[];
         groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
       } | null;
       if (!controller.signal.aborted && data && Array.isArray(data.products)) {
         setProducts(data.products);
+        setProductsLoadError(null);
         if (data.groups && typeof data.groups === 'object' && !Array.isArray(data.groups)) {
           const g = data.groups;
           if (
@@ -176,6 +187,9 @@ export default function App() {
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
         console.error('Unable to load live products from PostgreSQL:', error);
+        setProductsLoadError(
+          'Connexion au serveur catalogue interrompue. Vérifiez le réseau ou DATABASE_URL.'
+        );
       }
     } finally {
       if (productsRequestRef.current === controller) {
@@ -3071,6 +3085,8 @@ export default function App() {
           <ScreenAccueil
             products={products}
             isLoadingProducts={isLoadingProducts}
+            productsLoadError={productsLoadError}
+            onRetryLoadProducts={() => void fetchProductsNow(true)}
             courses={courses}
             projects={projects}
             heroVideoUrl={heroVideoUrl}
@@ -3106,6 +3122,8 @@ export default function App() {
             <ScreenBoutiqueElectronique
               products={products}
               isLoadingProducts={isLoadingProducts}
+              productsLoadError={productsLoadError}
+              onRetryLoadProducts={() => void fetchProductsNow(true)}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}
@@ -3125,6 +3143,8 @@ export default function App() {
             <ScreenBoutiqueElectrotechnique
               products={products}
               isLoadingProducts={isLoadingProducts}
+              productsLoadError={productsLoadError}
+              onRetryLoadProducts={() => void fetchProductsNow(true)}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}
@@ -3144,6 +3164,8 @@ export default function App() {
             <ScreenBoutiqueInformatique
               products={products}
               isLoadingProducts={isLoadingProducts}
+              productsLoadError={productsLoadError}
+              onRetryLoadProducts={() => void fetchProductsNow(true)}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}

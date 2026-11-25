@@ -5,6 +5,8 @@ import { BoutiqueStorefront } from './BoutiqueStorefront.tsx';
 interface ScreenBoutiqueElectrotechniqueProps {
   products: Product[];
   isLoadingProducts?: boolean;
+  productsLoadError?: string | null;
+  onRetryLoadProducts?: () => void;
   cartCount?: number;
   logoUrl?: string;
   locationLabel?: string;
@@ -19,6 +21,8 @@ interface ScreenBoutiqueElectrotechniqueProps {
 export const ScreenBoutiqueElectrotechnique: React.FC<ScreenBoutiqueElectrotechniqueProps> = ({
   products,
   isLoadingProducts = false,
+  productsLoadError = null,
+  onRetryLoadProducts,
   cartCount = 0,
   logoUrl,
   locationLabel,
@@ -66,6 +70,8 @@ export const ScreenBoutiqueElectrotechnique: React.FC<ScreenBoutiqueElectrotechn
       allDomainProducts={electrotechProducts}
       groups={groups}
       isLoadingProducts={isLoadingProducts}
+      productsLoadError={productsLoadError}
+      onRetryLoadProducts={onRetryLoadProducts}
       cartCount={cartCount}
       onAddToCart={onAddToCart}
       onSelectProduct={onSelectProduct}

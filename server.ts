@@ -3109,7 +3109,7 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
   }
 
   const products = await readJson<any[]>(PRODUCTS_FILE, []);
-  const newProd = {
+  const newProd = normalizeProductRecord({
     ...prod,
     name: cleanName,
     ...(cleanDescription !== undefined ? { description: cleanDescription } : {}),
@@ -3119,11 +3119,17 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
     id: (typeof prod.id === 'string' && validateSafeId(prod.id)) || `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
     ref: sanitizePlainText(prod.ref, { maxLength: 60 }) || `ELM-${Date.now().toString().slice(-6)}`,
     createdAt: new Date().toISOString()
+  }) || {
+    ...prod,
+    name: cleanName,
+    id: (typeof prod.id === 'string' && validateSafeId(prod.id)) || `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    ref: sanitizePlainText(prod.ref, { maxLength: 60 }) || `ELM-${Date.now().toString().slice(-6)}`,
+    createdAt: new Date().toISOString()
   };
 
   products.unshift(newProd);
   await writeJson(PRODUCTS_FILE, products);
-  await addServerAuditLog(admin.name, 'create_product', `Ajout du produit "${newProd.name}" (${newProd.ref})`, 'product', newProd.id);
+  await addServerAuditLog(admin.name, 'create_product', `Ajout du produit "${newProd.name}" (${newProd.ref})`, 'product', String(newProd.id));
   res.status(201).json({ success: true, product: newProd });
 }));
 
@@ -3163,13 +3169,17 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
   };
 
   if (idx === -1) {
-    const newProd = { ...normalizedUpdate, id };
+    const newProd = normalizeProductRecord({ ...normalizedUpdate, id }) || { ...normalizedUpdate, id };
     products.push(newProd);
     await writeJson(PRODUCTS_FILE, products);
     return res.json({ success: true, product: newProd });
   }
 
-  products[idx] = { ...products[idx], ...normalizedUpdate, id };
+  products[idx] = normalizeProductRecord({ ...products[idx], ...normalizedUpdate, id }) || {
+    ...products[idx],
+    ...normalizedUpdate,
+    id
+  };
   await writeJson(PRODUCTS_FILE, products);
   await addServerAuditLog(admin.name, 'update_product', `Modification du produit "${products[idx].name}" (${products[idx].ref})`, 'product', id);
   res.json({ success: true, product: products[idx] });

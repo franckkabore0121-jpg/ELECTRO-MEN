@@ -5,6 +5,8 @@ import { BoutiqueStorefront } from './BoutiqueStorefront.tsx';
 interface ScreenBoutiqueInformatiqueProps {
   products: Product[];
   isLoadingProducts?: boolean;
+  productsLoadError?: string | null;
+  onRetryLoadProducts?: () => void;
   cartCount?: number;
   logoUrl?: string;
   locationLabel?: string;
@@ -19,6 +21,8 @@ interface ScreenBoutiqueInformatiqueProps {
 export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProps> = ({
   products,
   isLoadingProducts = false,
+  productsLoadError = null,
+  onRetryLoadProducts,
   cartCount = 0,
   logoUrl,
   locationLabel,
@@ -66,6 +70,8 @@ export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProp
       allDomainProducts={infoProducts}
       groups={groups}
       isLoadingProducts={isLoadingProducts}
+      productsLoadError={productsLoadError}
+      onRetryLoadProducts={onRetryLoadProducts}
       cartCount={cartCount}
       onAddToCart={onAddToCart}
       onSelectProduct={onSelectProduct}

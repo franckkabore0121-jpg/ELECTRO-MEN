@@ -12,6 +12,8 @@ import { buildBoutiqueWhatsAppUrl } from '../utils/whatsapp.ts';
 interface ScreenAccueilProps {
   products: Product[];
   isLoadingProducts?: boolean;
+  productsLoadError?: string | null;
+  onRetryLoadProducts?: () => void;
   courses: Course[];
   projects?: InvestmentProject[];
   heroVideoUrl?: string;
@@ -30,6 +32,8 @@ interface ScreenAccueilProps {
 export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
   products,
   isLoadingProducts = false,
+  productsLoadError = null,
+  onRetryLoadProducts,
   courses,
   onGoTab,
   onSelectProduct,
@@ -452,6 +456,24 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
             <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
               Récupération des équipements en direct depuis la base PostgreSQL.
             </p>
+          </div>
+        ) : productsLoadError && publishedProducts.length === 0 ? (
+          <div className="p-8 text-center rounded-2xl bg-rose-50 border border-rose-200 space-y-2" role="alert">
+            <span className="material-symbols-outlined text-3xl text-rose-500">cloud_off</span>
+            <h4 className="font-syne text-xs sm:text-sm font-bold text-rose-900">
+              Erreur de chargement du catalogue
+            </h4>
+            <p className="text-[11px] text-rose-700 max-w-sm mx-auto">{productsLoadError}</p>
+            {onRetryLoadProducts && (
+              <button
+                type="button"
+                onClick={onRetryLoadProducts}
+                className="mt-1 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm">refresh</span>
+                <span>Réessayer</span>
+              </button>
+            )}
           </div>
         ) : displayedProducts.length === 0 ? (
           <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
