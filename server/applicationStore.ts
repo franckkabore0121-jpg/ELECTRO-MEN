@@ -198,6 +198,7 @@ export function sanitizeAdminConfig(value: unknown): Record<string, unknown> {
       : '/assets/videos/electromen-hero.mp4',
     isMaintenanceMode: Boolean(value.isMaintenanceMode),
     isInvestorChatOpen: value.isInvestorChatOpen === undefined ? true : Boolean(value.isInvestorChatOpen),
+    ...(Array.isArray(value.boutiques) ? { boutiques: cloneData(value.boutiques) } : {}),
     masterPasswordHash: '',
     masterPasswordHint: '',
     admins: [],

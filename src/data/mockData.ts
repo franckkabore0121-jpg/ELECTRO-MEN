@@ -37,6 +37,8 @@ export interface Product {
   isNewArrival?: boolean;
   isFlashSale?: boolean;
   flashSaleDiscountPercent?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const getProductStockStatus = (p: Product): ProductStockStatus => {

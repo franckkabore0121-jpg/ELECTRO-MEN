@@ -34,6 +34,7 @@ import { ExportProductsModal } from './ExportProductsModal.tsx';
 import { ImportProductsCsvModal } from './ImportProductsCsvModal.tsx';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 import { exportProductsToCsv } from '../utils/csvProducts.ts';
+import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
 import {
   ADMIN_PERMISSION_DEFINITIONS,
   ALL_ADMIN_PERMISSIONS,
@@ -96,6 +97,7 @@ export interface AdminPageProps {
 
   products: Product[];
   isLoadingProducts?: boolean;
+  onRefreshProducts?: () => void;
   onUpdateProduct: (p: Product) => void | Promise<void>;
   onAddProduct: (p: Product) => void | Promise<void>;
   onDeleteProduct: (id: string) => void;
@@ -228,6 +230,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onChangeFormationsVideoUrl,
   products,
   isLoadingProducts = false,
+  onRefreshProducts,
   onUpdateProduct,
   onAddProduct,
   onDeleteProduct,
@@ -1493,9 +1496,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Intelligent Auto-detection of Product Category based on Name & Domain
   const handleProductNameChange = (
     name: string,
-    domain: 'electronique' | 'electrotechnique' | 'informatique' = newProdDomain
+    domain: 'electronique' | 'electrotechnique' | 'informatique' = newProdDomain,
+    forceAutoDetect = false
   ) => {
     setNewProdName(name);
+    if (editingProductId && !forceAutoDetect) {
+      return;
+    }
     const lower = name.toLowerCase();
 
     if (domain === 'informatique') {
@@ -1786,18 +1793,32 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     let categoryKey: any = 'kit';
     let catLabel = newProdCategoryAutoDetected || 'Composants';
 
+    const activeDomainGroups =
+      domainGroups[newProdDomain] ||
+      (newProdDomain === 'informatique'
+        ? INFORMATIQUE_GROUPS
+        : newProdDomain === 'electronique'
+        ? ELECTRONIQUE_GROUPS
+        : ELECTROTECHNIQUE_GROUPS);
+
     if (newProdDomain === 'informatique') {
       categoryKey = 'informatique';
-      const found = INFORMATIQUE_GROUPS.find((g) => g.id === subGroupKey);
+      const found =
+        activeDomainGroups.find((g) => g.id === subGroupKey) ||
+        INFORMATIQUE_GROUPS.find((g) => g.id === subGroupKey);
       if (found) catLabel = found.label;
     } else if (newProdDomain === 'electronique') {
-      const found = ELECTRONIQUE_GROUPS.find((g) => g.id === subGroupKey);
+      const found =
+        activeDomainGroups.find((g) => g.id === subGroupKey) ||
+        ELECTRONIQUE_GROUPS.find((g) => g.id === subGroupKey);
       if (found) {
         catLabel = found.label;
         categoryKey = found.id;
       }
     } else {
-      const found = ELECTROTECHNIQUE_GROUPS.find((g) => g.id === subGroupKey);
+      const found =
+        activeDomainGroups.find((g) => g.id === subGroupKey) ||
+        ELECTROTECHNIQUE_GROUPS.find((g) => g.id === subGroupKey);
       if (found) {
         catLabel = found.label;
         categoryKey = found.id;
@@ -1817,10 +1838,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       effectiveStock = 0;
     }
 
+    const formattedName = formatProductTitle(newProdName) || newProdName.trim();
     const targetId = editingProductId || `prod-${Date.now()}`;
     const productData: Product = {
       id: targetId,
-      name: newProdName.trim(),
+      name: formattedName,
       brand: newProdBrand.trim() || undefined,
       ref: newProdRef.trim() || targetId.toUpperCase(),
       domain: newProdDomain,
@@ -3085,7 +3107,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     onChange={(e) => {
                       const nextDomain = e.target.value as any;
                       setNewProdDomain(nextDomain);
-                      handleProductNameChange(newProdName, nextDomain);
+                      handleProductNameChange(newProdName, nextDomain, true);
                     }}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 outline-none focus:border-amber-500 font-semibold"
                   >
@@ -3545,7 +3567,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   onClick={() => {
                     setPreviewProduct({
                       id: editingProductId || 'preview-temp',
-                      name: newProdName || 'Nom Produit Aperçu',
+                      name: formatProductTitle(newProdName) || 'Nom Produit Aperçu',
                       brand: newProdBrand || undefined,
                       ref: newProdRef || 'REF-PREVIEW',
                       domain: newProdDomain,
@@ -3615,6 +3637,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
 
                 <div className="ml-auto sm:ml-2 flex flex-wrap items-center gap-1.5">
+                  {onRefreshProducts && (
+                    <button
+                      type="button"
+                      onClick={() => onRefreshProducts()}
+                      disabled={isLoadingProducts}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-60 text-slate-800 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95 whitespace-nowrap shrink-0"
+                      title="Recharger les dernières données produits depuis PostgreSQL"
+                    >
+                      <span
+                        className={`material-symbols-outlined text-sm font-bold text-amber-600 ${
+                          isLoadingProducts ? 'animate-spin' : ''
+                        }`}
+                      >
+                        refresh
+                      </span>
+                      <span>Actualiser</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -3767,6 +3807,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               ) : filteredCatalogProducts
                 .map((prod) => {
                   const status = getProductStockStatus(prod);
+                  const displayTitle = formatProductTitle(prod.name);
+                  const resolvedImage = resolveProductImageUrl(prod);
                   return (
                     <div
                       key={prod.id}
@@ -3775,8 +3817,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         {/* Thumbnail */}
                         <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
-                          {prod.hasRealPhoto && prod.image ? (
-                            <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+                          {resolvedImage ? (
+                            <img src={resolvedImage} alt={displayTitle} className="w-full h-full object-cover" />
                           ) : (
                             <div className="text-center p-1">
                               <span className="material-symbols-outlined text-slate-400 text-sm">no_photography</span>
@@ -3787,7 +3829,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-xs font-bold text-slate-900 truncate">{prod.name}</span>
+                            <span className="text-xs font-bold text-slate-900 truncate">{displayTitle}</span>
                             {prod.brand && (
                               <span className="text-[10px] text-slate-500 font-semibold bg-slate-100 px-1.5 py-0.2 rounded">
                                 {prod.brand}

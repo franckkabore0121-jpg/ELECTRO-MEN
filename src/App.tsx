@@ -59,6 +59,11 @@ import {
   ELECTROTECHNIQUE_GROUPS,
   INFORMATIQUE_GROUPS
 } from './data/mockData.ts';
+import {
+  NO_CACHE_FETCH_INIT,
+  normalizeClientProduct,
+  withNoCacheParam
+} from './utils/productFormat.ts';
 
 const DEFAULT_PROFILE: InvestorProfile = {
   id: '#EM-INV-4541',
@@ -136,6 +141,29 @@ export default function App() {
   const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
   const isInitialTabEffectRef = useRef<boolean>(true);
 
+  const applyServerGroups = useCallback(
+    (
+      rawGroups:
+        | Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>
+        | null
+        | undefined
+    ) => {
+      if (!rawGroups || typeof rawGroups !== 'object' || Array.isArray(rawGroups)) return;
+      setDomainGroups({
+        electronique: Array.isArray(rawGroups.electronique) && rawGroups.electronique.length > 0
+          ? rawGroups.electronique
+          : ELECTRONIQUE_GROUPS,
+        electrotechnique: Array.isArray(rawGroups.electrotechnique) && rawGroups.electrotechnique.length > 0
+          ? rawGroups.electrotechnique
+          : ELECTROTECHNIQUE_GROUPS,
+        informatique: Array.isArray(rawGroups.informatique) && rawGroups.informatique.length > 0
+          ? rawGroups.informatique
+          : INFORMATIQUE_GROUPS
+      });
+    },
+    []
+  );
+
   const fetchProductsNow = useCallback(async (showSpinner = false): Promise<void> => {
     productsRequestRef.current?.abort();
     const controller = new AbortController();
@@ -143,13 +171,8 @@ export default function App() {
     if (showSpinner) setIsLoadingProducts(true);
     setProductsLoadError(null);
     try {
-      const response = await fetch('/api/products', {
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache'
-        },
+      const response = await fetch(withNoCacheParam('/api/products'), {
+        ...NO_CACHE_FETCH_INIT,
         signal: controller.signal
       });
       if (!response.ok) {
@@ -167,22 +190,19 @@ export default function App() {
         groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
       } | null;
       if (!controller.signal.aborted && data && Array.isArray(data.products)) {
-        setProducts(data.products);
+        const normalizedList = data.products.map(normalizeClientProduct);
+        setProducts(normalizedList);
         setProductsLoadError(null);
-        if (data.groups && typeof data.groups === 'object' && !Array.isArray(data.groups)) {
-          const g = data.groups;
-          if (
-            (Array.isArray(g.electronique) && g.electronique.length > 0) ||
-            (Array.isArray(g.electrotechnique) && g.electrotechnique.length > 0) ||
-            (Array.isArray(g.informatique) && g.informatique.length > 0)
-          ) {
-            setDomainGroups((prev) => ({
-              electronique: Array.isArray(g.electronique) && g.electronique.length > 0 ? g.electronique : prev.electronique,
-              electrotechnique: Array.isArray(g.electrotechnique) && g.electrotechnique.length > 0 ? g.electrotechnique : prev.electrotechnique,
-              informatique: Array.isArray(g.informatique) && g.informatique.length > 0 ? g.informatique : prev.informatique
-            }));
-          }
-        }
+        applyServerGroups(data.groups);
+
+        const byId = new Map(normalizedList.map((item) => [item.id, item]));
+        setSelectedProduct((prev) => (prev ? byId.get(prev.id) || prev : null));
+        setCartItems((prev) =>
+          prev.map((entry) => {
+            const latest = byId.get(entry.product.id);
+            return latest ? { ...entry, product: latest } : entry;
+          })
+        );
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
@@ -197,11 +217,14 @@ export default function App() {
         setIsLoadingProducts(false);
       }
     }
-  }, []);
+  }, [applyServerGroups]);
 
   useEffect(() => {
     try {
       localStorage.removeItem('electromen_products');
+      localStorage.removeItem('electromen_domain_groups');
+      localStorage.removeItem('electromen_custom_groups');
+      localStorage.removeItem('electromen_marketplace_boutiques');
     } catch {
       // ignore
     }
@@ -222,7 +245,8 @@ export default function App() {
       currentTab === 'boutique_electronique' ||
       currentTab === 'boutique_electrotechnique' ||
       currentTab === 'boutique_informatique' ||
-      currentTab === 'composants'
+      currentTab === 'composants' ||
+      currentTab === 'admin'
     ) {
       void fetchProductsNow(false);
     }
@@ -269,41 +293,31 @@ export default function App() {
     }
   }, [projects]);
 
-  // Marketplace Boutiques state with Admin mutability for Flags and details
-  const [marketplaceBoutiques, setMarketplaceBoutiques] = useState<MarketplaceBoutique[]>(() => {
-    try {
-      const saved = localStorage.getItem('electromen_marketplace_boutiques');
-      if (saved) {
-        const parsed: MarketplaceBoutique[] = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((b) => ({
-            ...b,
-            name: b.name.replace(/^ELECTRO-MEN\s*/i, '').trim()
-          }));
-        }
-      }
-    } catch {
-      // fallback
-    }
-    return MARKETPLACE_BOUTIQUES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('electromen_marketplace_boutiques', JSON.stringify(marketplaceBoutiques));
-    } catch {
-      // ignore
-    }
-  }, [marketplaceBoutiques]);
+  // Marketplace Boutiques state synced from PostgreSQL config (no stale localStorage override)
+  const [marketplaceBoutiques, setMarketplaceBoutiques] = useState<MarketplaceBoutique[]>(
+    () => MARKETPLACE_BOUTIQUES
+  );
 
   const handleUpdateBoutiqueFlag = (boutiqueId: string, newFlag: string, countryName?: string) => {
-    setMarketplaceBoutiques((prev) =>
-      prev.map((b) =>
+    setMarketplaceBoutiques((prev) => {
+      const next = prev.map((b) =>
         b.id === boutiqueId
           ? { ...b, flag: newFlag, country: countryName || b.country }
           : b
-      )
-    );
+      );
+      void fetch(withNoCacheParam('/api/admin/boutiques'), {
+        method: 'PUT',
+        ...NO_CACHE_FETCH_INIT,
+        headers: {
+          ...NO_CACHE_FETCH_INIT.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ boutiques: next })
+      }).catch((err) => {
+        console.error('Unable to persist boutique configuration to PostgreSQL:', err);
+      });
+      return next;
+    });
   };
 
   // Wallets isolated per investor email
@@ -1259,53 +1273,29 @@ export default function App() {
   };
 
   // Custom Product Categories / Families created by Admin
-  const [customGroups, setCustomGroups] = useState<Record<string, { id: string; label: string }[]>>(() => {
-    try {
-      const saved = localStorage.getItem('electromen_custom_groups');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {
-      electronique: [],
-      electrotechnique: [],
-      informatique: []
-    };
+  const [customGroups, setCustomGroups] = useState<Record<string, { id: string; label: string }[]>>({
+    electronique: [],
+    electrotechnique: [],
+    informatique: []
   });
 
   const handleAddCustomGroup = (domain: 'electronique' | 'electrotechnique' | 'informatique', group: { id: string; label: string }) => {
-    setCustomGroups((prev) => {
-      const next = {
-        ...prev,
-        [domain]: [...(prev[domain] || []), group]
-      };
-      try {
-        localStorage.setItem('electromen_custom_groups', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    setCustomGroups((prev) => ({
+      ...prev,
+      [domain]: [...(prev[domain] || []), group]
+    }));
   };
 
-  // Dynamic Domain Groups state with localStorage persistence
+  // Dynamic Domain Groups state synced directly with PostgreSQL
   const [domainGroups, setDomainGroups] = useState<{
     electronique: CategoryGroup[];
     electrotechnique: CategoryGroup[];
     informatique: CategoryGroup[];
-  }>(() => {
-    try {
-      const saved = localStorage.getItem('electromen_domain_groups');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {
-      electronique: ELECTRONIQUE_GROUPS,
-      electrotechnique: ELECTROTECHNIQUE_GROUPS,
-      informatique: INFORMATIQUE_GROUPS
-    };
+  }>({
+    electronique: ELECTRONIQUE_GROUPS,
+    electrotechnique: ELECTROTECHNIQUE_GROUPS,
+    informatique: INFORMATIQUE_GROUPS
   });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('electromen_domain_groups', JSON.stringify(domainGroups));
-    } catch {}
-  }, [domainGroups]);
 
   // Investor Activities & Documents (Empty by default, admin manages)
   const [investorActivities, setInvestorActivities] = useState<InvestorActivity[]>(() => {
@@ -1343,13 +1333,8 @@ export default function App() {
 
     const fetchSnapshot = async <T,>(url: string, signal: AbortSignal): Promise<T | null> => {
       try {
-        const response = await fetch(url, {
-          cache: 'no-store',
-          credentials: 'same-origin',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            Pragma: 'no-cache'
-          },
+        const response = await fetch(withNoCacheParam(url), {
+          ...NO_CACHE_FETCH_INIT,
           signal
         });
         if (!response.ok) return null;
@@ -1428,6 +1413,7 @@ export default function App() {
         courseData,
         activityData,
         documentData,
+        groupsData,
         configData,
         adminFundData,
         adminAuditData,
@@ -1441,11 +1427,15 @@ export default function App() {
         fetchSnapshot<{ activities: InvestorActivity[] }>('/api/activities', controller.signal),
         fetchSnapshot<{ documents: InvestorDocument[] }>('/api/documents', controller.signal),
         fetchSnapshot<{
+          groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
+        }>('/api/groups', controller.signal),
+        fetchSnapshot<{
           heroVideoUrl?: string;
           formationsVideoUrl?: string;
           customAdminUrl?: string;
           isMaintenanceMode?: boolean;
           isInvestorChatOpen?: boolean;
+          boutiques?: MarketplaceBoutique[];
           needsAdminSetup?: boolean;
         }>('/api/admin/config', controller.signal),
         canReadAdminFunds
@@ -1483,6 +1473,7 @@ export default function App() {
       if (courseData && Array.isArray(courseData.courses)) setCourses(courseData.courses);
       if (activityData && Array.isArray(activityData.activities)) setInvestorActivities(activityData.activities);
       if (documentData && Array.isArray(documentData.documents)) setInvestorDocuments(documentData.documents);
+      if (groupsData?.groups) applyServerGroups(groupsData.groups);
 
       if (adminAuditData && Array.isArray(adminAuditData.auditLogs)) {
         setAuditLogs(adminAuditData.auditLogs);
@@ -1535,6 +1526,14 @@ export default function App() {
         if (configData.customAdminUrl) setAdminCustomUrl(configData.customAdminUrl);
         if (typeof configData.isMaintenanceMode === 'boolean') setIsMaintenanceMode(configData.isMaintenanceMode);
         if (typeof configData.isInvestorChatOpen === 'boolean') setIsInvestorChatOpen(configData.isInvestorChatOpen);
+        if (Array.isArray(configData.boutiques) && configData.boutiques.length > 0) {
+          setMarketplaceBoutiques(
+            configData.boutiques.map((b) => ({
+              ...b,
+              name: String(b.name || '').replace(/^ELECTRO-MEN\s*/i, '').trim()
+            }))
+          );
+        }
         if (typeof configData.needsAdminSetup === 'boolean') setNeedsAdminSetup(configData.needsAdminSetup);
       }
     };
@@ -1557,23 +1556,44 @@ export default function App() {
       }, 100);
     };
 
-    const eventSource = new EventSource('/api/events/stream');
+    const eventSource = new EventSource(withNoCacheParam('/api/events/stream'));
     eventSource.addEventListener('DATA_CHANGED', scheduleRefresh);
     eventSource.addEventListener('SYNC_REQUIRED', scheduleRefresh);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') scheduleRefresh();
     };
+    const handlePageShow = () => {
+      scheduleRefresh();
+    };
+    const handleFocusOrOnline = () => {
+      scheduleRefresh();
+    };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('focus', handleFocusOrOnline);
+    window.addEventListener('online', handleFocusOrOnline);
+
+    // Fallback polling every 20s while visible to guarantee desktop/mobile sync even across serverless instances
+    const fallbackPolling = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchProductsNow(false);
+      }
+    }, 20000);
+
     void refreshContent();
 
     return () => {
       active = false;
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      window.clearInterval(fallbackPolling);
       activeRequest?.abort();
       eventSource.close();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('focus', handleFocusOrOnline);
+      window.removeEventListener('online', handleFocusOrOnline);
     };
-  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email, fetchProductsNow]);
+  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email, fetchProductsNow, applyServerGroups]);
 
   const cartCount = cartItems.reduce((acc, it) => acc + it.quantity, 0);
 
@@ -1768,19 +1788,18 @@ export default function App() {
   };
 
   const handleAdminUpdateProduct = async (updated: Product) => {
+    const cleanUpdated = normalizeClientProduct(updated);
     const previous = products;
-    setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    setProducts((prev) => prev.map((p) => (p.id === cleanUpdated.id ? cleanUpdated : p)));
     try {
-      const res = await fetch(`/api/admin/products/${encodeURIComponent(updated.id)}`, {
+      const res = await fetch(withNoCacheParam(`/api/admin/products/${encodeURIComponent(cleanUpdated.id)}`), {
         method: 'PUT',
-        cache: 'no-store',
-        credentials: 'same-origin',
+        ...NO_CACHE_FETCH_INIT,
         headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache'
+          ...NO_CACHE_FETCH_INIT.headers,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updated)
+        body: JSON.stringify(cleanUpdated)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -1789,7 +1808,8 @@ export default function App() {
         return;
       }
       if (data.product) {
-        setProducts((prev) => prev.map((p) => (p.id === updated.id ? data.product : p)));
+        const normalizedServer = normalizeClientProduct(data.product);
+        setProducts((prev) => prev.map((p) => (p.id === cleanUpdated.id ? normalizedServer : p)));
       }
     } catch {
       setProducts(previous);
@@ -1798,19 +1818,18 @@ export default function App() {
   };
 
   const handleAdminAddProduct = async (newProd: Product) => {
+    const cleanNewProd = normalizeClientProduct(newProd);
     const previous = products;
-    setProducts((prev) => [newProd, ...prev]);
+    setProducts((prev) => [cleanNewProd, ...prev]);
     try {
-      const res = await fetch('/api/admin/products', {
+      const res = await fetch(withNoCacheParam('/api/admin/products'), {
         method: 'POST',
-        cache: 'no-store',
-        credentials: 'same-origin',
+        ...NO_CACHE_FETCH_INIT,
         headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache'
+          ...NO_CACHE_FETCH_INIT.headers,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(newProd)
+        body: JSON.stringify(cleanNewProd)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -1819,7 +1838,11 @@ export default function App() {
         return;
       }
       if (data.product) {
-        setProducts((prev) => [data.product, ...prev.filter((p) => p.id !== newProd.id && p.id !== data.product.id)]);
+        const normalizedServer = normalizeClientProduct(data.product);
+        setProducts((prev) => [
+          normalizedServer,
+          ...prev.filter((p) => p.id !== cleanNewProd.id && p.id !== normalizedServer.id)
+        ]);
       }
     } catch {
       setProducts(previous);
@@ -1831,14 +1854,9 @@ export default function App() {
     const previous = products;
     setProducts((prev) => prev.filter((p) => p.id !== id));
     try {
-      const res = await fetch(`/api/admin/products/${encodeURIComponent(id)}`, {
+      const res = await fetch(withNoCacheParam(`/api/admin/products/${encodeURIComponent(id)}`), {
         method: 'DELETE',
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache'
-        }
+        ...NO_CACHE_FETCH_INIT
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -1855,17 +1873,16 @@ export default function App() {
     items: Product[],
     options: { upsertByRef: boolean; filename: string }
   ): Promise<{ createdCount: number; updatedCount: number }> => {
-    const res = await fetch('/api/admin/products/bulk-csv', {
+    const normalizedItems = items.map(normalizeClientProduct);
+    const res = await fetch(withNoCacheParam('/api/admin/products/bulk-csv'), {
       method: 'POST',
-      cache: 'no-store',
-      credentials: 'same-origin',
+      ...NO_CACHE_FETCH_INIT,
       headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        Pragma: 'no-cache'
+        ...NO_CACHE_FETCH_INIT.headers,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        products: items,
+        products: normalizedItems,
         upsertByRef: options.upsertByRef,
         filename: options.filename
       })
@@ -1875,7 +1892,7 @@ export default function App() {
       throw new Error(data.error || 'L’importation CSV des produits a été refusée par le serveur.');
     }
     if (Array.isArray(data.products)) {
-      setProducts(data.products);
+      setProducts(data.products.map(normalizeClientProduct));
     }
     return {
       createdCount: Number(data.createdCount || 0),
@@ -2595,14 +2612,12 @@ export default function App() {
 
   // Group Management Handlers (Admin can add & delete any group including defaults)
   const persistDomainGroups = (nextGroups: typeof domainGroups) => {
-    void fetch('/api/admin/groups', {
+    void fetch(withNoCacheParam('/api/admin/groups'), {
+      ...NO_CACHE_FETCH_INIT,
       method: 'PUT',
-      cache: 'no-store',
-      credentials: 'same-origin',
       headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        Pragma: 'no-cache'
+        ...NO_CACHE_FETCH_INIT.headers,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ groups: nextGroups })
     }).catch((err) => {
@@ -3164,6 +3179,8 @@ export default function App() {
           <BoutiquesDirectory
             boutiques={marketplaceBoutiques}
             onSelectBoutique={(tabId) => setCurrentTab(tabId as TabType)}
+            onRefresh={() => void fetchProductsNow(true)}
+            isRefreshing={isLoadingProducts}
             isAdmin={false}
           />
         )}
@@ -3327,6 +3344,7 @@ export default function App() {
             onChangeFormationsVideoUrl={setFormationsVideoUrl}
             products={products}
             isLoadingProducts={isLoadingProducts}
+            onRefreshProducts={() => void fetchProductsNow(true)}
             onUpdateProduct={handleAdminUpdateProduct}
             onAddProduct={handleAdminAddProduct}
             onDeleteProduct={handleAdminDeleteProduct}

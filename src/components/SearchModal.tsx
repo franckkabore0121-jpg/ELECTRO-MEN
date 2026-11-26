@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PROJECTS, Product, Course, InvestmentProject } from '../data/mockData.ts';
+import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -189,6 +190,9 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               <div className="space-y-2">
                 {matchingProducts.map((p) => {
                   const isElectrotech = p.domain === 'electrotechnique';
+                  const isInfo = p.domain === 'informatique';
+                  const displayTitle = formatProductTitle(p.name);
+                  const resolvedImage = resolveProductImageUrl(p);
                   return (
                     <div
                       key={p.id}
@@ -200,21 +204,27 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                          <img src={p.image} alt={p.name} className="max-h-full object-contain" />
+                          {resolvedImage ? (
+                            <img src={resolvedImage} alt={displayTitle} className="max-h-full object-contain" />
+                          ) : (
+                            <span className="material-symbols-outlined text-slate-300 text-lg">photo_camera</span>
+                          )}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className={`text-[9px] px-1.5 py-0.2 rounded font-extrabold uppercase ${
                               isElectrotech
                                 ? 'bg-cyan-100 text-cyan-800 border border-cyan-200'
+                                : isInfo
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
                                 : 'bg-amber-100 text-amber-900 border border-amber-200'
                             }`}>
-                              {isElectrotech ? 'Électrotechnique' : 'Électronique'}
+                              {isElectrotech ? 'Électrotechnique' : isInfo ? 'Informatique' : 'Électronique'}
                             </span>
                             <span className="text-[10px] text-slate-400 font-mono">RÉF : {p.ref}</span>
                           </div>
                           <h4 className="text-[13px] text-slate-900 font-bold group-hover:text-amber-700 transition-colors truncate">
-                            {p.name}
+                            {displayTitle}
                           </h4>
                         </div>
                       </div>

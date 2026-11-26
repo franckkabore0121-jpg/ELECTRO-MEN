@@ -1,4 +1,5 @@
 import { Product, WHATSAPP_CONTACTS, getProductStockStatus } from '../data/mockData.ts';
+import { formatProductTitle } from './productFormat.ts';
 
 export interface BoutiqueContactInfo {
   number: string;
@@ -67,7 +68,7 @@ export function buildBoutiqueWhatsAppUrl(product: Product, quantity = 1): string
     `Demande : *${actionHeader}*`,
     ``,
     `Bonjour ${contact.service}, je souhaite acquérir l'article suivant :`,
-    `• *Produit :* ${product.name}`,
+    `• *Produit :* ${formatProductTitle(product.name)}`,
     `• *Réf :* ${product.ref}`,
     product.brand ? `• *Marque :* ${product.brand}` : null,
     product.categoryLabel ? `• *Catégorie :* ${product.categoryLabel}` : null,

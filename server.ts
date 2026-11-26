@@ -182,9 +182,12 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get('/api/events/stream', (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   res.status(200).set({
     'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'CDN-Cache-Control': 'no-store',
+    'Vercel-CDN-Cache-Control': 'no-store',
     Connection: process.env.VERCEL ? 'close' : 'keep-alive',
     'X-Accel-Buffering': 'no'
   });
@@ -965,6 +968,7 @@ export interface AdminConfig {
   formationsVideoUrl?: string;
   isMaintenanceMode?: boolean;
   isInvestorChatOpen?: boolean;
+  boutiques?: Array<Record<string, unknown>>;
   masterPasswordHash: string;
   masterPasswordHint: string;
   admins: ServerAdminUser[];
@@ -2633,6 +2637,7 @@ app.post('/api/investor/subscribe-shares', sensitiveActionRateLimiter, asyncRout
 // =========================================================================
 
 app.get('/api/operations', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
   const inventories = new Map((await listOperationInventories()).map((item) => [item.operationId, item]));
   // Filter strictly published operations and published offers
@@ -2648,12 +2653,14 @@ app.get('/api/operations', asyncRoute(async (_req: Request, res: Response) => {
 }));
 
 app.get('/api/activities', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const acts = await readJson<InvestorActivity[]>(ACTIVITIES_FILE, []);
   const published = acts.filter((a) => a.isPublished !== false);
   res.json({ activities: published });
 }));
 
 app.get('/api/documents', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const docs = await readJson<InvestorDocument[]>(DOCUMENTS_FILE, []);
   const published = docs.filter((d) => d.isPublished !== false);
   res.json({ documents: published });
@@ -2665,6 +2672,7 @@ app.get('/api/documents', asyncRoute(async (_req: Request, res: Response) => {
 
 // Operations CRUD
 app.get('/api/admin/operations', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const admin = await requireAdminAnyPermission(req, res, ['manage_operations', 'manage_subscriptions', 'manage_investors']);
   if (!admin) return;
   const operations = await readJson<InvestmentOperation[]>(OPERATIONS_FILE, []);
@@ -3027,6 +3035,13 @@ function inferProductDomain(raw: Record<string, unknown>): 'electronique' | 'ele
   return 'electronique';
 }
 
+function formatProductTitleServer(rawName: unknown): string {
+  if (rawName === null || rawName === undefined) return '';
+  const collapsed = String(rawName).replace(/\s+/g, ' ').trim();
+  if (!collapsed) return '';
+  return collapsed.replace(/(?:\s*\.+)+\s*$/, '').trim();
+}
+
 function normalizeProductRecord(raw: unknown): Record<string, unknown> | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const item = raw as Record<string, unknown>;
@@ -3036,10 +3051,16 @@ function normalizeProductRecord(raw: unknown): Record<string, unknown> | null {
   const parsedStock = Number(item.stock);
   const isDraft = item.isDraft === true || item.isDraft === 'true';
   const isPublished = item.isPublished === false || item.isPublished === 'false' ? false : !isDraft;
+  const cleanName = formatProductTitleServer(item.name);
+  const rawImage = typeof item.image === 'string' ? item.image.trim() : '';
+  const hasRealPhoto = rawImage.length > 0 && item.hasRealPhoto !== false && item.hasRealPhoto !== 'false';
 
   return {
     ...item,
+    ...(cleanName ? { name: cleanName } : {}),
     domain,
+    image: hasRealPhoto ? rawImage : '',
+    hasRealPhoto,
     price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0,
     ...(parsedOldPrice !== undefined && Number.isFinite(parsedOldPrice) && parsedOldPrice > 0 ? { oldPrice: parsedOldPrice } : {}),
     stock: Number.isFinite(parsedStock) && parsedStock >= 0 ? parsedStock : 0,
@@ -3088,7 +3109,8 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
   if (!prod || typeof prod !== 'object' || Array.isArray(prod)) {
     return res.status(400).json({ success: false, error: 'Données produit invalides.' });
   }
-  const cleanName = sanitizePlainText(prod.name, { minLength: 1, maxLength: 160, required: true });
+  const rawCleanName = sanitizePlainText(prod.name, { minLength: 1, maxLength: 160, required: true });
+  const cleanName = rawCleanName ? formatProductTitleServer(rawCleanName) : null;
   if (!cleanName) {
     return res.status(400).json({ success: false, error: 'Nom de produit valide requis.' });
   }
@@ -3108,6 +3130,7 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
     return res.status(400).json({ success: false, error: 'Stock du produit invalide.' });
   }
 
+  const nowIso = new Date().toISOString();
   const products = await readJson<any[]>(PRODUCTS_FILE, []);
   const newProd = normalizeProductRecord({
     ...prod,
@@ -3118,13 +3141,15 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
     ...(cleanStock !== undefined && cleanStock !== null ? { stock: cleanStock } : {}),
     id: (typeof prod.id === 'string' && validateSafeId(prod.id)) || `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
     ref: sanitizePlainText(prod.ref, { maxLength: 60 }) || `ELM-${Date.now().toString().slice(-6)}`,
-    createdAt: new Date().toISOString()
+    createdAt: nowIso,
+    updatedAt: nowIso
   }) || {
     ...prod,
     name: cleanName,
     id: (typeof prod.id === 'string' && validateSafeId(prod.id)) || `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
     ref: sanitizePlainText(prod.ref, { maxLength: 60 }) || `ELM-${Date.now().toString().slice(-6)}`,
-    createdAt: new Date().toISOString()
+    createdAt: nowIso,
+    updatedAt: nowIso
   };
 
   products.unshift(newProd);
@@ -3180,7 +3205,8 @@ app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Re
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} : structure produit invalide.` });
     }
 
-    const cleanName = sanitizePlainText(raw.name, { minLength: 1, maxLength: 160, required: true });
+    const rawCleanName = sanitizePlainText(raw.name, { minLength: 1, maxLength: 160, required: true });
+    const cleanName = rawCleanName ? formatProductTitleServer(rawCleanName) : null;
     if (!cleanName) {
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} : nom de produit valide requis.` });
     }
@@ -3355,7 +3381,10 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
   if (!id || !updateData || typeof updateData !== 'object' || Array.isArray(updateData)) {
     return res.status(400).json({ success: false, error: 'Identifiant ou données produit invalides.' });
   }
-  if (updateData.name !== undefined && !sanitizePlainText(updateData.name, { minLength: 1, maxLength: 160, required: true })) {
+  const cleanUpdateName = updateData.name !== undefined
+    ? formatProductTitleServer(sanitizePlainText(updateData.name, { minLength: 1, maxLength: 160, required: true }))
+    : undefined;
+  if (updateData.name !== undefined && !cleanUpdateName) {
     return res.status(400).json({ success: false, error: 'Nom de produit invalide.' });
   }
   const cleanPrice = updateData.price !== undefined ? validateSafeNonNegativeInt(updateData.price, { max: 500_000_000 }) : undefined;
@@ -3371,14 +3400,17 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
     return res.status(400).json({ success: false, error: 'URL d’image invalide.' });
   }
 
+  const nowIso = new Date().toISOString();
   const products = await readJson<any[]>(PRODUCTS_FILE, []);
   const idx = products.findIndex((p) => p.id === id);
 
   const normalizedUpdate = {
     ...updateData,
+    ...(cleanUpdateName !== undefined ? { name: cleanUpdateName } : {}),
     ...(cleanPrice !== undefined && cleanPrice !== null ? { price: cleanPrice } : {}),
     ...(cleanStock !== undefined && cleanStock !== null ? { stock: cleanStock } : {}),
-    ...(cleanImage !== undefined && cleanImage !== null ? { image: cleanImage } : {})
+    ...(cleanImage !== undefined && cleanImage !== null ? { image: cleanImage } : {}),
+    updatedAt: nowIso
   };
 
   if (idx === -1) {
@@ -3424,6 +3456,7 @@ app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Respo
 }));
 
 app.get('/api/courses', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
   const courses = await readJson<any[]>(COURSES_FILE, []);
   res.json({ success: true, courses });
 }));
@@ -4794,11 +4827,38 @@ app.get('/api/admin/config', asyncRoute(async (_req: Request, res: Response) => 
     formationsVideoUrl: config.formationsVideoUrl || '/assets/videos/electromen-hero.mp4',
     isMaintenanceMode: Boolean(config.isMaintenanceMode),
     isInvestorChatOpen: config.isInvestorChatOpen !== false,
+    ...(Array.isArray(config.boutiques) ? { boutiques: config.boutiques } : {}),
     hasMasterPassword: Boolean(security?.masterPasswordHash || hasEnvMaster),
     hasPrincipalAdmin,
     needsAdminSetup: !hasPrincipalAdmin && !security?.masterPasswordHash && !hasEnvMaster && !hasEnvInitial,
     secondaryAdminsCount: admins.filter((admin) => admin.role === 'admin_secondaire').length
   });
+}));
+
+app.put('/api/admin/boutiques', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const admin = await requireAdminAnyPermission(req, res, ['manage_delivery', 'manage_content', 'manage_products']);
+  if (!admin) return;
+  const boutiques: unknown[] | null = Array.isArray(req.body?.boutiques) ? req.body.boutiques : null;
+  if (!boutiques) {
+    return res.status(400).json({ success: false, error: 'Liste de boutiques invalide.' });
+  }
+  const sanitized = boutiques
+    .filter((b: unknown): b is Record<string, unknown> => Boolean(b && typeof b === 'object' && !Array.isArray(b)))
+    .slice(0, 20)
+    .map((b: Record<string, unknown>) => ({
+      ...b,
+      name: sanitizePlainText(b.name, { maxLength: 100 }) || 'Boutique',
+      location: sanitizePlainText(b.location, { maxLength: 100 }) || 'Ouagadougou',
+      country: sanitizePlainText(b.country, { maxLength: 100 }) || '',
+      flag: sanitizePlainText(b.flag, { maxLength: 16 }) || '',
+      activities: sanitizePlainText(b.activities, { maxLength: 200 }) || ''
+    }));
+  const config = await loadConfig();
+  config.boutiques = sanitized;
+  await saveConfig(config);
+  broadcastDataChanged('config');
+  res.json({ success: true, boutiques: sanitized });
 }));
 
 app.post('/api/auth/setup-admin', authRateLimiter, asyncRoute(async (req: Request, res: Response) => {

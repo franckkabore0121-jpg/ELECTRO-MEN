@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CategoryGroup,
   HEADQUARTERS,
@@ -6,6 +6,10 @@ import {
   getProductStockStatus
 } from '../data/mockData.ts';
 import { getBoutiqueContact } from '../utils/whatsapp.ts';
+import {
+  formatProductTitle,
+  resolveProductImageUrl
+} from '../utils/productFormat.ts';
 
 export type BoutiqueDomain = 'electronique' | 'electrotechnique' | 'informatique';
 
@@ -114,6 +118,17 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     }
     return [{ id: 'all', label: 'Tout', icon: 'apps' }, ...customCategories, ...discovered];
   }, [groups, publishedShopProducts]);
+
+  useEffect(() => {
+    if (selectedGroup === 'all') return;
+    const selectedNorm = normalizeToken(selectedGroup);
+    const stillExists = categoryOptions.some(
+      (cat) => cat.id === selectedGroup || normalizeToken(cat.id) === selectedNorm
+    );
+    if (!stillExists) {
+      setSelectedGroup('all');
+    }
+  }, [categoryOptions, selectedGroup]);
 
   // Filtered products based on selected category & search query
   const displayedProducts = useMemo(() => {
@@ -237,11 +252,12 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     e.stopPropagation();
     const status = getProductStockStatus(product);
     if (status === 'out_of_stock') return;
+    const displayName = formatProductTitle(product.name);
     onAddToCart(product);
     showToast(
       status === 'on_order'
-        ? `${product.name} ajouté (sur commande)`
-        : `${product.name} ajouté au panier`
+        ? `${displayName} ajouté (sur commande)`
+        : `${displayName} ajouté au panier`
     );
   };
 
@@ -260,7 +276,10 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     const isOnOrder = stockStatus === 'on_order';
     const hasDiscount = typeof prod.oldPrice === 'number' && prod.oldPrice > prod.price;
     const showPromoBadge = isPromoProduct(prod);
-    const hasImage = Boolean(prod.image && !failedProductImages[prod.id]);
+    const displayTitle = formatProductTitle(prod.name);
+    const resolvedImage = resolveProductImageUrl(prod);
+    const imageFailureKey = `${prod.id}::${resolvedImage}`;
+    const hasImage = Boolean(resolvedImage && !failedProductImages[imageFailureKey]);
 
     return (
       <article
@@ -287,12 +306,12 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
 
             {hasImage ? (
               <img
-                src={prod.image}
-                alt={prod.name}
+                src={resolvedImage}
+                alt={displayTitle}
                 loading="lazy"
                 referrerPolicy="no-referrer"
                 onError={() =>
-                  setFailedProductImages((prev) => ({ ...prev, [prod.id]: true }))
+                  setFailedProductImages((prev) => ({ ...prev, [imageFailureKey]: true }))
                 }
                 className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
               />
@@ -314,7 +333,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
                 type="button"
                 onClick={(e) => handleQuickAdd(e, prod)}
                 title="Ajouter au panier"
-                aria-label={`Ajouter ${prod.name} au panier`}
+                aria-label={`Ajouter ${displayTitle} au panier`}
                 className="absolute bottom-1.5 right-1.5 z-10 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/95 hover:bg-slate-900 text-slate-800 hover:text-white border border-slate-200 shadow-xs flex items-center justify-center transition-colors cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[15px] sm:text-base">
@@ -326,7 +345,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
 
           {/* Titre court (1 à 2 lignes) */}
           <h3 className="mt-2 text-[11px] sm:text-xs font-semibold text-slate-900 line-clamp-2 leading-snug group-hover:text-slate-700">
-            {prod.name}
+            {displayTitle}
           </h3>
         </div>
 
@@ -380,9 +399,29 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
           <span>Toutes les boutiques</span>
         </button>
 
-        <span className="text-xs text-slate-500 font-medium tabular-nums">
-          {publishedShopProducts.length} article{publishedShopProducts.length > 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {onRetryLoadProducts && (
+            <button
+              type="button"
+              onClick={() => {
+                onRetryLoadProducts();
+                showToast('Catalogue actualisé depuis PostgreSQL');
+              }}
+              disabled={isLoadingProducts}
+              title="Recharger les derniers produits, prix, images et catégories"
+              aria-label="Actualiser les données de la boutique"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
+            >
+              <span className={`material-symbols-outlined text-sm ${isLoadingProducts ? 'animate-spin' : ''}`}>
+                refresh
+              </span>
+              <span>Actualiser</span>
+            </button>
+          )}
+          <span className="text-xs text-slate-500 font-medium tabular-nums whitespace-nowrap">
+            {publishedShopProducts.length} article{publishedShopProducts.length > 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
       {/* 1. EN-TÊTE COMPACT DE LA BOUTIQUE */}

@@ -8,6 +8,10 @@ import {
   getStockStatusLabel
 } from '../data/mockData.ts';
 import { buildBoutiqueWhatsAppUrl } from '../utils/whatsapp.ts';
+import {
+  formatProductTitle,
+  resolveProductImageUrl
+} from '../utils/productFormat.ts';
 
 interface ScreenAccueilProps {
   products: Product[];
@@ -293,15 +297,32 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
           )}
         </div>
 
-        {selectedCategory !== 'all' && (
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('all')}
-            className="text-[11px] text-[#b48c1e] hover:underline font-bold cursor-pointer"
-          >
-            Toutes les catégories
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {selectedCategory !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className="text-[11px] text-[#b48c1e] hover:underline font-bold cursor-pointer whitespace-nowrap"
+            >
+              Toutes les catégories
+            </button>
+          )}
+          {onRetryLoadProducts && (
+            <button
+              type="button"
+              onClick={onRetryLoadProducts}
+              disabled={isLoadingProducts}
+              title="Recharger les derniers produits, prix et images"
+              aria-label="Actualiser le catalogue"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-[#d4af37] text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
+            >
+              <span className={`material-symbols-outlined text-sm ${isLoadingProducts ? 'animate-spin' : ''}`}>
+                refresh
+              </span>
+              <span>Actualiser</span>
+            </button>
+          )}
+        </div>
       </section>
 
       {/* =========================================================================
@@ -345,7 +366,10 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
             /* DÉFILEMENT HORIZONTAL ANIMÉ DES VENTES FLASH (COMME DANS LA VIDÉO) */
             <div className="relative overflow-hidden w-full pb-2">
               <div className="animate-flash-scroll flex items-stretch gap-3">
-                {animatedFlashProducts.map((p, idx) => (
+                {animatedFlashProducts.map((p, idx) => {
+                  const displayTitle = formatProductTitle(p.name);
+                  const resolvedImg = resolveProductImageUrl(p);
+                  return (
                   <div
                     key={`${p.id}-flash-${idx}`}
                     onClick={() => onSelectProduct(p)}
@@ -353,10 +377,10 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                   >
                     <div className="space-y-1.5">
                       <div className="aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 p-2 flex items-center justify-center">
-                        {p.hasRealPhoto && p.image ? (
+                        {resolvedImg ? (
                           <img
-                            src={p.image}
-                            alt={p.name}
+                            src={resolvedImg}
+                            alt={displayTitle}
                             className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
                             referrerPolicy="no-referrer"
                           />
@@ -375,11 +399,12 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       </div>
 
                       <h4 className="font-syne text-[11px] font-bold text-slate-900 group-hover:text-[#b48c1e] transition-colors truncate">
-                        {p.name}
+                        {displayTitle}
                       </h4>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -497,6 +522,8 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
             {displayedProducts.map((p) => {
               const stockStatus = getProductStockStatus(p);
               const canBuy = stockStatus === 'in_stock' || stockStatus === 'on_order';
+              const displayTitle = formatProductTitle(p.name);
+              const resolvedImg = resolveProductImageUrl(p);
 
               return (
                 <div
@@ -509,10 +536,10 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       onClick={() => onSelectProduct(p)}
                       className="aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 p-2 flex items-center justify-center cursor-pointer relative"
                     >
-                      {p.hasRealPhoto && p.image ? (
+                      {resolvedImg ? (
                         <img
-                          src={p.image}
-                          alt={p.name}
+                          src={resolvedImg}
+                          alt={displayTitle}
                           className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
                           referrerPolicy="no-referrer"
                         />
@@ -555,7 +582,7 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       onClick={() => onSelectProduct(p)}
                       className="font-syne text-xs sm:text-sm font-bold text-slate-900 hover:text-[#b48c1e] transition-colors cursor-pointer line-clamp-2 leading-tight"
                     >
-                      {p.name}
+                      {displayTitle}
                     </h4>
 
                     {/* Étiquette Boutique d'appartenance */}
@@ -614,7 +641,7 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       disabled={!canBuy}
                       className="shrink-0 w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-amber-900 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 shadow-sm"
                       title={canBuy ? 'Ajouter au panier' : 'Produit indisponible'}
-                      aria-label={canBuy ? `Ajouter ${p.name} au panier` : `${p.name} indisponible`}
+                      aria-label={canBuy ? `Ajouter ${displayTitle} au panier` : `${displayTitle} indisponible`}
                     >
                       <span className="material-symbols-outlined text-sm">add_shopping_cart</span>
                     </button>
@@ -800,21 +827,24 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                   Aucun produit publié dans le catalogue.
                 </div>
               ) : (
-                publishedProducts.map((prod) => (
+                publishedProducts.map((prod) => {
+                  const displayTitle = formatProductTitle(prod.name);
+                  const resolvedImg = resolveProductImageUrl(prod);
+                  return (
                   <div
                     key={prod.id}
                     className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 px-2 rounded-lg transition-colors"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                        {prod.hasRealPhoto && prod.image ? (
-                          <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+                        {resolvedImg ? (
+                          <img src={resolvedImg} alt={displayTitle} className="w-full h-full object-cover" />
                         ) : (
                           <span className="material-symbols-outlined text-slate-400 text-sm">inventory_2</span>
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-bold text-xs text-slate-900 truncate">{prod.name}</div>
+                        <div className="font-bold text-xs text-slate-900 truncate">{displayTitle}</div>
                         <div className="text-[10px] text-slate-500 font-mono">
                           {prod.ref} · {prod.price.toLocaleString('fr-FR')} FCFA
                         </div>
@@ -836,7 +866,8 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       <span>{prod.isFlashSale ? 'En Flash' : 'Ajouter'}</span>
                     </button>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 

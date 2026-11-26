@@ -17,10 +17,21 @@ describe('sanitizeAdminConfig', () => {
       heroVideoUrl: '/assets/hero.mp4',
       formationsVideoUrl: '/assets/training.mp4',
       isMaintenanceMode: true,
+      isInvestorChatOpen: true,
       masterPasswordHash: '',
       masterPasswordHint: '',
       admins: [],
       activeTokens: {}
     });
+  });
+
+  it('preserves boutiques array when present', () => {
+    const result = sanitizeAdminConfig({
+      customAdminUrl: '/gestion-electromen',
+      boutiques: [{ id: 'b-1', name: 'Boutique Ouaga', flag: '🇧🇫', country: 'Burkina Faso' }]
+    });
+    expect(result.boutiques).toEqual([
+      { id: 'b-1', name: 'Boutique Ouaga', flag: '🇧🇫', country: 'Burkina Faso' }
+    ]);
   });
 });

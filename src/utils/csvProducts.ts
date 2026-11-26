@@ -7,6 +7,7 @@ import {
   ProductStockStatus,
   getProductStockStatus
 } from '../data/mockData.ts';
+import { formatProductTitle } from './productFormat.ts';
 
 export const PRODUCT_CSV_HEADERS = [
   'ref',
@@ -84,7 +85,7 @@ export function buildProductsCsvContent(productsToExport: Product[]): string {
 
     const row: Array<string | number> = [
       product.ref || '',
-      product.name || '',
+      formatProductTitle(product.name || ''),
       product.brand || '',
       product.description || '',
       price,
@@ -1072,7 +1073,7 @@ export function parseAndValidateProductsCsv(
     isFromPayloadJson = false
   ) => {
     const errors: string[] = [];
-    const name = (mapped.nom || '').trim();
+    const name = formatProductTitle(mapped.nom || '');
     if (!name) {
       errors.push('Champ obligatoire manquant : nom');
     } else if (name.length > 160) {

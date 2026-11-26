@@ -5,6 +5,7 @@ import {
   DeliveryZone,
   DELIVERY_ZONES
 } from '../data/mockData.ts';
+import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -174,7 +175,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
     orderText += `*ARTICLES SÉLECTIONNÉS :*\n`;
     items.forEach((it, idx) => {
-      orderText += `${idx + 1}. ${it.product.name} (Réf: ${it.product.ref})\n   Qté: ${it.quantity} × ${it.product.price.toLocaleString('fr-FR')} F = ${(it.product.price * it.quantity).toLocaleString('fr-FR')} FCFA\n`;
+      orderText += `${idx + 1}. ${formatProductTitle(it.product.name)} (Réf: ${it.product.ref})\n   Qté: ${it.quantity} × ${it.product.price.toLocaleString('fr-FR')} F = ${(it.product.price * it.quantity).toLocaleString('fr-FR')} FCFA\n`;
     });
 
     orderText += `\n*RÉCAPITULATIF FINANCIER :*\n`;
@@ -359,16 +360,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   Articles dans le panier ({items.length})
                 </span>
 
-                {items.map((it) => (
+                {items.map((it) => {
+                  const displayTitle = formatProductTitle(it.product.name);
+                  const resolvedImage = resolveProductImageUrl(it.product);
+                  return (
                   <div
                     key={it.product.id}
                     className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex gap-3 items-center justify-between shadow-xs"
                   >
                     <div className="w-13 h-13 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                      {it.product.hasRealPhoto && it.product.image ? (
+                      {resolvedImage ? (
                         <img
-                          src={it.product.image}
-                          alt={it.product.name}
+                          src={resolvedImage}
+                          alt={displayTitle}
                           className="max-h-full max-w-full object-contain"
                         />
                       ) : (
@@ -378,7 +382,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                     <div className="flex-1 min-w-0">
                       <h4 className="text-xs text-slate-900 font-bold truncate">
-                        {it.product.name}
+                        {displayTitle}
                       </h4>
                       <p className="text-[10px] text-slate-500 font-mono">
                         RÉF : {it.product.ref}
@@ -414,7 +418,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* =========================================================================

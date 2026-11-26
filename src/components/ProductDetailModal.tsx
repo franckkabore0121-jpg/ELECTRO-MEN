@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, WHATSAPP_CONTACTS, getProductStockStatus } from '../data/mockData.ts';
 import { openBoutiqueWhatsAppBuy, getBoutiqueContact } from '../utils/whatsapp.ts';
+import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -24,10 +25,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!product) return null;
 
   const stockStatus = getProductStockStatus(product);
+  const displayTitle = formatProductTitle(product.name);
+  const resolvedImage = resolveProductImageUrl(product);
+  const normalizedProduct =
+    displayTitle !== product.name ? { ...product, name: displayTitle } : product;
 
   const handleAdd = () => {
     if (stockStatus === 'out_of_stock') return;
-    onAddToCart(product, quantity);
+    onAddToCart(normalizedProduct, quantity);
     onClose();
   };
 
@@ -41,11 +46,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
     let text = '';
     if (stockStatus === 'on_order') {
-      text = `Bonjour ELECTRO-MEN, je souhaite passer commande sur approvisionnement pour : ${product.name} (Réf: ${product.ref}, Qté: ${quantity}) au prix de ${(product.price * quantity).toLocaleString('fr-FR')} FCFA. Merci de me confirmer le délai de disponibilité.`;
+      text = `Bonjour ELECTRO-MEN, je souhaite passer commande sur approvisionnement pour : ${displayTitle} (Réf: ${product.ref}, Qté: ${quantity}) au prix de ${(product.price * quantity).toLocaleString('fr-FR')} FCFA. Merci de me confirmer le délai de disponibilité.`;
     } else if (stockStatus === 'out_of_stock') {
-      text = `Bonjour ELECTRO-MEN, je souhaite être alerté du réapprovisionnement pour le composant en rupture : ${product.name} (Réf: ${product.ref}).`;
+      text = `Bonjour ELECTRO-MEN, je souhaite être alerté du réapprovisionnement pour le composant en rupture : ${displayTitle} (Réf: ${product.ref}).`;
     } else {
-      text = `Bonjour ELECTRO-MEN, je souhaite commander : ${product.name} (Réf: ${product.ref}, Qté: ${quantity}) au prix de ${(product.price * quantity).toLocaleString('fr-FR')} FCFA.`;
+      text = `Bonjour ELECTRO-MEN, je souhaite commander : ${displayTitle} (Réf: ${product.ref}, Qté: ${quantity}) au prix de ${(product.price * quantity).toLocaleString('fr-FR')} FCFA.`;
     }
 
     const cleanNumber = contact.number.replace('+', '').trim();
@@ -54,8 +59,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   const handleShare = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?prod=${encodeURIComponent(product.id)}`;
-    const shareTitle = `ELECTRO-MEN | ${product.name}`;
-    const shareText = `Découvrez ${product.name} (Réf: ${product.ref}) sur ELECTRO-MEN au prix de ${product.price.toLocaleString('fr-FR')} FCFA.`;
+    const shareTitle = `ELECTRO-MEN | ${displayTitle}`;
+    const shareText = `Découvrez ${displayTitle} (Réf: ${product.ref}) sur ELECTRO-MEN au prix de ${product.price.toLocaleString('fr-FR')} FCFA.`;
 
     if (navigator.share) {
       navigator
@@ -86,11 +91,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   const handleShareWhatsApp = () => {
     const shareUrl = `${window.location.origin}${window.location.pathname}?prod=${encodeURIComponent(product.id)}`;
-    const msg = `Découvrez ce produit sur ELECTRO-MEN : ${product.name} (${product.price.toLocaleString('fr-FR')} FCFA) : ${shareUrl}`;
+    const msg = `Découvrez ce produit sur ELECTRO-MEN : ${displayTitle} (${product.price.toLocaleString('fr-FR')} FCFA) : ${shareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  const hasReal = Boolean(product.hasRealPhoto && product.image);
+  const hasReal = Boolean(resolvedImage);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-sm animate-fadeIn text-slate-900 font-sans">
@@ -188,8 +193,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </div>
             ) : hasReal ? (
               <img
-                src={product.image}
-                alt={product.name}
+                src={resolvedImage}
+                alt={displayTitle}
                 className="max-h-48 max-w-full object-contain"
               />
             ) : (
@@ -253,7 +258,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </div>
             )}
 
-            <h2 className="text-lg font-bold text-slate-900 leading-snug">{product.name}</h2>
+            <h2 className="text-lg font-bold text-slate-900 leading-snug">{displayTitle}</h2>
             <p className="text-xs text-slate-600 leading-relaxed font-normal">{product.description}</p>
           </div>
 
@@ -336,7 +341,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={() => openBoutiqueWhatsAppBuy(product, quantity)}
+                  onClick={() => openBoutiqueWhatsAppBuy(normalizedProduct, quantity)}
                   className="flex-1 py-2.5 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
                   title={`Acheter sur WhatsApp (${getBoutiqueContact(product.domain).display})`}
                 >
@@ -365,7 +370,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => openBoutiqueWhatsAppBuy(product, quantity)}
+                  onClick={() => openBoutiqueWhatsAppBuy(normalizedProduct, quantity)}
                   className="py-2.5 px-3.5 rounded-xl bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                   title="Alerter l'équipe sur WhatsApp pour réapprovisionnement"
                 >
@@ -377,7 +382,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={() => openBoutiqueWhatsAppBuy(product, quantity)}
+                  onClick={() => openBoutiqueWhatsAppBuy(normalizedProduct, quantity)}
                   className="flex-1 py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-sm"
                   title={`Commander sur WhatsApp (${getBoutiqueContact(product.domain).display})`}
                 >

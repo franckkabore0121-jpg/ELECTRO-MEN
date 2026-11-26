@@ -5,6 +5,8 @@ interface BoutiquesDirectoryProps {
   boutiques?: MarketplaceBoutique[];
   currentBoutique?: 'electronique' | 'electrotechnique' | 'informatique';
   onSelectBoutique: (tabId: string) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
   isAdmin?: boolean;
   onUpdateFlag?: (boutiqueId: string, newFlag: string, countryName?: string) => void;
 }
@@ -32,6 +34,8 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
   boutiques = MARKETPLACE_BOUTIQUES,
   currentBoutique,
   onSelectBoutique,
+  onRefresh,
+  isRefreshing = false,
   isAdmin = false,
   onUpdateFlag
 }) => {
@@ -66,9 +70,25 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
             LES BOUTIQUES
           </h2>
         </div>
-        <span className="text-[11px] font-mono text-slate-400 font-medium">
-          {boutiques.length} boutiques officielles
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              title="Actualiser les données des boutiques"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap"
+            >
+              <span className={`material-symbols-outlined text-sm ${isRefreshing ? 'animate-spin' : ''}`}>
+                refresh
+              </span>
+              <span>Actualiser</span>
+            </button>
+          )}
+          <span className="text-[11px] font-mono text-slate-400 font-medium">
+            {boutiques.length} boutiques officielles
+          </span>
+        </div>
       </div>
 
       {/* GRILLE 2 COLONNES SUR MOBILE (RÉFÉRENCE VISUELLE EXACTE) */}
