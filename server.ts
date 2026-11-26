@@ -3214,15 +3214,11 @@ app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Re
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : description invalide.` });
     }
 
-    const cleanImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 500000) : '';
-    if (cleanImage === null) {
-      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : URL d’image invalide.` });
-    }
+    const validatedImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 500000) : '';
+    const cleanImage = validatedImage ?? '';
 
-    const cleanVideo = raw.videoUrl !== undefined && raw.videoUrl !== '' ? validateSafeUrlOrPath(raw.videoUrl, 2048) : '';
-    if (cleanVideo === null) {
-      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : URL vidéo invalide.` });
-    }
+    const validatedVideo = raw.videoUrl !== undefined && raw.videoUrl !== '' ? validateSafeUrlOrPath(raw.videoUrl, 2048) : '';
+    const cleanVideo = validatedVideo ?? '';
 
     const cleanBrand = sanitizePlainText(raw.brand, { maxLength: 120 }) || undefined;
     const cleanRefInput = sanitizePlainText(raw.ref, { maxLength: 60 }) || '';
@@ -3279,7 +3275,7 @@ app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Re
       specs: cleanSpecs,
       details: cleanDetails,
       hasRealPhoto: Boolean(cleanImage),
-      ...(cleanImage ? { image: cleanImage } : {}),
+      image: cleanImage,
       ...(cleanVideo ? { videoUrl: cleanVideo } : {}),
       isPublished,
       isDraft,

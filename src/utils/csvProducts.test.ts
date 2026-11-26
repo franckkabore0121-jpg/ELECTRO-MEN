@@ -217,4 +217,22 @@ describe('csvProducts utility', () => {
     expect(parsed.validProducts[1].price).toBe(9500);
     expect(parsed.validProducts[1].domain).toBe('electrotechnique');
   });
+
+  it('accepts products with invalid, unfound, or empty image values by setting image="" and hasRealPhoto=false', () => {
+    const csvWithBadImages = [
+      'nom;prix;boutique;image_url',
+      'Clé USB 64Go;4500;informatique;image-introuvable.jpg',
+      'Câble HDMI 2m;2500;electronique;javascript:alert(1)',
+      'Disjoncteur 16A;3500;electrotechnique;N/A'
+    ].join('\n');
+
+    const result = parseAndValidateProductsCsv(csvWithBadImages);
+    expect(result.fileError).toBeUndefined();
+    expect(result.validCount).toBe(3);
+    expect(result.errorCount).toBe(0);
+    for (const prod of result.validProducts) {
+      expect(prod.image).toBe('');
+      expect(prod.hasRealPhoto).toBe(false);
+    }
+  });
 });

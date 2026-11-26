@@ -1147,15 +1147,11 @@ export function parseAndValidateProductsCsv(
       errors.push(`Statut de stock invalide ("${rawStockStatus}")`);
     }
 
-    const imageUrl = extractFirstImageUrl(mapped.image_url || '');
-    if (imageUrl && !isValidImageOrVideoUrl(imageUrl, true)) {
-      errors.push('URL image invalide (https://, http:// ou /chemin requis)');
-    }
+    const rawImageUrl = extractFirstImageUrl(mapped.image_url || '');
+    const imageUrl = rawImageUrl && isValidImageOrVideoUrl(rawImageUrl, true) ? rawImageUrl : '';
 
-    const videoUrl = (mapped.video_url || '').trim();
-    if (videoUrl && !isValidImageOrVideoUrl(videoUrl, false)) {
-      errors.push('URL vidéo invalide');
-    }
+    const rawVideoUrl = (mapped.video_url || '').trim();
+    const videoUrl = rawVideoUrl && isValidImageOrVideoUrl(rawVideoUrl, false) ? rawVideoUrl : '';
 
     const rawRef = (mapped.ref || '').trim();
     if (rawRef) {
@@ -1268,7 +1264,7 @@ export function parseAndValidateProductsCsv(
       description: (mapped.description || '').trim() || 'Produit haute précision certifié ELECTRO-MEN.',
       details: specs,
       specs,
-      image: imageUrl || undefined,
+      image: imageUrl || '',
       hasRealPhoto: Boolean(imageUrl),
       videoUrl: videoUrl || undefined,
       isPublished,
