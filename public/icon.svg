@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ELECTRO-MEN">
+  <defs>
+    <linearGradient id="em-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f2ca50" />
+      <stop offset="50%" stop-color="#d4af37" />
+      <stop offset="100%" stop-color="#b48c1e" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f172a" />
+  <rect x="20" y="20" width="472" height="472" rx="96" fill="none" stroke="url(#em-gold)" stroke-width="10" opacity="0.85" />
+  <path d="M120 148h140v46h-88v42h74v44h-74v44h92v46H120V148z" fill="url(#em-gold)" />
+  <path d="M286 370V148h46l48 106 48-106h46v222h-44V238l-38 84h-24l-38-84v132h-44z" fill="#f8fafc" />
+  <circle cx="92" cy="184" r="10" fill="url(#em-gold)" />
+  <circle cx="92" cy="256" r="10" fill="url(#em-gold)" />
+  <circle cx="92" cy="328" r="10" fill="url(#em-gold)" />
+</svg>

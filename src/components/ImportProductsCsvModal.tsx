@@ -5,6 +5,7 @@ import {
   downloadProductsCsvTemplate,
   parseAndValidateProductsCsv
 } from '../utils/csvProducts.ts';
+import { useOnlineStatus } from '../utils/pwa.ts';
 
 export interface ImportProductsCsvModalProps {
   isOpen: boolean;
@@ -41,6 +42,7 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const isOnline = useOnlineStatus();
 
   const parseResult = useMemo<CsvImportParseResult | null>(() => {
     if (!rawBuffer) return null;
@@ -110,6 +112,12 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
 
   const handleConfirm = async () => {
     if (!parseResult || parseResult.validProducts.length === 0 || isImporting) return;
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      setImportError(
+        "Connexion Internet requise : l'importation CSV vers la base PostgreSQL est indisponible en mode hors ligne."
+      );
+      return;
+    }
     setIsImporting(true);
     setImportError(null);
     try {
@@ -234,6 +242,18 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
               </div>
             </div>
           </div>
+
+          {!isOnline && (
+            <div
+              role="alert"
+              className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-base text-amber-700 shrink-0">wifi_off</span>
+              <span>
+                Mode hors ligne détecté : l’aperçu reste accessible, mais l’importation vers PostgreSQL nécessite une connexion Internet.
+              </span>
+            </div>
+          )}
 
           {importError && (
             <div
@@ -541,6 +561,7 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
               type="button"
               disabled={
                 isImporting ||
+                !isOnline ||
                 !parseResult ||
                 Boolean(parseResult.fileError) ||
                 parseResult.validCount === 0

@@ -5,7 +5,8 @@ import {
   DeliveryZone,
   DELIVERY_ZONES
 } from '../data/mockData.ts';
-import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
+import { formatProductTitle } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -362,22 +363,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                 {items.map((it) => {
                   const displayTitle = formatProductTitle(it.product.name);
-                  const resolvedImage = resolveProductImageUrl(it.product);
                   return (
                   <div
                     key={it.product.id}
                     className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex gap-3 items-center justify-between shadow-xs"
                   >
-                    <div className="w-13 h-13 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                      {resolvedImage ? (
-                        <img
-                          src={resolvedImage}
-                          alt={displayTitle}
-                          className="max-h-full max-w-full object-contain"
-                        />
-                      ) : (
-                        <span className="material-symbols-outlined text-slate-300 text-xl">photo_camera</span>
-                      )}
+                    <div className="w-13 h-13 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                      <ProductImage
+                        product={it.product}
+                        alt={displayTitle}
+                        compact
+                        className="max-h-full max-w-full object-contain"
+                      />
                     </div>
 
                     <div className="flex-1 min-w-0">

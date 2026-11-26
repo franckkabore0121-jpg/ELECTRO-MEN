@@ -6,10 +6,8 @@ import {
   getProductStockStatus
 } from '../data/mockData.ts';
 import { getBoutiqueContact } from '../utils/whatsapp.ts';
-import {
-  formatProductTitle,
-  resolveProductImageUrl
-} from '../utils/productFormat.ts';
+import { formatProductTitle } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
 
 export type BoutiqueDomain = 'electronique' | 'electrotechnique' | 'informatique';
 
@@ -71,7 +69,6 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [logoLoadError, setLogoLoadError] = useState<boolean>(false);
-  const [failedProductImages, setFailedProductImages] = useState<Record<string, boolean>>({});
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const contact = useMemo(() => getBoutiqueContact(domain), [domain]);
@@ -277,9 +274,6 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     const hasDiscount = typeof prod.oldPrice === 'number' && prod.oldPrice > prod.price;
     const showPromoBadge = isPromoProduct(prod);
     const displayTitle = formatProductTitle(prod.name);
-    const resolvedImage = resolveProductImageUrl(prod);
-    const imageFailureKey = `${prod.id}::${resolvedImage}`;
-    const hasImage = Boolean(resolvedImage && !failedProductImages[imageFailureKey]);
 
     return (
       <article
@@ -304,29 +298,11 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               </span>
             )}
 
-            {hasImage ? (
-              <img
-                src={resolvedImage}
-                alt={displayTitle}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={() =>
-                  setFailedProductImages((prev) => ({ ...prev, [imageFailureKey]: true }))
-                }
-                className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
-              />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-1">
-                <span className="material-symbols-outlined text-2xl sm:text-3xl text-slate-300">
-                  {domain === 'informatique'
-                    ? 'laptop_mac'
-                    : domain === 'electrotechnique'
-                    ? 'bolt'
-                    : 'memory'}
-                </span>
-                <span className="text-[9px] font-medium text-slate-400">ELECTRO-MEN</span>
-              </div>
-            )}
+            <ProductImage
+              product={prod}
+              alt={displayTitle}
+              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
+            />
 
             {!isOut && (
               <button
@@ -748,13 +724,18 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
           >
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-full overflow-hidden border border-slate-200 bg-slate-50 shrink-0">
-                  <img
-                    src={logoUrl}
-                    alt={shopTitle}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
+                <div className="w-11 h-11 rounded-full overflow-hidden border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center">
+                  {!logoLoadError ? (
+                    <img
+                      src={logoUrl}
+                      alt={shopTitle}
+                      referrerPolicy="no-referrer"
+                      onError={() => setLogoLoadError(true)}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="font-syne text-xs font-black text-slate-900">EM</span>
+                  )}
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-syne text-base font-extrabold text-slate-950 truncate">

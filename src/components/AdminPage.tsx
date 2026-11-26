@@ -34,7 +34,9 @@ import { ExportProductsModal } from './ExportProductsModal.tsx';
 import { ImportProductsCsvModal } from './ImportProductsCsvModal.tsx';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 import { exportProductsToCsv } from '../utils/csvProducts.ts';
-import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
+import { formatProductTitle } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
+import { useOnlineStatus } from '../utils/pwa.ts';
 import {
   ADMIN_PERMISSION_DEFINITIONS,
   ALL_ADMIN_PERMISSIONS,
@@ -310,6 +312,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [activeTab, setActiveTab] = useState<
     'dashboard' | 'realtime' | 'market' | 'academy' | 'logistique' | 'investors' | 'subscriptions' | 'funds' | 'content' | 'audit' | 'roles' | 'seo' | 'archives'
   >('dashboard');
+  const isOnline = useOnlineStatus();
   useEffect(() => {
     if (activeTab !== 'archives') return;
     let active = true;
@@ -1660,6 +1663,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   // Strict Server-Backed Upload Helper (signed direct upload to Supabase for >3 MB, server upload otherwise)
   const uploadFileToServer = async (file: File): Promise<string> => {
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      const msg = 'Mode hors ligne : le téléversement de fichiers nécessite une connexion Internet.';
+      setUploadStatus({ isUploading: false, message: msg });
+      alert(msg);
+      throw new Error(msg);
+    }
     setUploadStatus({ isUploading: true, message: `Téléversement de "${file.name}" en cours...` });
     try {
       if (file.size > 3 * 1024 * 1024) {
@@ -1785,6 +1794,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     e.preventDefault();
     if (!hasPerm('manage_products')) {
       alert('Action restreinte : Vous ne disposez pas du droit de gestion des produits.');
+      return;
+    }
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      alert('Mode hors ligne : la création ou modification de produit nécessite une connexion Internet.');
       return;
     }
     if (!newProdName.trim()) return;
@@ -1936,6 +1949,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Quick toggle availability status from table
   const handleQuickChangeStockStatus = (prod: Product, newStatus: ProductStockStatus) => {
     if (!hasPerm('manage_products')) return;
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      alert('Mode hors ligne : la mise à jour du stock nécessite une connexion Internet.');
+      return;
+    }
     const updatedProd: Product = {
       ...prod,
       stockStatus: newStatus,
@@ -1986,6 +2003,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const handleRequestDeleteProduct = (prod: Product) => {
     if (!hasPerm('delete_products')) {
       alert('Action restreinte : Vous ne disposez pas du droit de suppression de produits.');
+      return;
+    }
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      alert('Mode hors ligne : la suppression de produit nécessite une connexion Internet.');
       return;
     }
 
@@ -2497,6 +2518,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
+      {!isOnline && (
+        <div
+          role="alert"
+          className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-semibold flex items-center gap-2.5 shadow-2xs"
+        >
+          <span className="material-symbols-outlined text-lg text-amber-700 shrink-0">wifi_off</span>
+          <span>
+            Mode hors ligne : la consultation du catalogue local reste possible, mais les actions administrateur nécessitant Internet (import CSV, création, édition ou suppression de produits) sont temporairement bloquées.
+          </span>
+        </div>
+      )}
       {/* =========================================================================
           ADMIN CONSOLE HEADER (FOND BLANC STRICT CONFORME À LA DEMANDE)
           ========================================================================= */}
@@ -3427,7 +3459,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   {newProdHasRealPhoto && newProdImage && (
                     <div className="flex items-center gap-2">
                       <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 bg-slate-50 shrink-0">
-                        <img src={newProdImage} alt="Aperçu" className="w-full h-full object-cover" />
+                        <ProductImage
+                          src={newProdImage}
+                          alt="Aperçu"
+                          domain={newProdDomain}
+                          compact
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <button
                         type="button"
@@ -3808,7 +3846,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 .map((prod) => {
                   const status = getProductStockStatus(prod);
                   const displayTitle = formatProductTitle(prod.name);
-                  const resolvedImage = resolveProductImageUrl(prod);
                   return (
                     <div
                       key={prod.id}
@@ -3817,14 +3854,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         {/* Thumbnail */}
                         <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 shrink-0 flex items-center justify-center">
-                          {resolvedImage ? (
-                            <img src={resolvedImage} alt={displayTitle} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="text-center p-1">
-                              <span className="material-symbols-outlined text-slate-400 text-sm">no_photography</span>
-                              <span className="block text-[8px] text-slate-400 font-bold leading-none mt-0.5">Image à ajouter</span>
-                            </div>
-                          )}
+                          <ProductImage
+                            product={prod}
+                            alt={displayTitle}
+                            compact
+                            className="w-full h-full object-cover"
+                          />
                         </div>
 
                         <div className="min-w-0 flex-1">
@@ -8973,16 +9008,13 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
               </button>
             </div>
 
-            <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
-              {previewProduct.hasRealPhoto && previewProduct.image ? (
-                <img src={previewProduct.image} alt={previewProduct.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="text-center p-3">
-                  <span className="material-symbols-outlined text-slate-400 text-3xl">no_photography</span>
-                  <span className="block text-xs text-slate-500 font-bold mt-1">Image à ajouter</span>
-                  <span className="text-[10px] text-slate-400">Photo réelle à importer par l'admin</span>
-                </div>
-              )}
+            <div className="aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center p-2">
+              <ProductImage
+                product={previewProduct}
+                alt={formatProductTitle(previewProduct.name)}
+                className="w-full h-full object-contain"
+                fallbackSubLabel="Photo réelle à importer par l'admin"
+              />
             </div>
 
             <div>

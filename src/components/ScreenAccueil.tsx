@@ -8,10 +8,8 @@ import {
   getStockStatusLabel
 } from '../data/mockData.ts';
 import { buildBoutiqueWhatsAppUrl } from '../utils/whatsapp.ts';
-import {
-  formatProductTitle,
-  resolveProductImageUrl
-} from '../utils/productFormat.ts';
+import { formatProductTitle } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
 
 interface ScreenAccueilProps {
   products: Product[];
@@ -368,7 +366,6 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
               <div className="animate-flash-scroll flex items-stretch gap-3">
                 {animatedFlashProducts.map((p, idx) => {
                   const displayTitle = formatProductTitle(p.name);
-                  const resolvedImg = resolveProductImageUrl(p);
                   return (
                   <div
                     key={`${p.id}-flash-${idx}`}
@@ -377,16 +374,11 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                   >
                     <div className="space-y-1.5">
                       <div className="aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 p-2 flex items-center justify-center">
-                        {resolvedImg ? (
-                          <img
-                            src={resolvedImg}
-                            alt={displayTitle}
-                            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <span className="material-symbols-outlined text-2xl text-slate-300">inventory_2</span>
-                        )}
+                        <ProductImage
+                          product={p}
+                          alt={displayTitle}
+                          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
+                        />
                       </div>
 
                       <div className="flex items-baseline gap-1 text-[11px] font-bold font-mono">
@@ -523,7 +515,6 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
               const stockStatus = getProductStockStatus(p);
               const canBuy = stockStatus === 'in_stock' || stockStatus === 'on_order';
               const displayTitle = formatProductTitle(p.name);
-              const resolvedImg = resolveProductImageUrl(p);
 
               return (
                 <div
@@ -536,19 +527,12 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                       onClick={() => onSelectProduct(p)}
                       className="aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 p-2 flex items-center justify-center cursor-pointer relative"
                     >
-                      {resolvedImg ? (
-                        <img
-                          src={resolvedImg}
-                          alt={displayTitle}
-                          className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="text-center p-1 text-slate-400">
-                          <span className="material-symbols-outlined text-xl text-slate-300">memory</span>
-                          <span className="block text-[8px] font-medium text-slate-400 mt-0.5">Photo certifiée</span>
-                        </div>
-                      )}
+                      <ProductImage
+                        product={p}
+                        alt={displayTitle}
+                        className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
+                        fallbackSubLabel="Photo certifiée"
+                      />
 
                       {/* Badges sur l'image */}
                       {p.isFeaturedOnHome || p.isPremium ? (
@@ -829,7 +813,6 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
               ) : (
                 publishedProducts.map((prod) => {
                   const displayTitle = formatProductTitle(prod.name);
-                  const resolvedImg = resolveProductImageUrl(prod);
                   return (
                   <div
                     key={prod.id}
@@ -837,11 +820,12 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                        {resolvedImg ? (
-                          <img src={resolvedImg} alt={displayTitle} className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="material-symbols-outlined text-slate-400 text-sm">inventory_2</span>
-                        )}
+                        <ProductImage
+                          product={prod}
+                          alt={displayTitle}
+                          compact
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-xs text-slate-900 truncate">{displayTitle}</div>

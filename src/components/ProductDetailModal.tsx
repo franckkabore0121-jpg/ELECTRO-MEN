@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Product, WHATSAPP_CONTACTS, getProductStockStatus } from '../data/mockData.ts';
 import { openBoutiqueWhatsAppBuy, getBoutiqueContact } from '../utils/whatsapp.ts';
 import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -191,21 +192,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   className="w-full h-full object-contain pointer-events-none"
                 />
               </div>
-            ) : hasReal ? (
-              <img
-                src={resolvedImage}
-                alt={displayTitle}
-                className="max-h-48 max-w-full object-contain"
-              />
             ) : (
-              <div className="flex flex-col items-center justify-center text-center p-4 text-slate-400 space-y-1.5">
-                <div className="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                  <span className="material-symbols-outlined text-2xl">photo_camera</span>
-                </div>
-                <span className="text-xs font-bold text-slate-700">Image à ajouter</span>
-                <span className="text-[11px] text-slate-400 max-w-xs">
-                  Photographie réelle du produit en attente d'import par l'administrateur
-                </span>
+              <div className="w-full h-48 flex items-center justify-center">
+                <ProductImage
+                  product={product}
+                  alt={displayTitle}
+                  loading="eager"
+                  className="max-h-48 max-w-full object-contain"
+                  fallbackLabel={hasReal ? 'ELECTRO-MEN' : 'Image à ajouter'}
+                  fallbackSubLabel="Photographie réelle du produit en attente d'import par l'administrateur"
+                />
               </div>
             )}
           </div>

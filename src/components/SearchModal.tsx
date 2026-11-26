@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PROJECTS, Product, Course, InvestmentProject } from '../data/mockData.ts';
-import { formatProductTitle, resolveProductImageUrl } from '../utils/productFormat.ts';
+import { formatProductTitle } from '../utils/productFormat.ts';
+import { ProductImage } from './ProductImage.tsx';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -192,7 +193,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   const isElectrotech = p.domain === 'electrotechnique';
                   const isInfo = p.domain === 'informatique';
                   const displayTitle = formatProductTitle(p.name);
-                  const resolvedImage = resolveProductImageUrl(p);
                   return (
                     <div
                       key={p.id}
@@ -203,12 +203,13 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                       className="p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-amber-400 hover:shadow-xs flex items-center justify-between cursor-pointer group transition-all"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                          {resolvedImage ? (
-                            <img src={resolvedImage} alt={displayTitle} className="max-h-full object-contain" />
-                          ) : (
-                            <span className="material-symbols-outlined text-slate-300 text-lg">photo_camera</span>
-                          )}
+                        <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                          <ProductImage
+                            product={p}
+                            alt={displayTitle}
+                            compact
+                            className="max-h-full max-w-full object-contain"
+                          />
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">

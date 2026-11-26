@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { PWAInstallButton, PWAInstallGuideModal } from './PWAInstallButton.tsx';
+import { usePWAInstall } from '../utils/pwa.ts';
 
 interface HeaderProps {
   currentTab?: string;
@@ -34,6 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [currentLang, setCurrentLang] = useState<'FR' | 'EN'>('FR');
   const [currentMode, setCurrentMode] = useState<'light' | 'dark'>('light');
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const { canNativeInstall, isIOS, install } = usePWAInstall();
 
   const kebabRef = useRef<HTMLDivElement>(null);
 
@@ -138,8 +142,14 @@ export const Header: React.FC<HeaderProps> = ({
             })}
           </nav>
 
-          {/* DROITE : NOUVEAU MODÈLE DE PANIER + 3 POINTS (LANGUE, À PROPOS, MODE) */}
+          {/* DROITE : INSTALLER PWA (DESKTOP) + PANIER + 3 POINTS (LANGUE, À PROPOS, MODE) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <PWAInstallButton
+              variant="header-desktop"
+              lang={currentLang}
+              onOpenGuideModal={() => setInstallGuideOpen(true)}
+            />
+
             {isAdminMode && (
               <button
                 type="button"
@@ -253,6 +263,13 @@ export const Header: React.FC<HeaderProps> = ({
                       {currentMode === 'light' ? 'Clair' : 'Sombre'}
                     </span>
                   </button>
+                  {/* OPTION 4 : INSTALLER L'APPLICATION */}
+                  <PWAInstallButton
+                    variant="menu-item"
+                    lang={currentLang}
+                    onActionDone={() => setKebabMenuOpen(false)}
+                    onOpenGuideModal={() => setInstallGuideOpen(true)}
+                  />
                 </div>
               )}
             </div>
@@ -272,11 +289,11 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* =========================================================================
-            ROW 2 : NOUVELLE BARRE DE RECHERCHE EN BAS DU LOGO
+            ROW 2 : BARRE DE RECHERCHE + BOUTON INSTALLER COMPACT SUR MOBILE
             ========================================================================= */}
         <div className="border-t border-slate-100 bg-slate-50/80 px-4 sm:px-6 lg:px-8 py-2">
-          <div className="max-w-7xl mx-auto">
-            <div className="w-full h-11 px-4 sm:px-5 rounded-2xl bg-white border border-slate-300 focus-within:border-[#d4af37] text-slate-800 flex items-center justify-between gap-3 shadow-2xs hover:shadow-xs transition-all">
+          <div className="max-w-7xl mx-auto flex items-center gap-2">
+            <div className="flex-1 min-w-0 h-11 px-4 sm:px-5 rounded-2xl bg-white border border-slate-300 focus-within:border-[#d4af37] text-slate-800 flex items-center justify-between gap-3 shadow-2xs hover:shadow-xs transition-all">
               <span className="material-symbols-outlined text-slate-400 text-xl shrink-0">
                 search
               </span>
@@ -308,6 +325,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="material-symbols-outlined text-lg">tune</span>
               </button>
             </div>
+
+            <PWAInstallButton
+              variant="header-mobile"
+              lang={currentLang}
+              onOpenGuideModal={() => setInstallGuideOpen(true)}
+            />
           </div>
         </div>
 
@@ -395,6 +418,19 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL INSTRUCTIONS D'INSTALLATION PWA (iOS Safari / Fallback navigateurs) */}
+      <PWAInstallGuideModal
+        isOpen={installGuideOpen}
+        onClose={() => setInstallGuideOpen(false)}
+        isIOS={isIOS}
+        canNativeInstall={canNativeInstall}
+        onRetryNativeInstall={() => {
+          setInstallGuideOpen(false);
+          void install();
+        }}
+        lang={currentLang}
+      />
 
       {/* Top spacer (Header height is approx 115px) */}
       <div className="h-28 sm:h-30"></div>

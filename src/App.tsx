@@ -64,6 +64,17 @@ import {
   normalizeClientProduct,
   withNoCacheParam
 } from './utils/productFormat.ts';
+import {
+  loadCartItems,
+  loadOfflineBoutiques,
+  loadOfflineGroups,
+  loadOfflineProducts,
+  saveCartItems,
+  saveOfflineBoutiques,
+  saveOfflineGroups,
+  saveOfflineProducts
+} from './utils/offlineCache.ts';
+import { OfflineIndicator } from './components/OfflineIndicator.tsx';
 
 const DEFAULT_PROFILE: InvestorProfile = {
   id: '#EM-INV-4541',
@@ -133,10 +144,20 @@ export default function App() {
     }
   }, [currentProfile]);
 
-  // Catalog Products state loaded directly from PostgreSQL Neon (zero stale client cache)
-  const [products, setProducts] = useState<Product[]>([]);
-  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(true);
+  // Catalog Products state loaded directly from PostgreSQL Neon with offline cache fallback
+  const [products, setProducts] = useState<Product[]>(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return loadOfflineProducts();
+    }
+    return [];
+  });
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? false : true
+  );
   const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
+  const [isUsingOfflineData, setIsUsingOfflineData] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? loadOfflineProducts().length > 0 : false
+  );
   const productsRequestRef = useRef<AbortController | null>(null);
   const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
   const isInitialTabEffectRef = useRef<boolean>(true);
@@ -146,10 +167,11 @@ export default function App() {
       rawGroups:
         | Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>
         | null
-        | undefined
+        | undefined,
+      persistOffline = true
     ) => {
       if (!rawGroups || typeof rawGroups !== 'object' || Array.isArray(rawGroups)) return;
-      setDomainGroups({
+      const nextGroups = {
         electronique: Array.isArray(rawGroups.electronique) && rawGroups.electronique.length > 0
           ? rawGroups.electronique
           : ELECTRONIQUE_GROUPS,
@@ -159,12 +181,46 @@ export default function App() {
         informatique: Array.isArray(rawGroups.informatique) && rawGroups.informatique.length > 0
           ? rawGroups.informatique
           : INFORMATIQUE_GROUPS
-      });
+      };
+      setDomainGroups(nextGroups);
+      if (persistOffline) {
+        saveOfflineGroups(nextGroups);
+      }
     },
     []
   );
 
+  const hydrateFromOfflineCache = useCallback((): boolean => {
+    const cachedGroups = loadOfflineGroups();
+    if (cachedGroups) {
+      applyServerGroups(cachedGroups, false);
+    }
+    const cachedBoutiques = loadOfflineBoutiques();
+    if (cachedBoutiques.length > 0) {
+      setMarketplaceBoutiques(cachedBoutiques);
+    }
+    const cachedProducts = loadOfflineProducts();
+    if (cachedProducts.length > 0) {
+      setProducts(cachedProducts);
+      setProductsLoadError(null);
+      setIsUsingOfflineData(true);
+      return true;
+    }
+    return false;
+  }, [applyServerGroups]);
+
   const fetchProductsNow = useCallback(async (showSpinner = false): Promise<void> => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const hasCached = hydrateFromOfflineCache();
+      setIsLoadingProducts(false);
+      if (!hasCached) {
+        setProductsLoadError(
+          'Mode hors ligne : aucun catalogue local enregistré pour le moment.'
+        );
+      }
+      return;
+    }
+
     productsRequestRef.current?.abort();
     const controller = new AbortController();
     productsRequestRef.current = controller;
@@ -178,10 +234,13 @@ export default function App() {
       if (!response.ok) {
         const errPayload = await response.json().catch(() => null) as { error?: string } | null;
         if (!controller.signal.aborted) {
-          setProductsLoadError(
-            errPayload?.error ||
-              `Impossible de charger les produits depuis PostgreSQL (HTTP ${response.status}).`
-          );
+          const restored = hydrateFromOfflineCache();
+          if (!restored) {
+            setProductsLoadError(
+              errPayload?.error ||
+                `Impossible de charger les produits depuis PostgreSQL (HTTP ${response.status}).`
+            );
+          }
         }
         return;
       }
@@ -192,7 +251,9 @@ export default function App() {
       if (!controller.signal.aborted && data && Array.isArray(data.products)) {
         const normalizedList = data.products.map(normalizeClientProduct);
         setProducts(normalizedList);
+        saveOfflineProducts(normalizedList);
         setProductsLoadError(null);
+        setIsUsingOfflineData(false);
         applyServerGroups(data.groups);
 
         const byId = new Map(normalizedList.map((item) => [item.id, item]));
@@ -207,9 +268,12 @@ export default function App() {
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
         console.error('Unable to load live products from PostgreSQL:', error);
-        setProductsLoadError(
-          'Connexion au serveur catalogue interrompue. Vérifiez le réseau ou DATABASE_URL.'
-        );
+        const restored = hydrateFromOfflineCache();
+        if (!restored) {
+          setProductsLoadError(
+            'Connexion au serveur catalogue interrompue. Vérifiez le réseau ou DATABASE_URL.'
+          );
+        }
       }
     } finally {
       if (productsRequestRef.current === controller) {
@@ -217,7 +281,7 @@ export default function App() {
         setIsLoadingProducts(false);
       }
     }
-  }, [applyServerGroups]);
+  }, [applyServerGroups, hydrateFromOfflineCache]);
 
   useEffect(() => {
     try {
@@ -228,11 +292,14 @@ export default function App() {
     } catch {
       // ignore
     }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      hydrateFromOfflineCache();
+    }
     void fetchProductsNow(true);
     return () => {
       productsRequestRef.current?.abort();
     };
-  }, [fetchProductsNow]);
+  }, [fetchProductsNow, hydrateFromOfflineCache]);
 
   useEffect(() => {
     if (isInitialTabEffectRef.current) {
@@ -293,10 +360,14 @@ export default function App() {
     }
   }, [projects]);
 
-  // Marketplace Boutiques state synced from PostgreSQL config (no stale localStorage override)
-  const [marketplaceBoutiques, setMarketplaceBoutiques] = useState<MarketplaceBoutique[]>(
-    () => MARKETPLACE_BOUTIQUES
-  );
+  // Marketplace Boutiques state synced from PostgreSQL config with offline cache fallback
+  const [marketplaceBoutiques, setMarketplaceBoutiques] = useState<MarketplaceBoutique[]>(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cached = loadOfflineBoutiques();
+      if (cached.length > 0) return cached;
+    }
+    return MARKETPLACE_BOUTIQUES;
+  });
 
   const handleUpdateBoutiqueFlag = (boutiqueId: string, newFlag: string, countryName?: string) => {
     setMarketplaceBoutiques((prev) => {
@@ -1176,8 +1247,12 @@ export default function App() {
     setAuditLogs((prev) => [...prev, publishLog]);
   };
 
-  // Cart
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // Cart with local offline persistence
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => loadCartItems());
+
+  useEffect(() => {
+    saveCartItems(cartItems);
+  }, [cartItems]);
 
   // Modals state
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -1527,12 +1602,12 @@ export default function App() {
         if (typeof configData.isMaintenanceMode === 'boolean') setIsMaintenanceMode(configData.isMaintenanceMode);
         if (typeof configData.isInvestorChatOpen === 'boolean') setIsInvestorChatOpen(configData.isInvestorChatOpen);
         if (Array.isArray(configData.boutiques) && configData.boutiques.length > 0) {
-          setMarketplaceBoutiques(
-            configData.boutiques.map((b) => ({
-              ...b,
-              name: String(b.name || '').replace(/^ELECTRO-MEN\s*/i, '').trim()
-            }))
-          );
+          const normalizedBoutiques = configData.boutiques.map((b) => ({
+            ...b,
+            name: String(b.name || '').replace(/^ELECTRO-MEN\s*/i, '').trim()
+          }));
+          setMarketplaceBoutiques(normalizedBoutiques);
+          saveOfflineBoutiques(normalizedBoutiques);
         }
         if (typeof configData.needsAdminSetup === 'boolean') setNeedsAdminSetup(configData.needsAdminSetup);
       }
@@ -1788,6 +1863,10 @@ export default function App() {
   };
 
   const handleAdminUpdateProduct = async (updated: Product) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      alert('Connexion Internet requise : impossible de modifier un produit en mode hors ligne.');
+      return;
+    }
     const cleanUpdated = normalizeClientProduct(updated);
     const previous = products;
     setProducts((prev) => prev.map((p) => (p.id === cleanUpdated.id ? cleanUpdated : p)));
@@ -1809,7 +1888,11 @@ export default function App() {
       }
       if (data.product) {
         const normalizedServer = normalizeClientProduct(data.product);
-        setProducts((prev) => prev.map((p) => (p.id === cleanUpdated.id ? normalizedServer : p)));
+        setProducts((prev) => {
+          const next = prev.map((p) => (p.id === cleanUpdated.id ? normalizedServer : p));
+          saveOfflineProducts(next);
+          return next;
+        });
       }
     } catch {
       setProducts(previous);
@@ -1818,6 +1901,10 @@ export default function App() {
   };
 
   const handleAdminAddProduct = async (newProd: Product) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      alert('Connexion Internet requise : impossible d’ajouter un produit en mode hors ligne.');
+      return;
+    }
     const cleanNewProd = normalizeClientProduct(newProd);
     const previous = products;
     setProducts((prev) => [cleanNewProd, ...prev]);
@@ -1839,10 +1926,14 @@ export default function App() {
       }
       if (data.product) {
         const normalizedServer = normalizeClientProduct(data.product);
-        setProducts((prev) => [
-          normalizedServer,
-          ...prev.filter((p) => p.id !== cleanNewProd.id && p.id !== normalizedServer.id)
-        ]);
+        setProducts((prev) => {
+          const next = [
+            normalizedServer,
+            ...prev.filter((p) => p.id !== cleanNewProd.id && p.id !== normalizedServer.id)
+          ];
+          saveOfflineProducts(next);
+          return next;
+        });
       }
     } catch {
       setProducts(previous);
@@ -1851,8 +1942,13 @@ export default function App() {
   };
 
   const handleAdminDeleteProduct = async (id: string) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      alert('Connexion Internet requise : impossible de supprimer un produit en mode hors ligne.');
+      return;
+    }
     const previous = products;
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+    const optimisticNext = products.filter((p) => p.id !== id);
+    setProducts(optimisticNext);
     try {
       const res = await fetch(withNoCacheParam(`/api/admin/products/${encodeURIComponent(id)}`), {
         method: 'DELETE',
@@ -1862,6 +1958,8 @@ export default function App() {
         const data = await res.json().catch(() => ({}));
         setProducts(previous);
         alert(data.error || 'Suppression du produit refusée par le serveur.');
+      } else {
+        saveOfflineProducts(optimisticNext);
       }
     } catch {
       setProducts(previous);
@@ -1873,6 +1971,11 @@ export default function App() {
     items: Product[],
     options: { upsertByRef: boolean; filename: string }
   ): Promise<{ createdCount: number; updatedCount: number }> => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error(
+        "Connexion Internet requise : l'importation CSV vers PostgreSQL est impossible en mode hors ligne."
+      );
+    }
     const normalizedItems = items.map(normalizeClientProduct);
     const res = await fetch(withNoCacheParam('/api/admin/products/bulk-csv'), {
       method: 'POST',
@@ -1892,7 +1995,9 @@ export default function App() {
       throw new Error(data.error || 'L’importation CSV des produits a été refusée par le serveur.');
     }
     if (Array.isArray(data.products)) {
-      setProducts(data.products.map(normalizeClientProduct));
+      const normalizedAll = data.products.map(normalizeClientProduct);
+      setProducts(normalizedAll);
+      saveOfflineProducts(normalizedAll);
     }
     return {
       createdCount: Number(data.createdCount || 0),
@@ -3919,6 +4024,10 @@ export default function App() {
             if (found) setSelectedProduct(found);
           }
         }}
+      />
+      <OfflineIndicator
+        isUsingOfflineData={isUsingOfflineData}
+        onRetrySync={() => void fetchProductsNow(true)}
       />
     </div>
   );

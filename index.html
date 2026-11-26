@@ -36,9 +36,36 @@
     <meta name="twitter:description" content="Composants certifiés, formations professionnelles et investissement industriel à Ouagadougou, Burkina Faso." />
     <meta name="twitter:image" content="/assets/aistudio/Image_1_397aca35.jpeg" />
 
-    <!-- Favicon & Touch Icon -->
-    <link rel="icon" type="image/jpeg" href="/assets/aistudio/Image_1_397aca35.jpeg" />
-    <link rel="apple-touch-icon" href="/assets/aistudio/Image_1_397aca35.jpeg" />
+    <!-- PWA Manifest & Theme -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ELECTRO-MEN" />
+
+    <!-- Favicon & Touch Icon (PNG/SVG sans 404) -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Capture précoce de beforeinstallprompt avant le montage React -->
+    <script>
+      (function () {
+        window.__electromenDeferredPrompt = null;
+        window.__electromenPwaInstalled = false;
+        window.addEventListener('beforeinstallprompt', function (e) {
+          e.preventDefault();
+          window.__electromenDeferredPrompt = e;
+          window.dispatchEvent(new Event('electromen:pwa-prompt-ready'));
+        });
+        window.addEventListener('appinstalled', function () {
+          window.__electromenDeferredPrompt = null;
+          window.__electromenPwaInstalled = true;
+          window.dispatchEvent(new Event('electromen:pwa-installed'));
+        });
+      })();
+    </script>
 
     <!-- Optimisation des polices et connectivité -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
