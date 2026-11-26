@@ -390,7 +390,16 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
                     const isRequiredField =
                       col.mappedField === 'nom' ||
                       col.mappedField === 'prix' ||
-                      col.mappedField === 'boutique';
+                      col.mappedField === 'boutique' ||
+                      col.mappedField === 'payload_json';
+                    const targetLabel =
+                      col.mappedField === 'payload_json'
+                        ? 'payload JSON (produits extraits)'
+                        : col.mappedField
+                        ? col.secondaryMappedField
+                          ? `${col.mappedField} + ${col.secondaryMappedField}`
+                          : col.mappedField
+                        : 'ignorée';
                     return (
                       <div
                         key={`${col.index}-${col.sourceHeader}`}
@@ -406,13 +415,7 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
                           {col.sourceHeader || `col_${col.index + 1}`}
                         </span>
                         <span className="text-slate-400">→</span>
-                        <span className="font-bold">
-                          {col.mappedField
-                            ? col.secondaryMappedField
-                              ? `${col.mappedField} + ${col.secondaryMappedField}`
-                              : col.mappedField
-                            : 'ignorée'}
-                        </span>
+                        <span className="font-bold">{targetLabel}</span>
                         {col.matchType === 'deduced_fallback' && (
                           <span className="text-[10px] font-medium text-emerald-700">(auto)</span>
                         )}

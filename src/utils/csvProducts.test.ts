@@ -175,4 +175,46 @@ describe('csvProducts utility', () => {
     expect(resWithDefault.validCount).toBe(2);
     expect(resWithDefault.validProducts[1].domain).toBe('electrotechnique');
   });
+
+  it('extracts products automatically from Supabase singleton_id,payload,updated_at JSON CSV exports', () => {
+    const payloadArray = [
+      {
+        id: 'prod-sb-1',
+        ref: 'ELM-SB-01',
+        name: 'Module LoRa SX1278',
+        price: 6500,
+        domain: 'electronique',
+        categoryLabel: 'Capteurs & Modules IoT',
+        stock: 14,
+        stockStatus: 'in_stock',
+        specs: ['433 MHz', 'SPI']
+      },
+      {
+        id: 'prod-sb-2',
+        ref: 'ELM-SB-02',
+        title: 'Disjoncteur C32',
+        unit_price: 9500,
+        category: 'Électrotechnique',
+        stock_quantity: 8
+      }
+    ];
+    const escapedJson = JSON.stringify(payloadArray).replace(/"/g, '""');
+    const supabaseSingletonCsv = [
+      'singleton_id,payload,updated_at',
+      `1,"${escapedJson}",2026-11-26T10:00:00Z`
+    ].join('\n');
+
+    const parsed = parseAndValidateProductsCsv(supabaseSingletonCsv);
+    expect(parsed.fileError).toBeUndefined();
+    expect(parsed.boutiqueSource).toBe('payload_json');
+    expect(parsed.validCount).toBe(2);
+    expect(parsed.errorCount).toBe(0);
+    expect(parsed.columnMappings[1].mappedField).toBe('payload_json');
+    expect(parsed.validProducts[0].id).toBe('prod-sb-1');
+    expect(parsed.validProducts[0].domain).toBe('electronique');
+    expect(parsed.validProducts[0].specs).toEqual(['433 MHz', 'SPI']);
+    expect(parsed.validProducts[1].name).toBe('Disjoncteur C32');
+    expect(parsed.validProducts[1].price).toBe(9500);
+    expect(parsed.validProducts[1].domain).toBe('electrotechnique');
+  });
 });

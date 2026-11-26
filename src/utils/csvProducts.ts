@@ -756,7 +756,7 @@ function isValidImageOrVideoUrl(url: string, allowDataImage: boolean): boolean {
 export interface CsvColumnMapping {
   index: number;
   sourceHeader: string;
-  mappedField: ProductCsvHeader | null;
+  mappedField: ProductCsvHeader | 'payload_json' | null;
   secondaryMappedField?: ProductCsvHeader;
   matchType: 'exact' | 'alias' | 'deduced_fallback' | 'ignored';
 }
@@ -776,12 +776,145 @@ export interface CsvImportParseResult {
   detectedDelimiter: ';' | ',';
   headers: string[];
   columnMappings: CsvColumnMapping[];
-  boutiqueSource: 'explicit_column' | 'category_fallback' | 'deduced_or_default' | 'none';
+  boutiqueSource: 'explicit_column' | 'category_fallback' | 'deduced_or_default' | 'payload_json' | 'none';
   rows: CsvPreviewRow[];
   validProducts: Product[];
   validCount: number;
   errorCount: number;
   fileError?: string;
+}
+
+const PAYLOAD_JSON_HEADER_KEYS = new Set([
+  'payload',
+  'data',
+  'json',
+  'products',
+  'products_json',
+  'produit_json',
+  'contenu_json',
+  'items',
+  'rows'
+]);
+
+function stringifyJsonField(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+      .filter(Boolean)
+      .join(' | ');
+  }
+  return '';
+}
+
+function parseJsonPayloadCell(rawCell: string): unknown {
+  let parsed: unknown = JSON.parse(rawCell);
+  if (typeof parsed === 'string') {
+    const trimmedInner = parsed.trim();
+    if (trimmedInner.startsWith('[') || trimmedInner.startsWith('{')) {
+      parsed = JSON.parse(trimmedInner);
+    }
+  }
+  return parsed;
+}
+
+function extractRecordsFromPayloadValue(parsed: unknown): Record<string, unknown>[] | null {
+  if (Array.isArray(parsed)) {
+    return parsed.filter(
+      (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+    );
+  }
+  if (parsed && typeof parsed === 'object') {
+    const obj = parsed as Record<string, unknown>;
+    const candidateArray = obj.products ?? obj.items ?? obj.data ?? obj.rows;
+    if (Array.isArray(candidateArray)) {
+      return candidateArray.filter(
+        (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+      );
+    }
+    if (
+      'name' in obj ||
+      'nom' in obj ||
+      'title' in obj ||
+      'titre' in obj ||
+      'product_name' in obj ||
+      'price' in obj ||
+      'prix' in obj
+    ) {
+      return [obj];
+    }
+  }
+  return null;
+}
+
+function mapJsonRecordToCsvFields(obj: Record<string, unknown>): {
+  mapped: Partial<Record<ProductCsvHeader, string>>;
+  preferredId?: string;
+} {
+  const specsValue = obj.specs ?? obj.specifications ?? obj.caracteristiques ?? obj.details ?? obj.features;
+  const imageValue =
+    obj.image ??
+    obj.image_url ??
+    obj.imageUrl ??
+    obj.picture_url ??
+    obj.photo_url ??
+    obj.photo ??
+    obj.thumbnail_url ??
+    obj.images;
+  const videoValue = obj.videoUrl ?? obj.video_url ?? obj.youtubeUrl ?? obj.youtube_url ?? obj.video;
+  const stockStatusValue =
+    obj.stockStatus ??
+    obj.stock_status ??
+    obj.statut_stock ??
+    (obj.inStock !== undefined ? obj.inStock : obj.in_stock);
+  const publishedValue =
+    obj.isDraft === true || obj.isDraft === 'true'
+      ? 'non'
+      : obj.isPublished !== undefined
+      ? obj.isPublished
+      : obj.is_published !== undefined
+      ? obj.is_published
+      : obj.publie;
+
+  const mapped: Partial<Record<ProductCsvHeader, string>> = {
+    ref: stringifyJsonField(obj.ref ?? obj.reference ?? obj.sku ?? obj.code ?? obj.product_code),
+    nom: stringifyJsonField(obj.name ?? obj.nom ?? obj.title ?? obj.titre ?? obj.product_name ?? obj.nom_produit),
+    marque: stringifyJsonField(obj.brand ?? obj.marque ?? obj.manufacturer ?? obj.fabricant),
+    description: stringifyJsonField(obj.description ?? obj.desc ?? obj.summary ?? obj.short_description),
+    prix: stringifyJsonField(obj.price ?? obj.prix ?? obj.unit_price ?? obj.montant ?? obj.prix_unitaire),
+    ancien_prix: stringifyJsonField(obj.oldPrice ?? obj.old_price ?? obj.ancien_prix ?? obj.compare_at_price),
+    categorie: stringifyJsonField(
+      obj.categoryLabel ?? obj.category_label ?? obj.categorie_label ?? obj.category ?? obj.categorie
+    ),
+    sous_categorie: stringifyJsonField(
+      obj.subGroupLabel ?? obj.sub_group_label ?? obj.subGroup ?? obj.sub_group ?? obj.sous_categorie ?? obj.sub_category
+    ),
+    boutique: stringifyJsonField(
+      obj.domain ??
+        obj.boutique ??
+        obj.boutique_id ??
+        obj.shop ??
+        obj.store ??
+        obj.domaine ??
+        obj.category ??
+        obj.categorie
+    ),
+    stock: stringifyJsonField(obj.stock ?? obj.stock_quantity ?? obj.quantity ?? obj.qty),
+    statut_stock: stringifyJsonField(stockStatusValue),
+    image_url: Array.isArray(imageValue) ? stringifyJsonField(imageValue[0]) : stringifyJsonField(imageValue),
+    video_url: stringifyJsonField(videoValue),
+    caracteristiques: stringifyJsonField(specsValue),
+    publie: stringifyJsonField(publishedValue),
+    promo: stringifyJsonField(obj.isPromo ?? obj.is_promo ?? obj.promo),
+    nouveaute: stringifyJsonField(obj.isNew ?? obj.isNewArrival ?? obj.is_new ?? obj.nouveaute),
+    vente_flash: stringifyJsonField(obj.isFlashSale ?? obj.is_flash_sale ?? obj.vente_flash),
+    accueil: stringifyJsonField(obj.isFeaturedOnHome ?? obj.is_featured_on_home ?? obj.accueil)
+  };
+
+  const preferredId = typeof obj.id === 'string' && obj.id.trim() ? obj.id.trim() : undefined;
+  return { mapped, preferredId };
 }
 
 export function parseAndValidateProductsCsv(
@@ -855,18 +988,34 @@ export function parseAndValidateProductsCsv(
     };
   });
 
-  const boutiqueSource: CsvImportParseResult['boutiqueSource'] = hasExplicitBoutiqueCol
-    ? 'explicit_column'
-    : usedCategoryFallbackForBoutique
-    ? 'category_fallback'
-    : hasSubCategorieCol || options?.defaultDomain
-    ? 'deduced_or_default'
-    : 'none';
-
   const hasNomCol = columnMappings.some((m) => m.mappedField === 'nom');
   const hasPrixCol = columnMappings.some((m) => m.mappedField === 'prix');
+  const payloadColIdx =
+    !hasNomCol && !hasPrixCol
+      ? parsedHeaders.findIndex((h) => PAYLOAD_JSON_HEADER_KEYS.has(h.cleanedKey))
+      : -1;
 
-  if (!hasNomCol || !hasPrixCol) {
+  if (payloadColIdx !== -1) {
+    columnMappings[payloadColIdx] = {
+      index: payloadColIdx,
+      sourceHeader: rawHeaders[payloadColIdx],
+      mappedField: 'payload_json',
+      matchType: 'deduced_fallback'
+    };
+  }
+
+  const boutiqueSource: CsvImportParseResult['boutiqueSource'] =
+    payloadColIdx !== -1
+      ? 'payload_json'
+      : hasExplicitBoutiqueCol
+      ? 'explicit_column'
+      : usedCategoryFallbackForBoutique
+      ? 'category_fallback'
+      : hasSubCategorieCol || options?.defaultDomain
+      ? 'deduced_or_default'
+      : 'none';
+
+  if (payloadColIdx === -1 && (!hasNomCol || !hasPrixCol)) {
     const missing: string[] = [];
     if (!hasNomCol) missing.push('nom (ou name / title / product_name)');
     if (!hasPrixCol) missing.push('prix (ou price / montant / unit_price)');
@@ -900,7 +1049,11 @@ export function parseAndValidateProductsCsv(
   }
 
   const existingByRef = new Map<string, Product>();
+  const existingById = new Map<string, Product>();
   for (const prod of existingProducts) {
+    if (prod.id) {
+      existingById.set(prod.id.trim(), prod);
+    }
     if (prod.ref) {
       existingByRef.set(prod.ref.trim().toLowerCase(), prod);
     }
@@ -910,28 +1063,14 @@ export function parseAndValidateProductsCsv(
   const previewRows: CsvPreviewRow[] = [];
   const validProducts: Product[] = [];
 
-  for (let i = 1; i < matrix.length; i++) {
-    const rawCells = matrix[i];
-    const lineNumber = i + 1;
-    const mapped: Partial<Record<ProductCsvHeader, string>> = {};
-    const rawDisplay: Record<string, string> = {};
-
-    for (let colIdx = 0; colIdx < rawHeaders.length; colIdx++) {
-      const cellValue = (rawCells[colIdx] ?? '').trim();
-      const rawKey = rawHeaders[colIdx] || `col_${colIdx + 1}`;
-      rawDisplay[rawKey] = cellValue;
-      const mapping = columnMappings[colIdx];
-      if (mapping?.mappedField && (!mapped[mapping.mappedField] || mapped[mapping.mappedField] === '')) {
-        mapped[mapping.mappedField] = cellValue;
-      }
-      if (
-        mapping?.secondaryMappedField &&
-        (!mapped[mapping.secondaryMappedField] || mapped[mapping.secondaryMappedField] === '')
-      ) {
-        mapped[mapping.secondaryMappedField] = cellValue;
-      }
-    }
-
+  const validateAndPushMappedItem = (
+    itemIndex: number,
+    lineNumber: number,
+    mapped: Partial<Record<ProductCsvHeader, string>>,
+    rawDisplay: Record<string, string>,
+    preferredId?: string,
+    isFromPayloadJson = false
+  ) => {
     const errors: string[] = [];
     const name = (mapped.nom || '').trim();
     if (!name) {
@@ -966,7 +1105,7 @@ export function parseAndValidateProductsCsv(
     let parsedDomain: 'electronique' | 'electrotechnique' | 'informatique' | null = null;
     if (rawBoutique) {
       parsedDomain = parseShopDomain(rawBoutique);
-      if (!parsedDomain && usedCategoryFallbackForBoutique) {
+      if (!parsedDomain && (usedCategoryFallbackForBoutique || isFromPayloadJson)) {
         parsedDomain = deduceDomainFromGroupValue(rawBoutique, domainGroups);
       }
       if (!parsedDomain) {
@@ -984,7 +1123,7 @@ export function parseAndValidateProductsCsv(
         null;
       if (!parsedDomain) {
         errors.push(
-          hasCategorieCol || hasExplicitBoutiqueCol
+          hasCategorieCol || hasExplicitBoutiqueCol || isFromPayloadJson
             ? 'Champ obligatoire manquant : boutique'
             : 'Boutique manquante ou non déductible (ajoutez une colonne boutique/category ou choisissez une boutique par défaut)'
         );
@@ -1028,7 +1167,9 @@ export function parseAndValidateProductsCsv(
       }
     }
 
-    const matchedExisting = rawRef ? existingByRef.get(rawRef.toLowerCase()) : undefined;
+    const matchedExisting =
+      (rawRef ? existingByRef.get(rawRef.toLowerCase()) : undefined) ||
+      (preferredId ? existingById.get(preferredId) : undefined);
 
     if (errors.length > 0 || !parsedDomain || parsedPrice === null) {
       previewRows.push({
@@ -1039,7 +1180,7 @@ export function parseAndValidateProductsCsv(
         isValid: false,
         matchedExistingId: matchedExisting?.id
       });
-      continue;
+      return;
     }
 
     const defaultGroups =
@@ -1098,12 +1239,16 @@ export function parseAndValidateProductsCsv(
     const isFlashSale = parseCsvBoolean(mapped.vente_flash || '', false);
     const isFeaturedOnHome = parseCsvBoolean(mapped.accueil || '', false);
 
+    const safePreferredId =
+      preferredId && /^[a-zA-Z0-9#._:-]{1,120}$/.test(preferredId) && !preferredId.includes('..')
+        ? preferredId
+        : undefined;
     const generatedId =
-      matchedExisting?.id || `prod-${Date.now()}-${i}-${Math.floor(100 + Math.random() * 900)}`;
+      matchedExisting?.id || safePreferredId || `prod-${Date.now()}-${itemIndex}-${Math.floor(100 + Math.random() * 900)}`;
     const effectiveRef =
       rawRef ||
       matchedExisting?.ref ||
-      `ELM-${Date.now().toString().slice(-5)}-${String(i).padStart(2, '0')}`;
+      `ELM-${Date.now().toString().slice(-5)}-${String(itemIndex).padStart(2, '0')}`;
 
     const product: Product = {
       id: generatedId,
@@ -1146,6 +1291,108 @@ export function parseAndValidateProductsCsv(
       matchedExistingId: matchedExisting?.id,
       product
     });
+  };
+
+  if (payloadColIdx !== -1) {
+    let extractedIndex = 0;
+    for (let i = 1; i < matrix.length; i++) {
+      const rawCells = matrix[i];
+      const csvLineNumber = i + 1;
+      const rawPayloadCell = (rawCells[payloadColIdx] ?? '').trim();
+      if (!rawPayloadCell) continue;
+
+      try {
+        const parsed = parseJsonPayloadCell(rawPayloadCell);
+        const records = extractRecordsFromPayloadValue(parsed);
+        if (!records) {
+          previewRows.push({
+            lineNumber: csvLineNumber,
+            raw: { [rawHeaders[payloadColIdx]]: rawPayloadCell.slice(0, 120) },
+            mappedRaw: {},
+            errors: ['Structure JSON non reconnue dans la colonne payload (tableau de produits attendu)'],
+            isValid: false
+          });
+          continue;
+        }
+        for (const rec of records) {
+          extractedIndex += 1;
+          const { mapped, preferredId } = mapJsonRecordToCsvFields(rec);
+          const displayLineNumber = matrix.length === 2 ? extractedIndex : csvLineNumber;
+          validateAndPushMappedItem(
+            extractedIndex,
+            displayLineNumber,
+            mapped,
+            { ...mapped } as Record<string, string>,
+            preferredId,
+            true
+          );
+        }
+      } catch {
+        previewRows.push({
+          lineNumber: csvLineNumber,
+          raw: { [rawHeaders[payloadColIdx]]: rawPayloadCell.slice(0, 120) },
+          mappedRaw: {},
+          errors: ['JSON invalide dans la colonne payload'],
+          isValid: false
+        });
+      }
+    }
+
+    if (previewRows.length === 0) {
+      return {
+        detectedEncoding: decoded.encoding,
+        detectedDelimiter,
+        headers: rawHeaders,
+        columnMappings,
+        boutiqueSource,
+        rows: [],
+        validProducts: [],
+        validCount: 0,
+        errorCount: 0,
+        fileError: 'La colonne JSON payload ne contient aucun produit.'
+      };
+    }
+
+    return {
+      detectedEncoding: decoded.encoding,
+      detectedDelimiter,
+      headers: rawHeaders,
+      columnMappings,
+      boutiqueSource,
+      rows: previewRows,
+      validProducts,
+      validCount: validProducts.length,
+      errorCount: previewRows.length - validProducts.length
+    };
+  }
+
+  for (let i = 1; i < matrix.length; i++) {
+    const rawCells = matrix[i];
+    const lineNumber = i + 1;
+    const mapped: Partial<Record<ProductCsvHeader, string>> = {};
+    const rawDisplay: Record<string, string> = {};
+
+    for (let colIdx = 0; colIdx < rawHeaders.length; colIdx++) {
+      const cellValue = (rawCells[colIdx] ?? '').trim();
+      const rawKey = rawHeaders[colIdx] || `col_${colIdx + 1}`;
+      rawDisplay[rawKey] = cellValue;
+      const mapping = columnMappings[colIdx];
+      if (
+        mapping?.mappedField &&
+        mapping.mappedField !== 'payload_json' &&
+        (!mapped[mapping.mappedField] || mapped[mapping.mappedField] === '')
+      ) {
+        mapped[mapping.mappedField] = cellValue;
+      }
+      if (
+        mapping?.secondaryMappedField &&
+        (!mapped[mapping.secondaryMappedField] || mapped[mapping.secondaryMappedField] === '')
+      ) {
+        mapped[mapping.secondaryMappedField] = cellValue;
+      }
+    }
+
+    validateAndPushMappedItem(i, lineNumber, mapped, rawDisplay, undefined, false);
   }
 
   return {

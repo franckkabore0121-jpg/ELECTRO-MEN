@@ -3208,13 +3208,13 @@ app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Re
 
     const cleanDescription =
       raw.description !== undefined
-        ? sanitizePlainText(raw.description, { maxLength: 2000, allowNewlines: true })
+        ? sanitizePlainText(raw.description, { maxLength: 5000, allowNewlines: true })
         : '';
     if (cleanDescription === null) {
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : description invalide.` });
     }
 
-    const cleanImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 10000) : '';
+    const cleanImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 500000) : '';
     if (cleanImage === null) {
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : URL d’image invalide.` });
     }
