@@ -1851,6 +1851,38 @@ export default function App() {
     }
   };
 
+  const handleAdminImportProducts = async (
+    items: Product[],
+    options: { upsertByRef: boolean; filename: string }
+  ): Promise<{ createdCount: number; updatedCount: number }> => {
+    const res = await fetch('/api/admin/products/bulk-csv', {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache'
+      },
+      body: JSON.stringify({
+        products: items,
+        upsertByRef: options.upsertByRef,
+        filename: options.filename
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'L’importation CSV des produits a été refusée par le serveur.');
+    }
+    if (Array.isArray(data.products)) {
+      setProducts(data.products);
+    }
+    return {
+      createdCount: Number(data.createdCount || 0),
+      updatedCount: Number(data.updatedCount || 0)
+    };
+  };
+
   const handleAdminUpdateCourse = async (updated: Course) => {
     const previous = courses;
     setCourses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
@@ -3298,6 +3330,7 @@ export default function App() {
             onUpdateProduct={handleAdminUpdateProduct}
             onAddProduct={handleAdminAddProduct}
             onDeleteProduct={handleAdminDeleteProduct}
+            onImportProducts={handleAdminImportProducts}
             courses={courses}
             onUpdateCourse={handleAdminUpdateCourse}
             onAddCourse={handleAdminAddCourse}

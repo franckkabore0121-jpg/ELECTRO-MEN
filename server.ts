@@ -3130,7 +3130,224 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
   products.unshift(newProd);
   await writeJson(PRODUCTS_FILE, products);
   await addServerAuditLog(admin.name, 'create_product', `Ajout du produit "${newProd.name}" (${newProd.ref})`, 'product', String(newProd.id));
+  broadcastDataChanged('products');
   res.status(201).json({ success: true, product: newProd });
+}));
+
+app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const admin = await requireAdminPermission(req, res, 'manage_products');
+  if (!admin) return;
+
+  const rawList = Array.isArray(req.body?.products) ? req.body.products : null;
+  if (!rawList || rawList.length === 0) {
+    return res.status(400).json({ success: false, error: 'Aucun produit valide fourni pour l’import CSV.' });
+  }
+  if (rawList.length > 1000) {
+    return res.status(400).json({ success: false, error: 'L’import CSV est limité à 1000 produits par lot.' });
+  }
+
+  const upsertByRef = req.body?.upsertByRef !== false;
+  const cleanFilename = sanitizePlainText(req.body?.filename, { maxLength: 160 }) || 'import.csv';
+
+  const existingProducts = await readJson<any[]>(PRODUCTS_FILE, []);
+  const nextProducts = [...existingProducts];
+  const indexById = new Map<string, number>();
+  const indexByRef = new Map<string, number>();
+  const usedIds = new Set<string>();
+
+  nextProducts.forEach((item, idx) => {
+    if (item && typeof item === 'object') {
+      if (typeof item.id === 'string' && item.id.trim()) {
+        indexById.set(item.id.trim(), idx);
+        usedIds.add(item.id.trim());
+      }
+      if (typeof item.ref === 'string' && item.ref.trim()) {
+        indexByRef.set(item.ref.trim().toLowerCase(), idx);
+      }
+    }
+  });
+
+  const newItems: Record<string, unknown>[] = [];
+  const importedProducts: Record<string, unknown>[] = [];
+  let createdCount = 0;
+  let updatedCount = 0;
+  const nowIso = new Date().toISOString();
+
+  for (let i = 0; i < rawList.length; i += 1) {
+    const raw = rawList[i];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} : structure produit invalide.` });
+    }
+
+    const cleanName = sanitizePlainText(raw.name, { minLength: 1, maxLength: 160, required: true });
+    if (!cleanName) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} : nom de produit valide requis.` });
+    }
+
+    const cleanPrice = validateSafeNonNegativeInt(raw.price, { max: 500_000_000 });
+    if (cleanPrice === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : prix invalide.` });
+    }
+
+    const cleanOldPrice =
+      raw.oldPrice !== undefined && raw.oldPrice !== null && raw.oldPrice !== ''
+        ? validateSafeNonNegativeInt(raw.oldPrice, { max: 500_000_000 })
+        : undefined;
+    if (raw.oldPrice !== undefined && raw.oldPrice !== null && raw.oldPrice !== '' && cleanOldPrice === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : ancien prix invalide.` });
+    }
+
+    const cleanStock =
+      raw.stock !== undefined && raw.stock !== null && raw.stock !== ''
+        ? validateSafeNonNegativeInt(raw.stock, { max: 1_000_000 })
+        : 0;
+    if (cleanStock === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : quantité de stock invalide.` });
+    }
+
+    const cleanDescription =
+      raw.description !== undefined
+        ? sanitizePlainText(raw.description, { maxLength: 2000, allowNewlines: true })
+        : '';
+    if (cleanDescription === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : description invalide.` });
+    }
+
+    const cleanImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 10000) : '';
+    if (cleanImage === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : URL d’image invalide.` });
+    }
+
+    const cleanVideo = raw.videoUrl !== undefined && raw.videoUrl !== '' ? validateSafeUrlOrPath(raw.videoUrl, 2048) : '';
+    if (cleanVideo === null) {
+      return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : URL vidéo invalide.` });
+    }
+
+    const cleanBrand = sanitizePlainText(raw.brand, { maxLength: 120 }) || undefined;
+    const cleanRefInput = sanitizePlainText(raw.ref, { maxLength: 60 }) || '';
+    const cleanCategory = sanitizePlainText(raw.category, { maxLength: 120 }) || 'electronique';
+    const cleanCategoryLabel = sanitizePlainText(raw.categoryLabel, { maxLength: 160 }) || undefined;
+    const cleanSubGroup = sanitizePlainText(raw.subGroup, { maxLength: 120 }) || undefined;
+    const cleanSubGroupLabel = sanitizePlainText(raw.subGroupLabel, { maxLength: 160 }) || undefined;
+    const cleanSpecs = Array.isArray(raw.specs)
+      ? raw.specs
+          .map((s: unknown) => sanitizePlainText(s, { maxLength: 240 }))
+          .filter((s: string | null): s is string => Boolean(s))
+      : [];
+    const cleanDetails = Array.isArray(raw.details)
+      ? raw.details
+          .map((s: unknown) => sanitizePlainText(s, { maxLength: 240 }))
+          .filter((s: string | null): s is string => Boolean(s))
+      : cleanSpecs;
+
+    const cleanStockStatus =
+      raw.stockStatus === 'out_of_stock' || raw.stockStatus === 'on_order' || raw.stockStatus === 'in_stock'
+        ? raw.stockStatus
+        : cleanStock > 0
+        ? 'in_stock'
+        : 'out_of_stock';
+    const normalizedStock = cleanStockStatus === 'out_of_stock' ? 0 : cleanStock;
+    const cleanInStock = cleanStockStatus === 'in_stock' && normalizedStock > 0;
+    const isDraft = raw.isDraft === true || raw.isDraft === 'true';
+    const isPublished = raw.isPublished === false || raw.isPublished === 'false' ? false : !isDraft;
+
+    let existingIdx: number | undefined;
+    if (upsertByRef) {
+      if (typeof raw.id === 'string' && validateSafeId(raw.id) && indexById.has(raw.id.trim())) {
+        existingIdx = indexById.get(raw.id.trim());
+      } else if (cleanRefInput && indexByRef.has(cleanRefInput.toLowerCase())) {
+        existingIdx = indexByRef.get(cleanRefInput.toLowerCase());
+      }
+    }
+
+    const basePayload: Record<string, unknown> = {
+      name: cleanName,
+      ...(cleanBrand ? { brand: cleanBrand } : {}),
+      ref: cleanRefInput || `ELM-CSV-${Date.now().toString().slice(-5)}-${i + 1}`,
+      domain: raw.domain,
+      category: cleanCategory,
+      ...(cleanCategoryLabel ? { categoryLabel: cleanCategoryLabel } : {}),
+      ...(cleanSubGroup ? { subGroup: cleanSubGroup } : {}),
+      ...(cleanSubGroupLabel ? { subGroupLabel: cleanSubGroupLabel } : {}),
+      price: cleanPrice,
+      ...(cleanOldPrice !== undefined && cleanOldPrice !== null && cleanOldPrice > 0 ? { oldPrice: cleanOldPrice } : {}),
+      stock: normalizedStock,
+      stockStatus: cleanStockStatus,
+      inStock: cleanInStock,
+      description: cleanDescription,
+      specs: cleanSpecs,
+      details: cleanDetails,
+      hasRealPhoto: Boolean(cleanImage),
+      ...(cleanImage ? { image: cleanImage } : {}),
+      ...(cleanVideo ? { videoUrl: cleanVideo } : {}),
+      isPublished,
+      isDraft,
+      isPromo: Boolean(raw.isPromo || (cleanOldPrice !== undefined && cleanOldPrice !== null && cleanOldPrice > cleanPrice)),
+      isNew: Boolean(raw.isNew || raw.isNewArrival),
+      isNewArrival: Boolean(raw.isNewArrival || raw.isNew),
+      isFlashSale: Boolean(raw.isFlashSale),
+      isFeaturedOnHome: Boolean(raw.isFeaturedOnHome)
+    };
+
+    if (existingIdx !== undefined) {
+      const current = nextProducts[existingIdx] || {};
+      const merged = normalizeProductRecord({
+        ...current,
+        ...basePayload,
+        id: current.id,
+        ref: cleanRefInput || current.ref,
+        createdAt: current.createdAt || nowIso,
+        updatedAt: nowIso
+      }) || {
+        ...current,
+        ...basePayload,
+        id: current.id,
+        updatedAt: nowIso
+      };
+      nextProducts[existingIdx] = merged;
+      importedProducts.push(merged);
+      updatedCount += 1;
+    } else {
+      const safeId =
+        (typeof raw.id === 'string' && !usedIds.has(raw.id.trim()) && validateSafeId(raw.id)) ||
+        `prod-csv-${Date.now()}-${i}-${Math.floor(100 + Math.random() * 900)}`;
+      const created = normalizeProductRecord({
+        ...basePayload,
+        id: safeId,
+        createdAt: nowIso
+      }) || {
+        ...basePayload,
+        id: safeId,
+        createdAt: nowIso
+      };
+      newItems.push(created);
+      importedProducts.push(created);
+      createdCount += 1;
+      if (typeof created.id === 'string') {
+        usedIds.add(created.id);
+      }
+    }
+  }
+
+  const finalProducts = [...newItems, ...nextProducts];
+  await writeJson(PRODUCTS_FILE, finalProducts);
+  await addServerAuditLog(
+    admin.name,
+    'import_products_csv',
+    `Import CSV (${cleanFilename}) : ${createdCount} créé(s), ${updatedCount} mis à jour`,
+    'product'
+  );
+  broadcastDataChanged('products');
+
+  res.status(200).json({
+    success: true,
+    createdCount,
+    updatedCount,
+    importedCount: importedProducts.length,
+    importedProducts,
+    products: finalProducts
+  });
 }));
 
 app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
@@ -3172,6 +3389,7 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
     const newProd = normalizeProductRecord({ ...normalizedUpdate, id }) || { ...normalizedUpdate, id };
     products.push(newProd);
     await writeJson(PRODUCTS_FILE, products);
+    broadcastDataChanged('products');
     return res.json({ success: true, product: newProd });
   }
 
@@ -3182,6 +3400,7 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
   };
   await writeJson(PRODUCTS_FILE, products);
   await addServerAuditLog(admin.name, 'update_product', `Modification du produit "${products[idx].name}" (${products[idx].ref})`, 'product', id);
+  broadcastDataChanged('products');
   res.json({ success: true, product: products[idx] });
 }));
 
@@ -3204,6 +3423,7 @@ app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Respo
     throw error;
   }
   await addServerAuditLog(admin.name, 'archive_product', `Archivage du produit "${target.name}" (${target.ref})`, 'product', id);
+  broadcastDataChanged('products');
   res.json({ success: true, deletedId: id, message: 'Produit déplacé dans la corbeille.' });
 }));
 

@@ -31,7 +31,9 @@ import {
   ShareAllocation
 } from './ScreenBourseIR.tsx';
 import { ExportProductsModal } from './ExportProductsModal.tsx';
+import { ImportProductsCsvModal } from './ImportProductsCsvModal.tsx';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
+import { exportProductsToCsv } from '../utils/csvProducts.ts';
 import {
   ADMIN_PERMISSION_DEFINITIONS,
   ALL_ADMIN_PERMISSIONS,
@@ -97,6 +99,10 @@ export interface AdminPageProps {
   onUpdateProduct: (p: Product) => void | Promise<void>;
   onAddProduct: (p: Product) => void | Promise<void>;
   onDeleteProduct: (id: string) => void;
+  onImportProducts?: (
+    items: Product[],
+    options: { upsertByRef: boolean; filename: string }
+  ) => Promise<{ createdCount: number; updatedCount: number }>;
 
   courses: Course[];
   onUpdateCourse: (c: Course) => void;
@@ -225,6 +231,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onUpdateProduct,
   onAddProduct,
   onDeleteProduct,
+  onImportProducts,
   courses,
   onUpdateCourse,
   onAddCourse,
@@ -554,6 +561,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   // Product Preview modal before publish
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [isExportProductsOpen, setIsExportProductsOpen] = useState<boolean>(false);
+  const [isImportCsvOpen, setIsImportCsvOpen] = useState<boolean>(false);
+  const [csvImportFeedback, setCsvImportFeedback] = useState<string | null>(null);
 
   // Course add/edit form state
   const [isAddCourseOpen, setIsAddCourseOpen] = useState(false);
@@ -3569,6 +3578,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </form>
           )}
 
+          {csvImportFeedback && (
+            <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-900 font-semibold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base text-emerald-600">check_circle</span>
+                <span>{csvImportFeedback}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCsvImportFeedback(null)}
+                className="text-emerald-700 hover:text-emerald-950 cursor-pointer"
+                aria-label="Fermer la notification d'import CSV"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+          )}
+
           {/* Table des Produits du Catalogue avec Filtres d'État de Disponibilité */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
@@ -3588,7 +3614,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </span>
                 </div>
 
-                <div className="ml-auto sm:ml-2 flex items-center gap-1.5">
+                <div className="ml-auto sm:ml-2 flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -3602,7 +3628,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       });
                     }}
                     disabled={(productStockFilter === 'all' ? products.length : filteredCatalogProducts.length) === 0}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95"
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95 whitespace-nowrap shrink-0"
                     title="Télécharger directement un fichier tableau Excel (.xlsx) prêt à envoyer à un client"
                   >
                     <span className="material-symbols-outlined text-sm font-bold">table_view</span>
@@ -3610,9 +3636,39 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      const isFiltered = productStockFilter !== 'all';
+                      const target = isFiltered ? filteredCatalogProducts : products;
+                      if (target.length === 0) return;
+                      exportProductsToCsv(
+                        target,
+                        `ELECTRO-MEN_Catalogue_${isFiltered ? 'Filtre_' : ''}${today}.csv`
+                      );
+                    }}
+                    disabled={(productStockFilter === 'all' ? products.length : filteredCatalogProducts.length) === 0}
+                    className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95 whitespace-nowrap shrink-0"
+                    title="Exporter les produits en fichier CSV UTF-8 avec BOM (séparateur ;)"
+                  >
+                    <span className="material-symbols-outlined text-sm font-bold">csv</span>
+                    <span>Exporter CSV</span>
+                  </button>
+                  {hasPerm('manage_products') && onImportProducts && (
+                    <button
+                      type="button"
+                      onClick={() => setIsImportCsvOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95 whitespace-nowrap shrink-0"
+                      title="Importer des produits depuis un fichier CSV vers PostgreSQL"
+                    >
+                      <span className="material-symbols-outlined text-sm font-bold text-amber-400">upload_file</span>
+                      <span>Importer CSV</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
                     onClick={() => setIsExportProductsOpen(true)}
-                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs border border-amber-400 active:scale-95"
-                    title="Exporter les produits du catalogue pour envoyer à un client (PDF, Devis, WhatsApp, Excel .xlsx)"
+                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs border border-amber-400 active:scale-95 whitespace-nowrap shrink-0"
+                    title="Exporter les produits du catalogue pour envoyer à un client (PDF, Devis, WhatsApp, Excel .xlsx, CSV)"
                   >
                     <span className="material-symbols-outlined text-sm font-bold">ios_share</span>
                     <span>Exporter pour un Client</span>
@@ -9317,6 +9373,30 @@ Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap
         products={products}
         currentFilteredProducts={filteredCatalogProducts}
       />
+
+      {/* Modal Importation CSV Produits */}
+      {onImportProducts && (
+        <ImportProductsCsvModal
+          isOpen={isImportCsvOpen}
+          onClose={() => setIsImportCsvOpen(false)}
+          existingProducts={products}
+          domainGroups={domainGroups}
+          onConfirmImport={async (items, options) => {
+            const result = await onImportProducts(items, options);
+            setCsvImportFeedback(
+              `Import CSV réussi (${options.filename}) : ${result.createdCount} créé(s), ${result.updatedCount} mis à jour dans PostgreSQL.`
+            );
+            onAddAuditLog({
+              author: currentAdminName,
+              date: new Date().toLocaleDateString('fr-FR'),
+              actionType: 'import_products_csv',
+              description: `Import CSV (${options.filename}) : ${result.createdCount} créé(s), ${result.updatedCount} mis à jour`,
+              entityType: 'product'
+            });
+            return result;
+          }}
+        />
+      )}
     </div>
   );
 };

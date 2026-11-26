@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product } from '../data/mockData.ts';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
+import { exportProductsToCsv } from '../utils/csvProducts.ts';
 
 export interface ExportProductsModalProps {
   isOpen: boolean;
@@ -217,6 +218,30 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
     });
 
     showToast(`Fichier Excel (.xlsx) généré (${itemsToExport.length} produit(s)) !`);
+  };
+
+  const handleExportCsv = (scope: 'selected' | 'all' | 'filtered') => {
+    const itemsToExport =
+      scope === 'all'
+        ? products
+        : scope === 'filtered' && currentFilteredProducts && currentFilteredProducts.length > 0
+        ? currentFilteredProducts
+        : targetExportProducts;
+
+    if (itemsToExport.length === 0) {
+      alert('Veuillez sélectionner au moins un produit à exporter.');
+      return;
+    }
+
+    const cleanDate = new Date().toISOString().slice(0, 10);
+    const scopeSuffix =
+      scope === 'all'
+        ? 'catalogue-complet'
+        : scope === 'filtered'
+        ? 'produits-filtres'
+        : selectedBoutique;
+    exportProductsToCsv(itemsToExport, `ELECTRO-MEN_Catalogue_${scopeSuffix}_${cleanDate}.csv`);
+    showToast(`Fichier CSV UTF-8 généré (${itemsToExport.length} produit(s)) !`);
   };
 
   const handlePrint = () => {
@@ -676,6 +701,17 @@ export const ExportProductsModal: React.FC<ExportProductsModalProps> = ({
                 <span>Tout le catalogue (.xlsx)</span>
               </button>
             )}
+
+            {/* Bouton Exporter Sélection en CSV (.csv UTF-8 BOM ;) */}
+            <button
+              type="button"
+              onClick={() => handleExportCsv('selected')}
+              className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              title="Télécharger un fichier CSV UTF-8 avec BOM (séparateur ;) compatible Microsoft Excel"
+            >
+              <span className="material-symbols-outlined text-base">csv</span>
+              <span>CSV (.csv) · Sélection ({targetExportProducts.length})</span>
+            </button>
 
             {/* Bouton Copier le Descriptif */}
             <button
