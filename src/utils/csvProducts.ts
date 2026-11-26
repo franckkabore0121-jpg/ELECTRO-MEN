@@ -294,31 +294,92 @@ const HEADER_ALIAS_MAP: Record<string, ProductCsvHeader> = {
   ref: 'ref',
   reference: 'ref',
   code: 'ref',
+  code_produit: 'ref',
+  product_code: 'ref',
+  product_ref: 'ref',
+  ref_produit: 'ref',
   sku: 'ref',
+  part_number: 'ref',
+  numero_piece: 'ref',
+
   nom: 'nom',
   name: 'nom',
-  nom_du_produit: 'nom',
-  nom_produit: 'nom',
-  produit: 'nom',
   title: 'nom',
   titre: 'nom',
+  product_name: 'nom',
+  nom_produit: 'nom',
+  nom_du_produit: 'nom',
+  produit: 'nom',
+  product: 'nom',
+  product_title: 'nom',
+  titre_produit: 'nom',
+  libelle: 'nom',
+  designation: 'nom',
+  item_name: 'nom',
+
   marque: 'marque',
   brand: 'marque',
+  brand_name: 'marque',
+  nom_marque: 'marque',
   fabricant: 'marque',
+  manufacturer: 'marque',
+  maker: 'marque',
+  vendor: 'marque',
+  fournisseur: 'marque',
+
   description: 'description',
   desc: 'description',
+  product_description: 'description',
+  description_produit: 'description',
+  short_description: 'description',
+  description_courte: 'description',
+  details_description: 'description',
+  summary: 'description',
+  resume: 'description',
+  body: 'description',
+  content: 'description',
+  contenu: 'description',
+
   prix: 'prix',
   price: 'prix',
+  montant: 'prix',
+  unit_price: 'prix',
+  prix_unitaire: 'prix',
+  amount: 'prix',
   prix_fcfa: 'prix',
   prix_vente: 'prix',
+  selling_price: 'prix',
+  sale_price: 'prix',
+  tarif: 'prix',
+  cost: 'prix',
+  cout: 'prix',
+
   ancien_prix: 'ancien_prix',
   old_price: 'ancien_prix',
   oldprice: 'ancien_prix',
   prix_barre: 'ancien_prix',
+  original_price: 'ancien_prix',
+  prix_original: 'ancien_prix',
+  compare_at_price: 'ancien_prix',
+  prix_avant_promo: 'ancien_prix',
+  regular_price: 'ancien_prix',
+  prix_normal: 'ancien_prix',
+  list_price: 'ancien_prix',
+
   categorie: 'categorie',
   category: 'categorie',
+  category_name: 'categorie',
+  categorie_name: 'categorie',
   categorylabel: 'categorie',
   categorie_label: 'categorie',
+  category_label: 'categorie',
+  category_id: 'categorie',
+  famille: 'categorie',
+  family: 'categorie',
+  groupe: 'categorie',
+  group: 'categorie',
+  group_label: 'categorie',
+
   sous_categorie: 'sous_categorie',
   souscategorie: 'sous_categorie',
   sub_category: 'sous_categorie',
@@ -326,96 +387,274 @@ const HEADER_ALIAS_MAP: Record<string, ProductCsvHeader> = {
   subgroup: 'sous_categorie',
   sub_group: 'sous_categorie',
   sous_groupe: 'sous_categorie',
+  sub_category_name: 'sous_categorie',
+  sous_categorie_label: 'sous_categorie',
+  sub_group_label: 'sous_categorie',
+  type: 'sous_categorie',
+  product_type: 'sous_categorie',
+
   boutique: 'boutique',
+  boutique_id: 'boutique',
+  boutique_name: 'boutique',
+  nom_boutique: 'boutique',
+  shop: 'boutique',
+  shop_id: 'boutique',
+  shop_name: 'boutique',
+  store: 'boutique',
+  store_id: 'boutique',
+  store_name: 'boutique',
   domain: 'boutique',
   domaine: 'boutique',
   rayon: 'boutique',
-  shop: 'boutique',
+  secteur: 'boutique',
+  sector: 'boutique',
+  department: 'boutique',
+  departement: 'boutique',
+
   stock: 'stock',
+  stock_quantity: 'stock',
+  stock_qty: 'stock',
   quantite: 'stock',
   quantite_en_stock: 'stock',
+  quantite_stock: 'stock',
   qty: 'stock',
   quantity: 'stock',
+  inventory: 'stock',
+  inventaire: 'stock',
+  available_quantity: 'stock',
+  nb_stock: 'stock',
+  count: 'stock',
+
   statut_stock: 'statut_stock',
   stock_status: 'statut_stock',
   stockstatus: 'statut_stock',
   disponibilite: 'statut_stock',
+  availability: 'statut_stock',
+  status: 'statut_stock',
+  statut: 'statut_stock',
+  etat_stock: 'statut_stock',
+  in_stock: 'statut_stock',
+  instock: 'statut_stock',
+  en_stock: 'statut_stock',
+  available: 'statut_stock',
+  disponible: 'statut_stock',
+
   image_url: 'image_url',
   image: 'image_url',
+  imageurl: 'image_url',
+  images: 'image_url',
+  img: 'image_url',
+  img_url: 'image_url',
   photo_url: 'image_url',
   photo: 'image_url',
+  photos: 'image_url',
+  picture: 'image_url',
+  picture_url: 'image_url',
+  thumbnail: 'image_url',
+  thumbnail_url: 'image_url',
+  cover: 'image_url',
+  cover_url: 'image_url',
+  media_url: 'image_url',
   url_image: 'image_url',
+  image_link: 'image_url',
+
   video_url: 'video_url',
   video: 'video_url',
+  videourl: 'video_url',
   youtube_url: 'video_url',
+  youtube: 'video_url',
+  url_video: 'video_url',
+  video_link: 'video_url',
+
   caracteristiques: 'caracteristiques',
   caracteristiques_techniques: 'caracteristiques',
   specs: 'caracteristiques',
+  specifications: 'caracteristiques',
   details: 'caracteristiques',
+  features: 'caracteristiques',
+  attributs: 'caracteristiques',
+  attributes: 'caracteristiques',
+  proprietes: 'caracteristiques',
+  properties: 'caracteristiques',
+  technical_specs: 'caracteristiques',
+  fiche_technique: 'caracteristiques',
+
   publie: 'publie',
   published: 'publie',
   is_published: 'publie',
   ispublished: 'publie',
+  active: 'publie',
+  is_active: 'publie',
+  actif: 'publie',
+  visible: 'publie',
+  is_visible: 'publie',
+  en_ligne: 'publie',
+  online: 'publie',
+
   promo: 'promo',
   is_promo: 'promo',
   ispromo: 'promo',
+  promotion: 'promo',
+  on_sale: 'promo',
+  en_promo: 'promo',
+  discount: 'promo',
+  is_discounted: 'promo',
+
   nouveaute: 'nouveaute',
   nouveau: 'nouveaute',
   is_new: 'nouveaute',
   isnew: 'nouveaute',
+  is_new_arrival: 'nouveaute',
+  new_arrival: 'nouveaute',
+  new: 'nouveaute',
+
   vente_flash: 'vente_flash',
   flash_sale: 'vente_flash',
   is_flash_sale: 'vente_flash',
   isflashsale: 'vente_flash',
+  flash: 'vente_flash',
+
   accueil: 'accueil',
   featured: 'accueil',
   is_featured: 'accueil',
-  is_featured_on_home: 'accueil'
+  is_featured_on_home: 'accueil',
+  isfeatured: 'accueil',
+  home: 'accueil',
+  en_vedette: 'accueil',
+  vedette: 'accueil',
+  highlight: 'accueil'
 };
 
-function canonicalizeHeader(rawHeader: string): ProductCsvHeader | null {
-  const cleaned = normalizeToken(rawHeader)
-    .replace(/[\s\-()/]+/g, '_')
+function canonicalizeHeader(rawHeader: string): {
+  canonical: ProductCsvHeader | null;
+  cleanedKey: string;
+} {
+  const camelSplit = rawHeader.replace(/([a-z0-9\u00C0-\u024F])([A-Z])/g, '$1_$2');
+  const cleanedKey = normalizeToken(camelSplit)
+    .replace(/[\s.\-()/]+/g, '_')
+    .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
-  return HEADER_ALIAS_MAP[cleaned] || null;
+  return {
+    canonical: HEADER_ALIAS_MAP[cleanedKey] || null,
+    cleanedKey
+  };
 }
 
-function parseShopDomain(
+export function parseShopDomain(
   rawValue: string
 ): 'electronique' | 'electrotechnique' | 'informatique' | null {
-  const norm = normalizeToken(rawValue);
+  const norm = normalizeToken(rawValue).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!norm) return null;
+
   if (
     norm === 'electrotechnique' ||
+    norm === 'electrotechniques' ||
     norm.includes('electrotech') ||
-    norm.includes('puissance')
+    norm.includes('electro tech') ||
+    norm.includes('puissance') ||
+    norm.includes('appareillage') ||
+    norm.includes('haute tension') ||
+    norm.includes('basse tension') ||
+    norm === 'industrial' ||
+    norm === 'industriel'
   ) {
     return 'electrotechnique';
   }
+
   if (
     norm === 'informatique' ||
+    norm === 'informatiques' ||
     norm === 'info' ||
+    norm === 'it' ||
     norm.includes('informatique') ||
-    norm.includes('reseau')
+    norm.includes('reseau') ||
+    norm.includes('ordinateur') ||
+    norm.includes('serveur') ||
+    norm.includes('peripherique') ||
+    norm.includes('computer') ||
+    norm.includes('network') ||
+    norm.includes('hardware') ||
+    norm.includes('bureautique')
   ) {
     return 'informatique';
   }
+
   if (
     norm === 'electronique' ||
+    norm === 'electroniques' ||
+    norm === 'electro' ||
     norm.includes('electroniq') ||
-    norm.includes('composant')
+    norm.includes('electronic') ||
+    norm.includes('electromenager') ||
+    norm.includes('electro menager') ||
+    norm.includes('appliance') ||
+    norm.includes('composant') ||
+    norm.includes('component') ||
+    norm.includes('microcontroleur') ||
+    norm.includes('capteur') ||
+    norm === 'iot'
   ) {
     return 'electronique';
+  }
+
+  return null;
+}
+
+function deduceDomainFromGroupValue(
+  rawValue: string,
+  domainGroups?: Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>
+): 'electronique' | 'electrotechnique' | 'informatique' | null {
+  const norm = normalizeToken(rawValue);
+  if (!norm) return null;
+
+  const sets: Array<{
+    domain: 'electronique' | 'electrotechnique' | 'informatique';
+    groups: CategoryGroup[];
+  }> = [
+    { domain: 'informatique', groups: domainGroups?.informatique || INFORMATIQUE_GROUPS },
+    { domain: 'electrotechnique', groups: domainGroups?.electrotechnique || ELECTROTECHNIQUE_GROUPS },
+    { domain: 'electronique', groups: domainGroups?.electronique || ELECTRONIQUE_GROUPS }
+  ];
+
+  for (const entry of sets) {
+    for (const group of entry.groups) {
+      if (group.id === 'all') continue;
+      if (normalizeToken(group.id) === norm || normalizeToken(group.label) === norm) {
+        return entry.domain;
+      }
+    }
   }
   return null;
 }
 
 function parseNumericInteger(rawValue: string): number | null {
-  const cleaned = rawValue
+  let cleaned = rawValue
     .trim()
-    .replace(/fcfa|xof|cfa/gi, '')
-    .replace(/[\s\u00A0\u202F]/g, '')
-    .replace(',', '.');
+    .replace(/fcfa|xof|cfa|eur|€|\$/gi, '')
+    .replace(/[\s\u00A0\u202F]/g, '');
+  if (!cleaned) return null;
+
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+
+  if (hasComma && hasDot) {
+    if (cleaned.lastIndexOf(',') < cleaned.lastIndexOf('.')) {
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    }
+  } else if (hasComma) {
+    if (/^-?\d{1,3}(,\d{3})+$/.test(cleaned)) {
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      cleaned = cleaned.replace(',', '.');
+    }
+  } else if (hasDot) {
+    if (/^-?\d{1,3}(\.\d{3}){2,}$/.test(cleaned)) {
+      cleaned = cleaned.replace(/\./g, '');
+    }
+  }
+
   if (!cleaned || !/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
   const num = Number(cleaned);
   if (!Number.isFinite(num) || num < 0) return null;
@@ -431,12 +670,73 @@ function parseCsvBoolean(rawValue: string, fallback: boolean): boolean {
 }
 
 function parseCsvStockStatus(rawValue: string): ProductStockStatus | null {
-  const norm = normalizeToken(rawValue);
+  const norm = normalizeToken(rawValue).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!norm) return null;
-  if (norm === 'in_stock' || norm.includes('en stock') || norm === 'disponible') return 'in_stock';
-  if (norm === 'out_of_stock' || norm.includes('rupture') || norm === 'epuise') return 'out_of_stock';
-  if (norm === 'on_order' || norm.includes('commande')) return 'on_order';
+  if (
+    norm === 'in stock' ||
+    norm.includes('en stock') ||
+    ['disponible', 'available', 'stock', 'true', 'oui', 'yes', '1', 'vrai'].includes(norm)
+  ) {
+    return 'in_stock';
+  }
+  if (
+    norm === 'out of stock' ||
+    norm.includes('rupture') ||
+    norm.includes('sold out') ||
+    ['epuise', 'indisponible', 'unavailable', 'false', 'non', 'no', '0', 'faux'].includes(norm)
+  ) {
+    return 'out_of_stock';
+  }
+  if (
+    norm === 'on order' ||
+    norm.includes('commande') ||
+    ['preorder', 'pre order', 'backorder'].includes(norm)
+  ) {
+    return 'on_order';
+  }
   return null;
+}
+
+function extractFirstImageUrl(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const first = parsed.find((item) => typeof item === 'string' && item.trim());
+        if (typeof first === 'string') return first.trim();
+      }
+    } catch {
+      // Fallback to raw string validation
+    }
+  }
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    const inner = trimmed.slice(1, -1).split(',')[0]?.replace(/^"+|"+$/g, '').trim();
+    if (inner) return inner;
+  }
+  return trimmed;
+}
+
+function extractSpecsList(rawValue: string): string[] {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+          .filter(Boolean);
+      }
+    } catch {
+      // Fallback to delimiter split
+    }
+  }
+  return trimmed
+    .split(/\s*\|\s*|\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function isValidImageOrVideoUrl(url: string, allowDataImage: boolean): boolean {
@@ -453,9 +753,18 @@ function isValidImageOrVideoUrl(url: string, allowDataImage: boolean): boolean {
   }
 }
 
+export interface CsvColumnMapping {
+  index: number;
+  sourceHeader: string;
+  mappedField: ProductCsvHeader | null;
+  secondaryMappedField?: ProductCsvHeader;
+  matchType: 'exact' | 'alias' | 'deduced_fallback' | 'ignored';
+}
+
 export interface CsvPreviewRow {
   lineNumber: number;
   raw: Record<string, string>;
+  mappedRaw: Partial<Record<ProductCsvHeader, string>>;
   errors: string[];
   isValid: boolean;
   matchedExistingId?: string;
@@ -466,6 +775,8 @@ export interface CsvImportParseResult {
   detectedEncoding: DetectedCsvEncoding;
   detectedDelimiter: ';' | ',';
   headers: string[];
+  columnMappings: CsvColumnMapping[];
+  boutiqueSource: 'explicit_column' | 'category_fallback' | 'deduced_or_default' | 'none';
   rows: CsvPreviewRow[];
   validProducts: Product[];
   validCount: number;
@@ -476,7 +787,10 @@ export interface CsvImportParseResult {
 export function parseAndValidateProductsCsv(
   input: string | ArrayBuffer,
   existingProducts: Product[] = [],
-  domainGroups?: Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>
+  domainGroups?: Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>,
+  options?: {
+    defaultDomain?: 'electronique' | 'electrotechnique' | 'informatique';
+  }
 ): CsvImportParseResult {
   const decoded =
     typeof input === 'string'
@@ -494,6 +808,8 @@ export function parseAndValidateProductsCsv(
       detectedEncoding: decoded.encoding,
       detectedDelimiter,
       headers: [],
+      columnMappings: [],
+      boutiqueSource: 'none',
       rows: [],
       validProducts: [],
       validCount: 0,
@@ -503,22 +819,68 @@ export function parseAndValidateProductsCsv(
   }
 
   const rawHeaders = matrix[0].map((h) => h.trim());
-  const mappedHeaders = rawHeaders.map(canonicalizeHeader);
+  const parsedHeaders = rawHeaders.map(canonicalizeHeader);
+  const hasExplicitBoutiqueCol = parsedHeaders.some((h) => h.canonical === 'boutique');
+  const hasCategorieCol = parsedHeaders.some((h) => h.canonical === 'categorie');
+  const hasSubCategorieCol = parsedHeaders.some((h) => h.canonical === 'sous_categorie');
 
-  if (!mappedHeaders.includes('nom') || !mappedHeaders.includes('prix') || !mappedHeaders.includes('boutique')) {
+  let usedCategoryFallbackForBoutique = false;
+  const columnMappings: CsvColumnMapping[] = rawHeaders.map((sourceHeader, index) => {
+    const { canonical, cleanedKey } = parsedHeaders[index];
+    if (!canonical) {
+      return {
+        index,
+        sourceHeader,
+        mappedField: null,
+        matchType: 'ignored'
+      };
+    }
+
+    if (!hasExplicitBoutiqueCol && canonical === 'categorie' && !usedCategoryFallbackForBoutique) {
+      usedCategoryFallbackForBoutique = true;
+      return {
+        index,
+        sourceHeader,
+        mappedField: 'boutique',
+        secondaryMappedField: 'categorie',
+        matchType: 'deduced_fallback'
+      };
+    }
+
+    return {
+      index,
+      sourceHeader,
+      mappedField: canonical,
+      matchType: cleanedKey === canonical ? 'exact' : 'alias'
+    };
+  });
+
+  const boutiqueSource: CsvImportParseResult['boutiqueSource'] = hasExplicitBoutiqueCol
+    ? 'explicit_column'
+    : usedCategoryFallbackForBoutique
+    ? 'category_fallback'
+    : hasSubCategorieCol || options?.defaultDomain
+    ? 'deduced_or_default'
+    : 'none';
+
+  const hasNomCol = columnMappings.some((m) => m.mappedField === 'nom');
+  const hasPrixCol = columnMappings.some((m) => m.mappedField === 'prix');
+
+  if (!hasNomCol || !hasPrixCol) {
     const missing: string[] = [];
-    if (!mappedHeaders.includes('nom')) missing.push('nom');
-    if (!mappedHeaders.includes('prix')) missing.push('prix');
-    if (!mappedHeaders.includes('boutique')) missing.push('boutique');
+    if (!hasNomCol) missing.push('nom (ou name / title / product_name)');
+    if (!hasPrixCol) missing.push('prix (ou price / montant / unit_price)');
     return {
       detectedEncoding: decoded.encoding,
       detectedDelimiter,
       headers: rawHeaders,
+      columnMappings,
+      boutiqueSource,
       rows: [],
       validProducts: [],
       validCount: 0,
       errorCount: 0,
-      fileError: `Colonnes obligatoires manquantes dans l'en-tête CSV : ${missing.join(', ')}. Utilisez le modèle CSV officiel.`
+      fileError: `Colonnes obligatoires manquantes dans l'en-tête CSV : ${missing.join(', ')}.`
     };
   }
 
@@ -527,6 +889,8 @@ export function parseAndValidateProductsCsv(
       detectedEncoding: decoded.encoding,
       detectedDelimiter,
       headers: rawHeaders,
+      columnMappings,
+      boutiqueSource,
       rows: [],
       validProducts: [],
       validCount: 0,
@@ -556,9 +920,15 @@ export function parseAndValidateProductsCsv(
       const cellValue = (rawCells[colIdx] ?? '').trim();
       const rawKey = rawHeaders[colIdx] || `col_${colIdx + 1}`;
       rawDisplay[rawKey] = cellValue;
-      const canonical = mappedHeaders[colIdx];
-      if (canonical && !(canonical in mapped)) {
-        mapped[canonical] = cellValue;
+      const mapping = columnMappings[colIdx];
+      if (mapping?.mappedField && (!mapped[mapping.mappedField] || mapped[mapping.mappedField] === '')) {
+        mapped[mapping.mappedField] = cellValue;
+      }
+      if (
+        mapping?.secondaryMappedField &&
+        (!mapped[mapping.secondaryMappedField] || mapped[mapping.secondaryMappedField] === '')
+      ) {
+        mapped[mapping.secondaryMappedField] = cellValue;
       }
     }
 
@@ -590,11 +960,35 @@ export function parseAndValidateProductsCsv(
     }
 
     const rawBoutique = (mapped.boutique || '').trim();
-    const parsedDomain = parseShopDomain(rawBoutique);
-    if (!rawBoutique) {
-      errors.push('Champ obligatoire manquant : boutique');
-    } else if (!parsedDomain) {
-      errors.push(`Boutique inconnue ("${rawBoutique}"). Attendu : electronique, electrotechnique ou informatique`);
+    const rawCategory = (mapped.categorie || '').trim();
+    const rawSubCategory = (mapped.sous_categorie || '').trim();
+
+    let parsedDomain: 'electronique' | 'electrotechnique' | 'informatique' | null = null;
+    if (rawBoutique) {
+      parsedDomain = parseShopDomain(rawBoutique);
+      if (!parsedDomain && usedCategoryFallbackForBoutique) {
+        parsedDomain = deduceDomainFromGroupValue(rawBoutique, domainGroups);
+      }
+      if (!parsedDomain) {
+        errors.push(
+          `Boutique inconnue ("${rawBoutique}"). Attendu : electronique, electrotechnique ou informatique`
+        );
+      }
+    } else {
+      parsedDomain =
+        parseShopDomain(rawCategory) ||
+        parseShopDomain(rawSubCategory) ||
+        deduceDomainFromGroupValue(rawCategory, domainGroups) ||
+        deduceDomainFromGroupValue(rawSubCategory, domainGroups) ||
+        options?.defaultDomain ||
+        null;
+      if (!parsedDomain) {
+        errors.push(
+          hasCategorieCol || hasExplicitBoutiqueCol
+            ? 'Champ obligatoire manquant : boutique'
+            : 'Boutique manquante ou non déductible (ajoutez une colonne boutique/category ou choisissez une boutique par défaut)'
+        );
+      }
     }
 
     const rawStock = (mapped.stock || '').trim();
@@ -614,7 +1008,7 @@ export function parseAndValidateProductsCsv(
       errors.push(`Statut de stock invalide ("${rawStockStatus}")`);
     }
 
-    const imageUrl = (mapped.image_url || '').trim();
+    const imageUrl = extractFirstImageUrl(mapped.image_url || '');
     if (imageUrl && !isValidImageOrVideoUrl(imageUrl, true)) {
       errors.push('URL image invalide (https://, http:// ou /chemin requis)');
     }
@@ -640,6 +1034,7 @@ export function parseAndValidateProductsCsv(
       previewRows.push({
         lineNumber,
         raw: rawDisplay,
+        mappedRaw: mapped,
         errors,
         isValid: false,
         matchedExistingId: matchedExisting?.id
@@ -655,9 +1050,6 @@ export function parseAndValidateProductsCsv(
         : domainGroups?.electronique || ELECTRONIQUE_GROUPS;
     const selectableGroups = defaultGroups.filter((g) => g.id !== 'all');
 
-    const rawCategory = (mapped.categorie || '').trim();
-    const rawSubCategory = (mapped.sous_categorie || '').trim();
-
     const matchedGroup =
       selectableGroups.find(
         (g) =>
@@ -672,11 +1064,18 @@ export function parseAndValidateProductsCsv(
 
     const effectiveSubGroup = matchedGroup?.id || rawSubCategory || selectableGroups[0]?.id || 'general';
     const effectiveCategoryLabel =
-      rawCategory || matchedGroup?.label || (parsedDomain === 'informatique' ? 'Informatique' : parsedDomain === 'electrotechnique' ? 'Électrotechnique' : 'Électronique');
+      rawCategory ||
+      matchedGroup?.label ||
+      (parsedDomain === 'informatique'
+        ? 'Informatique'
+        : parsedDomain === 'electrotechnique'
+        ? 'Électrotechnique'
+        : 'Électronique');
     const effectiveCategoryId =
       parsedDomain === 'informatique' ? 'informatique' : matchedGroup?.id || rawCategory || 'general';
 
-    let effectiveStockStatus: ProductStockStatus = explicitStockStatus || (parsedStock > 0 ? 'in_stock' : 'out_of_stock');
+    let effectiveStockStatus: ProductStockStatus =
+      explicitStockStatus || (parsedStock > 0 ? 'in_stock' : 'out_of_stock');
     let effectiveStock = parsedStock;
     if (effectiveStockStatus === 'in_stock' && effectiveStock <= 0) {
       effectiveStock = rawStock === '' ? 5 : 0;
@@ -685,13 +1084,11 @@ export function parseAndValidateProductsCsv(
       effectiveStock = 0;
     }
 
-    const rawSpecs = (mapped.caracteristiques || '').trim();
-    const specs = rawSpecs
-      ? rawSpecs
-          .split(/\s*\|\s*|\r?\n/)
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : ['Conforme normes industrielles', 'Garantie officielle ELECTRO-MEN'];
+    const parsedSpecs = extractSpecsList(mapped.caracteristiques || '');
+    const specs =
+      parsedSpecs.length > 0
+        ? parsedSpecs
+        : ['Conforme normes industrielles', 'Garantie officielle ELECTRO-MEN'];
 
     const isPublished = parseCsvBoolean(mapped.publie || '', true);
     const isPromo =
@@ -743,6 +1140,7 @@ export function parseAndValidateProductsCsv(
     previewRows.push({
       lineNumber,
       raw: rawDisplay,
+      mappedRaw: mapped,
       errors: [],
       isValid: true,
       matchedExistingId: matchedExisting?.id,
@@ -754,6 +1152,8 @@ export function parseAndValidateProductsCsv(
     detectedEncoding: decoded.encoding,
     detectedDelimiter,
     headers: rawHeaders,
+    columnMappings,
+    boutiqueSource,
     rows: previewRows,
     validProducts,
     validCount: validProducts.length,

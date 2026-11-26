@@ -98,4 +98,81 @@ describe('csvProducts utility', () => {
     expect(decoded.encoding).toBe('UTF-8 BOM');
     expect(decoded.text.startsWith('nom;prix;boutique')).toBe(true);
   });
+
+  it('accepts Supabase export headers and normalizes shop categories automatically', () => {
+    const supabaseCsv = [
+      'id,Product Name,Unit Price,Catégorie,stock_quantity,in_stock,picture_url,created_at',
+      'uuid-1,"Fer à souder 60W","4,500",Électronique,12,true,https://cdn.supabase.co/fer.jpg,2026-01-01',
+      'uuid-2,"Mixeur Pro 800W",32000,Électroménager,5,true,https://cdn.supabase.co/mixeur.jpg,2026-01-02',
+      'uuid-3,"Switch 24 Ports",85000,Informatique,0,false,,2026-01-03',
+      'uuid-4,"Variateur ABB 5kW",190000,Électrotechnique,3,true,,2026-01-04',
+      'uuid-5,"Article sans prix","",Électronique,2,true,,2026-01-05'
+    ].join('\n');
+
+    const result = parseAndValidateProductsCsv(supabaseCsv);
+    expect(result.fileError).toBeUndefined();
+    expect(result.validCount).toBe(4);
+    expect(result.errorCount).toBe(1);
+
+    expect(result.columnMappings).toEqual([
+      { index: 0, sourceHeader: 'id', mappedField: null, matchType: 'ignored' },
+      { index: 1, sourceHeader: 'Product Name', mappedField: 'nom', matchType: 'alias' },
+      { index: 2, sourceHeader: 'Unit Price', mappedField: 'prix', matchType: 'alias' },
+      {
+        index: 3,
+        sourceHeader: 'Catégorie',
+        mappedField: 'boutique',
+        secondaryMappedField: 'categorie',
+        matchType: 'deduced_fallback'
+      },
+      { index: 4, sourceHeader: 'stock_quantity', mappedField: 'stock', matchType: 'alias' },
+      { index: 5, sourceHeader: 'in_stock', mappedField: 'statut_stock', matchType: 'alias' },
+      { index: 6, sourceHeader: 'picture_url', mappedField: 'image_url', matchType: 'alias' },
+      { index: 7, sourceHeader: 'created_at', mappedField: null, matchType: 'ignored' }
+    ]);
+
+    expect(result.validProducts[0].domain).toBe('electronique');
+    expect(result.validProducts[0].price).toBe(4500);
+    expect(result.validProducts[1].domain).toBe('electronique');
+    expect(result.validProducts[1].categoryLabel).toBe('Électroménager');
+    expect(result.validProducts[2].domain).toBe('informatique');
+    expect(result.validProducts[2].stockStatus).toBe('out_of_stock');
+    expect(result.validProducts[3].domain).toBe('electrotechnique');
+
+    expect(result.rows[4].isValid).toBe(false);
+    expect(result.rows[4].mappedRaw.nom).toBe('Article sans prix');
+    expect(result.rows[4].errors).toContain('Champ obligatoire manquant : prix');
+  });
+
+  it('supports boutique_id, title, montant, and deduces boutique from sub-category or defaultDomain', () => {
+    const csvWithBoutiqueId = [
+      'titre;montant;boutique_id;category;specs',
+      'Oscilloscope 100MHz;145000;electroniques;Mesure;"[""100MHz"",""2 canaux""]"'
+    ].join('\n');
+
+    const res1 = parseAndValidateProductsCsv(csvWithBoutiqueId);
+    expect(res1.fileError).toBeUndefined();
+    expect(res1.validCount).toBe(1);
+    expect(res1.validProducts[0].domain).toBe('electronique');
+    expect(res1.validProducts[0].categoryLabel).toBe('Mesure');
+    expect(res1.validProducts[0].specs).toEqual(['100MHz', '2 canaux']);
+
+    const csvWithoutBoutiqueCol = [
+      'nom_produit;prix_unitaire;sous_categorie',
+      'Routeur MikroTik;55000;reseau',
+      'Produit générique;12000;'
+    ].join('\n');
+
+    const resDeduced = parseAndValidateProductsCsv(csvWithoutBoutiqueCol);
+    expect(resDeduced.fileError).toBeUndefined();
+    expect(resDeduced.validCount).toBe(1);
+    expect(resDeduced.errorCount).toBe(1);
+    expect(resDeduced.validProducts[0].domain).toBe('informatique');
+
+    const resWithDefault = parseAndValidateProductsCsv(csvWithoutBoutiqueCol, [], undefined, {
+      defaultDomain: 'electrotechnique'
+    });
+    expect(resWithDefault.validCount).toBe(2);
+    expect(resWithDefault.validProducts[1].domain).toBe('electrotechnique');
+  });
 });

@@ -33,12 +33,21 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>('');
   const [rawBuffer, setRawBuffer] = useState<ArrayBuffer | null>(null);
-  const [parseResult, setParseResult] = useState<CsvImportParseResult | null>(null);
+  const [defaultDomain, setDefaultDomain] = useState<
+    'auto' | 'electronique' | 'electrotechnique' | 'informatique'
+  >('auto');
   const [previewFilter, setPreviewFilter] = useState<'all' | 'valid' | 'errors'>('all');
   const [upsertByRef, setUpsertByRef] = useState<boolean>(true);
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+
+  const parseResult = useMemo<CsvImportParseResult | null>(() => {
+    if (!rawBuffer) return null;
+    return parseAndValidateProductsCsv(rawBuffer, existingProducts, domainGroups, {
+      defaultDomain: defaultDomain === 'auto' ? undefined : defaultDomain
+    });
+  }, [rawBuffer, existingProducts, domainGroups, defaultDomain]);
 
   const filteredPreviewRows = useMemo(() => {
     if (!parseResult) return [];
@@ -52,7 +61,7 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
   const resetState = () => {
     setSelectedFileName('');
     setRawBuffer(null);
-    setParseResult(null);
+    setDefaultDomain('auto');
     setPreviewFilter('all');
     setImportError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -72,10 +81,11 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
     }
     try {
       const buffer = await file.arrayBuffer();
-      const parsed = parseAndValidateProductsCsv(buffer, existingProducts, domainGroups);
+      const parsed = parseAndValidateProductsCsv(buffer, existingProducts, domainGroups, {
+        defaultDomain: defaultDomain === 'auto' ? undefined : defaultDomain
+      });
       setSelectedFileName(file.name);
       setRawBuffer(buffer);
-      setParseResult(parsed);
       setPreviewFilter(parsed.errorCount > 0 && parsed.validCount === 0 ? 'errors' : 'all');
     } catch {
       setImportError('Impossible de lire ce fichier CSV.');
@@ -153,12 +163,13 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
         {/* Barre modèle + sélection fichier */}
         <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="text-xs text-slate-600">
-              Colonnes obligatoires :{' '}
-              <span className="font-mono font-bold text-slate-900">nom</span>,{' '}
-              <span className="font-mono font-bold text-slate-900">prix</span>,{' '}
-              <span className="font-mono font-bold text-slate-900">boutique</span>{' '}
-              <span className="text-slate-500">(electronique, electrotechnique, informatique)</span>.
+            <div className="text-xs text-slate-600 space-y-0.5">
+              <div>
+                Colonnes reconnues automatiquement (modèle officiel ou export Supabase) :{' '}
+                <span className="font-mono font-bold text-slate-900">nom/name/title</span>,{' '}
+                <span className="font-mono font-bold text-slate-900">prix/price/montant</span>,{' '}
+                <span className="font-mono font-bold text-slate-900">boutique/category/shop/store</span>.
+              </div>
             </div>
             <button
               type="button"
@@ -245,15 +256,46 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
               </p>
             </div>
           ) : parseResult.fileError ? (
-            <div
-              role="alert"
-              className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-1"
-            >
-              <p className="font-bold flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-base text-rose-600">warning</span>
-                <span>Fichier CSV invalide</span>
-              </p>
-              <p>{parseResult.fileError}</p>
+            <div className="space-y-3">
+              <div
+                role="alert"
+                className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-1"
+              >
+                <p className="font-bold flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-rose-600">warning</span>
+                  <span>Fichier CSV invalide</span>
+                </p>
+                <p>{parseResult.fileError}</p>
+              </div>
+              {parseResult.columnMappings.length > 0 && (
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                  <div className="font-bold text-slate-800">
+                    Association détectée des colonnes du fichier ({parseResult.columnMappings.length}) :
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {parseResult.columnMappings.map((col) => (
+                      <div
+                        key={`${col.index}-${col.sourceHeader}`}
+                        className={`px-2 py-1 rounded-md border text-[11px] inline-flex items-center gap-1.5 ${
+                          col.mappedField
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                            : 'bg-slate-100 border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <span className="font-mono font-semibold">{col.sourceHeader || `col_${col.index + 1}`}</span>
+                        <span>→</span>
+                        <span className="font-bold">
+                          {col.mappedField
+                            ? col.secondaryMappedField
+                              ? `${col.mappedField} + ${col.secondaryMappedField}`
+                              : col.mappedField
+                            : 'ignorée'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -305,6 +347,78 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
                   >
                     Erreurs ({parseResult.errorCount})
                   </button>
+                </div>
+              </div>
+
+              {/* Correspondance automatique des colonnes + boutique par défaut */}
+              <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2.5 text-xs">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base text-cyan-700">view_column</span>
+                    <span>
+                      Correspondance des colonnes ({parseResult.columnMappings.filter((c) => c.mappedField).length}/
+                      {parseResult.columnMappings.length} reconnues)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="csv-default-domain-select"
+                      className="text-[11px] font-semibold text-slate-600 whitespace-nowrap"
+                    >
+                      Boutique par défaut (si absente) :
+                    </label>
+                    <select
+                      id="csv-default-domain-select"
+                      value={defaultDomain}
+                      onChange={(e) =>
+                        setDefaultDomain(
+                          e.target.value as 'auto' | 'electronique' | 'electrotechnique' | 'informatique'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-800"
+                    >
+                      <option value="auto">Déduction automatique</option>
+                      <option value="electronique">Électronique</option>
+                      <option value="electrotechnique">Électrotechnique</option>
+                      <option value="informatique">Informatique</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {parseResult.columnMappings.map((col) => {
+                    const isRequiredField =
+                      col.mappedField === 'nom' ||
+                      col.mappedField === 'prix' ||
+                      col.mappedField === 'boutique';
+                    return (
+                      <div
+                        key={`${col.index}-${col.sourceHeader}`}
+                        className={`px-2 py-1 rounded-md border text-[11px] inline-flex items-center gap-1.5 ${
+                          isRequiredField
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                            : col.mappedField
+                            ? 'bg-cyan-50/70 border-cyan-200 text-cyan-950'
+                            : 'bg-slate-50 border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <span className="font-mono font-semibold">
+                          {col.sourceHeader || `col_${col.index + 1}`}
+                        </span>
+                        <span className="text-slate-400">→</span>
+                        <span className="font-bold">
+                          {col.mappedField
+                            ? col.secondaryMappedField
+                              ? `${col.mappedField} + ${col.secondaryMappedField}`
+                              : col.mappedField
+                            : 'ignorée'}
+                        </span>
+                        {col.matchType === 'deduced_fallback' && (
+                          <span className="text-[10px] font-medium text-emerald-700">(auto)</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -366,31 +480,31 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
                             )}
                           </td>
                           <td className="py-2 px-2.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">
-                            {prod?.ref || row.raw.ref || row.raw.reference || '—'}
+                            {prod?.ref || row.mappedRaw.ref || '—'}
                           </td>
                           <td className="py-2 px-2.5 max-w-[220px]">
                             <div className="font-semibold text-slate-900 truncate">
-                              {prod?.name || row.raw.nom || row.raw.name || '—'}
+                              {prod?.name || row.mappedRaw.nom || '—'}
                             </div>
-                            {(prod?.description || row.raw.description) && (
+                            {(prod?.description || row.mappedRaw.description) && (
                               <div className="text-[10px] text-slate-500 truncate">
-                                {prod?.description || row.raw.description}
+                                {prod?.description || row.mappedRaw.description}
                               </div>
                             )}
                           </td>
                           <td className="py-2 px-2.5 text-[11px] text-slate-700 whitespace-nowrap">
-                            {prod ? DOMAIN_LABELS[prod.domain] : row.raw.boutique || row.raw.domain || '—'}
+                            {prod ? DOMAIN_LABELS[prod.domain] : row.mappedRaw.boutique || row.mappedRaw.categorie || '—'}
                           </td>
                           <td className="py-2 px-2.5 text-[11px] text-slate-600 max-w-[160px] truncate">
-                            {prod?.categoryLabel || row.raw.categorie || row.raw.category || '—'}
+                            {prod?.categoryLabel || row.mappedRaw.categorie || '—'}
                           </td>
                           <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900 tabular-nums whitespace-nowrap">
                             {prod
                               ? `${prod.price.toLocaleString('fr-FR')}`
-                              : row.raw.prix || row.raw.price || '—'}
+                              : row.mappedRaw.prix || '—'}
                           </td>
                           <td className="py-2 px-2.5 text-right font-mono text-[11px] text-slate-700 tabular-nums whitespace-nowrap">
-                            {prod ? prod.stock : row.raw.stock || '0'}
+                            {prod ? prod.stock : row.mappedRaw.stock || '0'}
                           </td>
                         </tr>
                       );
