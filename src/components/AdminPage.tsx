@@ -12,7 +12,6 @@ import {
   WalletTransaction,
   InvestorWallet,
   EmailNotification,
-  DeliveryZone,
   AppNotification,
   FundOperationRequest,
   ProfitDistribution,
@@ -32,11 +31,19 @@ import {
 } from './ScreenBourseIR.tsx';
 import { ExportProductsModal } from './ExportProductsModal.tsx';
 import { ImportProductsCsvModal } from './ImportProductsCsvModal.tsx';
+import { CustomOrderRecord } from './CustomOrderModal.tsx';
 import { exportProductsToXlsx } from '../utils/xlsxExport.ts';
 import { exportProductsToCsv } from '../utils/csvProducts.ts';
 import { formatProductTitle } from '../utils/productFormat.ts';
 import { ProductImage } from './ProductImage.tsx';
 import { useOnlineStatus } from '../utils/pwa.ts';
+import {
+  compressImageDataUrl,
+  compressImageFile,
+  compressImageSourceToFile,
+  estimateDataUrlBytes,
+  isHeavyBase64Image
+} from '../utils/imageCompression.ts';
 import {
   ADMIN_PERMISSION_DEFINITIONS,
   ALL_ADMIN_PERMISSIONS,
@@ -107,6 +114,10 @@ export interface AdminPageProps {
     items: Product[],
     options: { upsertByRef: boolean; filename: string }
   ) => Promise<{ createdCount: number; updatedCount: number }>;
+  onOptimizeImages?: (payload: {
+    updates: Array<{ id: string; image: string }>;
+    boutiques?: Array<{ id: string; logoUrl?: string }>;
+  }) => Promise<{ updatedProductsCount: number; updatedBoutiquesCount: number }>;
 
   courses: Course[];
   onUpdateCourse: (c: Course) => void;
@@ -128,8 +139,13 @@ export interface AdminPageProps {
   transactions: WalletTransaction[];
   emails: EmailNotification[];
 
-  deliveryZones?: DeliveryZone[];
-  onUpdateDeliveryZones?: (zones: DeliveryZone[]) => void;
+  customOrders?: CustomOrderRecord[];
+  onUpdateCustomOrderStatus?: (
+    id: string,
+    status: CustomOrderRecord['status'],
+    adminNote?: string
+  ) => Promise<void> | void;
+  onDeleteCustomOrder?: (id: string) => Promise<void> | void;
 
   appNotifications?: AppNotification[];
   onAddNotification?: (notif: Omit<AppNotification, 'id' | 'timestamp'>) => void;
@@ -137,10 +153,7 @@ export interface AdminPageProps {
   isInvestorChatOpen?: boolean;
   onToggleInvestorChat?: () => void;
   investorMessages?: InvestorMessage[];
-  onSendAdminMessage?: (
-    text: string,
-    voice?: { audioUrl: string; audioDuration?: number }
-  ) => void | Promise<void>;
+  onSendAdminMessage?: (text: string) => void | Promise<void>;
 
   auditLogs: AuditAction[];
   onAddAuditLog: (action: Omit<AuditAction, 'id'>) => void;
@@ -213,6 +226,7 @@ export interface AdminPageProps {
 
   marketplaceBoutiques?: MarketplaceBoutique[];
   onUpdateBoutiqueFlag?: (boutiqueId: string, newFlag: string, countryName?: string) => void;
+  onUpdateBoutiqueLogo?: (boutiqueId: string, logoUrl: string) => void;
 
   onExitAdmin: () => void;
 }
@@ -237,6 +251,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onAddProduct,
   onDeleteProduct,
   onImportProducts,
+  onOptimizeImages,
   courses,
   onUpdateCourse,
   onAddCourse,
@@ -258,8 +273,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onAddAuditLog,
   onRevertAuditAction,
   onRelaunchAuditAction,
-  deliveryZones = [],
-  onUpdateDeliveryZones,
+  customOrders = [],
+  onUpdateCustomOrderStatus,
+  onDeleteCustomOrder,
   appNotifications = [],
   onAddNotification,
   isInvestorChatOpen = true,
@@ -306,11 +322,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onDeleteInvestorDocument,
   marketplaceBoutiques = [],
   onUpdateBoutiqueFlag,
+  onUpdateBoutiqueLogo,
   onExitAdmin
 }) => {
   // Navigation tabs in clean white admin
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'realtime' | 'market' | 'academy' | 'logistique' | 'investors' | 'subscriptions' | 'funds' | 'content' | 'audit' | 'roles' | 'seo' | 'archives'
+    'dashboard' | 'realtime' | 'market' | 'academy' | 'investors' | 'subscriptions' | 'funds' | 'content' | 'audit' | 'roles' | 'archives'
   >('dashboard');
   const isOnline = useOnlineStatus();
   useEffect(() => {
@@ -353,7 +370,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const canViewRealtime = hasPerm('view_realtime');
 
   const allAdminTabs: Array<{
-    id: 'dashboard' | 'realtime' | 'market' | 'academy' | 'logistique' | 'content' | 'investors' | 'subscriptions' | 'funds' | 'roles' | 'archives' | 'seo' | 'audit';
+    id: 'dashboard' | 'realtime' | 'market' | 'academy' | 'content' | 'investors' | 'subscriptions' | 'funds' | 'roles' | 'archives' | 'audit';
     label: string;
     icon: string;
     visible: boolean;
@@ -362,7 +379,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     { id: 'realtime', label: 'En Direct (Temps Réel)', icon: 'sensors', visible: canViewRealtime },
     { id: 'market', label: 'Produits (3 Rayons)', icon: 'inventory_2', visible: hasPerm('manage_products') || hasPerm('delete_products') },
     { id: 'academy', label: 'Formations (3 Domaines)', icon: 'school', visible: hasPerm('manage_courses') || hasPerm('delete_courses') },
-    { id: 'logistique', label: 'Frais Livraison', icon: 'local_shipping', visible: hasPerm('manage_delivery') },
     { id: 'content', label: 'Vidéos & Médias', icon: 'video_settings', visible: hasPerm('manage_content') },
     {
       id: 'investors',
@@ -383,7 +399,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     { id: 'funds', label: 'Dépôts & Retraits', icon: 'account_balance', visible: hasPerm('manage_funds') || hasPerm('manage_wallet_adjust') },
     { id: 'roles', label: 'Rôles & Sécurité', icon: 'key', visible: isPrincipal },
     { id: 'archives', label: 'Corbeille / Archives', icon: 'delete', visible: isPrincipal || hasPerm('view_audit') },
-    { id: 'seo', label: 'Domaine & SEO', icon: 'travel_explore', visible: isPrincipal },
     { id: 'audit', label: 'Journal Audit', icon: 'history', visible: hasPerm('view_audit') }
   ];
   const allowedAdminTabs = allAdminTabs.filter((tab) => tab.visible);
@@ -569,6 +584,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [isExportProductsOpen, setIsExportProductsOpen] = useState<boolean>(false);
   const [isImportCsvOpen, setIsImportCsvOpen] = useState<boolean>(false);
   const [csvImportFeedback, setCsvImportFeedback] = useState<string | null>(null);
+  const [isOptimizingImages, setIsOptimizingImages] = useState<boolean>(false);
+  const [imageOptimizationFeedback, setImageOptimizationFeedback] = useState<string | null>(null);
 
   // Course add/edit form state
   const [isAddCourseOpen, setIsAddCourseOpen] = useState(false);
@@ -587,43 +604,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   ]);
   const [notifyCourseOnPublish, setNotifyCourseOnPublish] = useState(true);
 
-  // Delivery Zone Form
-  const [isAddZoneOpen, setIsAddZoneOpen] = useState(false);
-  const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneFee, setNewZoneFee] = useState(2500);
-  const [newZoneDelay, setNewZoneDelay] = useState('24h à 48h');
-  const [newZoneKeywords, setNewZoneKeywords] = useState('');
-
-  // Investor Chat Admin Message & Voice Note state
+  // Investor Chat Admin Message state & Custom Written Orders state
   const [adminChatText, setAdminChatText] = useState('');
   const [isSendingAdminChat, setIsSendingAdminChat] = useState(false);
-  const [isRecordingAdminVoice, setIsRecordingAdminVoice] = useState(false);
-  const [adminRecordingSeconds, setAdminRecordingSeconds] = useState(0);
-  const [adminVoiceError, setAdminVoiceError] = useState<string | null>(null);
-  const [adminVoiceDraft, setAdminVoiceDraft] = useState<{ audioUrl: string; audioDuration: number } | null>(null);
-  const adminMediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const adminVoiceStreamRef = useRef<MediaStream | null>(null);
-  const adminVoiceChunksRef = useRef<Blob[]>([]);
-  const adminVoiceTimerRef = useRef<number | null>(null);
-  const adminVoiceCancelledRef = useRef(false);
-  const adminVoiceStartRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      if (adminVoiceTimerRef.current !== null) {
-        window.clearInterval(adminVoiceTimerRef.current);
-      }
-      if (adminMediaRecorderRef.current && adminMediaRecorderRef.current.state !== 'inactive') {
-        adminVoiceCancelledRef.current = true;
-        try {
-          adminMediaRecorderRef.current.stop();
-        } catch {}
-      }
-      if (adminVoiceStreamRef.current) {
-        adminVoiceStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
+  const [adminChatError, setAdminChatError] = useState<string | null>(null);
+  const [customOrderFilter, setCustomOrderFilter] = useState<'all' | CustomOrderRecord['status']>('all');
+  const [updatingCustomOrderId, setUpdatingCustomOrderId] = useState<string | null>(null);
 
   // Total reset is authorized by the active administrator session.
   const [isTotalResetModalOpen, setIsTotalResetModalOpen] = useState(false);
@@ -913,13 +899,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const generateProvisionalPassword = (): string => {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-    const array = new Uint32Array(14);
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const array = new Uint32Array(12);
     if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
       crypto.getRandomValues(array);
       return Array.from(array, (n) => alphabet[n % alphabet.length]).join('');
     }
-    return `ELM-${Math.random().toString(36).slice(2, 8)}-${Date.now().toString(36).slice(-4)}!`;
+    return `ELM${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
   };
 
   const handleCreateAndPublishOperation = (e: React.FormEvent) => {
@@ -1093,12 +1079,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     if (!onCreateInvestor || !hasPerm('manage_investors')) return;
     setInvestorCreateError(null);
     setInvestorCreateMessage(null);
-    if (newInvestor.password !== newInvestor.passwordConfirm) {
+    const submittedPassword = newInvestor.password.trim();
+    const submittedPasswordConfirm = newInvestor.passwordConfirm.trim();
+    if (submittedPassword !== submittedPasswordConfirm) {
       setInvestorCreateError('La confirmation du mot de passe ne correspond pas.');
       return;
     }
     const cleanEmail = newInvestor.email.trim().toLowerCase();
-    const submittedPassword = newInvestor.password;
     setIsCreatingInvestor(true);
     try {
       const request = investorProvisioningMode === 'new'
@@ -1262,15 +1249,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  const handleResetInvestorPassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!investorDetail || !onResetInvestorPassword || !hasPerm('manage_investors_password')) return;
+  const saveInvestorPasswordToServer = async (
+    targetInvestorId: string,
+    emailKey: string,
+    rawPassword: string
+  ) => {
+    const submittedPassword = rawPassword.trim();
+    if (submittedPassword.length < 8 || submittedPassword.length > 128) {
+      setInvestorPasswordError('Le mot de passe doit comporter entre 8 et 128 caractères.');
+      return;
+    }
+    if (!onResetInvestorPassword) return;
     setInvestorManagementLoading(true);
     setInvestorPasswordError(null);
     setInvestorPasswordMessage(null);
-    const submittedPassword = investorResetPassword;
-    const targetInvestorId = investorDetail.investor.id;
-    const emailKey = investorDetail.investor.email.trim().toLowerCase();
     try {
       await onResetInvestorPassword(targetInvestorId, submittedPassword);
       setSessionTemporaryPasswords((prev) => ({
@@ -1286,7 +1278,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         [targetInvestorId]: { currentPassword: submittedPassword, loading: false }
       }));
       setRevealedDossierPasswordIds((prev) => ({ ...prev, [targetInvestorId]: true }));
-      setInvestorResetPassword('');
+      setInvestorResetPassword(submittedPassword);
+      setShowResetInvestorPassword(true);
       setInvestorDetail((prev) =>
         prev
           ? {
@@ -1300,12 +1293,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             }
           : prev
       );
-      setInvestorPasswordMessage('Mot de passe enregistré et actif immédiatement pour la connexion de l’investisseur.');
+      setInvestorPasswordMessage('Mot de passe enregistré dans PostgreSQL et actif immédiatement pour la connexion.');
     } catch (error) {
       setInvestorPasswordError(error instanceof Error ? error.message : 'La modification du mot de passe a échoué.');
     } finally {
       setInvestorManagementLoading(false);
     }
+  };
+
+  const handleResetInvestorPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!investorDetail || !onResetInvestorPassword || !hasPerm('manage_investors_password')) return;
+    await saveInvestorPasswordToServer(
+      investorDetail.investor.id,
+      investorDetail.investor.email.trim().toLowerCase(),
+      investorResetPassword
+    );
+  };
+
+  const handleInstantGenerateInvestorPassword = async () => {
+    if (!investorDetail || !onResetInvestorPassword || !hasPerm('manage_investors_password')) return;
+    const generated = generateProvisionalPassword();
+    setInvestorResetPassword(generated);
+    setShowResetInvestorPassword(true);
+    await saveInvestorPasswordToServer(
+      investorDetail.investor.id,
+      investorDetail.investor.email.trim().toLowerCase(),
+      generated
+    );
   };
 
   const handleSaveInvestorSubscription = async (event: React.FormEvent) => {
@@ -1384,65 +1399,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     navigator.clipboard?.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2500);
-  };
-
-  const handleDownloadSitemap = () => {
-    const cleanBase = (siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '');
-    const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${cleanBase}/</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=solutions</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=bourse</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.90</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=boutique_electronique</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.80</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=boutique_electrotechnique</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.80</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=boutique_informatique</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.80</priority>
-  </url>
-  <url>
-    <loc>${cleanBase}/?tab=composants</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.75</priority>
-  </url>
-</urlset>`;
-
-    const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'sitemap.xml';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   // Handle Video URL change
@@ -1661,15 +1617,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
-  // Strict Server-Backed Upload Helper (signed direct upload to Supabase for >3 MB, server upload otherwise)
-  const uploadFileToServer = async (file: File): Promise<string> => {
+  // Strict Server-Backed Upload Helper with automatic WebP Canvas compression (< 75 KB) for images
+  const uploadFileToServer = async (
+    rawFile: File,
+    imageOptions?: { maxWidth?: number; maxHeight?: number; maxSizeBytes?: number }
+  ): Promise<string> => {
     if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
       const msg = 'Mode hors ligne : le téléversement de fichiers nécessite une connexion Internet.';
       setUploadStatus({ isUploading: false, message: msg });
       alert(msg);
       throw new Error(msg);
     }
-    setUploadStatus({ isUploading: true, message: `Téléversement de "${file.name}" en cours...` });
+
+    let file = rawFile;
+    let compressedDataUrl: string | null = null;
+    let compressedKb = Math.max(1, Math.round(rawFile.size / 1024));
+
+    if (rawFile.type.startsWith('image/') && rawFile.type !== 'image/svg+xml') {
+      setUploadStatus({ isUploading: true, message: `Compression WebP de "${rawFile.name}"...` });
+      try {
+        const compressed = await compressImageFile(rawFile, {
+          maxWidth: imageOptions?.maxWidth ?? 800,
+          maxHeight: imageOptions?.maxHeight ?? 800,
+          quality: 0.72,
+          maxSizeBytes: imageOptions?.maxSizeBytes ?? 75 * 1024,
+          preferWebP: true
+        });
+        file = compressed.file;
+        compressedDataUrl = compressed.dataUrl;
+        compressedKb = Math.max(1, Math.round(compressed.sizeBytes / 1024));
+      } catch {
+        // Continue with raw file if browser canvas compression fails
+      }
+    }
+
+    setUploadStatus({
+      isUploading: true,
+      message: `Envoi de "${file.name}" (${compressedKb} Ko)...`
+    });
+
     try {
       if (file.size > 3 * 1024 * 1024) {
         const prepRes = await fetch('/api/upload/signed-url', {
@@ -1693,12 +1679,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
           if (!putRes.ok) {
             throw new Error(`Échec du téléversement direct vers Supabase Storage (HTTP ${putRes.status}).`);
           }
-          setUploadStatus({ isUploading: false, message: 'Fichier enregistré sur Supabase Storage.' });
+          setUploadStatus({
+            isUploading: false,
+            message: `Fichier enregistré sur Supabase Storage (${compressedKb} Ko).`
+          });
           return prepData.publicUrl as string;
         }
       }
 
-      const base64 = await new Promise<string>((resolve, reject) => {
+      const base64 = compressedDataUrl || await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
         reader.onerror = () => reject(new Error('Erreur de lecture du fichier.'));
@@ -1718,13 +1707,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success || !data.url) {
+        // Fallback gracieux uniquement pour les images WebP/JPEG compressées (< 80 Ko) si Supabase Storage n'est pas configuré sur Vercel
+        if (res.status === 503 && compressedDataUrl && (file.size <= 80 * 1024 || compressedDataUrl.length <= 120000)) {
+          setUploadStatus({
+            isUploading: false,
+            message: `Image compressée en WebP (${compressedKb} Ko) prête à être enregistrée.`
+          });
+          return compressedDataUrl;
+        }
         const errMsg = data?.error || `Échec du téléversement serveur (HTTP ${res.status}).`;
         setUploadStatus({ isUploading: false, message: errMsg });
         alert(errMsg);
         throw new Error(errMsg);
       }
 
-      setUploadStatus({ isUploading: false, message: 'Fichier enregistré sur le serveur.' });
+      const storageLabel = data.storage === 'supabase' ? 'Supabase Storage' : 'serveur';
+      setUploadStatus({
+        isUploading: false,
+        message: `Image optimisée (${compressedKb} Ko) enregistrée sur ${storageLabel}.`
+      });
       return data.url as string;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Échec de transmission vers le serveur.';
@@ -1746,11 +1747,102 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
 
     try {
-      const publicUrl = await uploadFileToServer(file);
+      const publicUrl = await uploadFileToServer(file, { maxWidth: 800, maxHeight: 800, maxSizeBytes: 75 * 1024 });
       setNewProdImage(publicUrl);
       setNewProdHasRealPhoto(true);
     } catch {
       // Handled in helper
+    }
+  };
+
+  // Batch maintenance optimizer for existing heavy Base64 product images & boutique logos
+  const handleOptimizeExistingImages = async () => {
+    if (!hasPerm('manage_products')) {
+      alert('Action restreinte : droit de gestion des produits requis.');
+      return;
+    }
+    if (!isOnline || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      alert('Connexion Internet requise pour optimiser et enregistrer les images.');
+      return;
+    }
+    if (isOptimizingImages) return;
+
+    setIsOptimizingImages(true);
+    setImageOptimizationFeedback('Analyse des images existantes en cours...');
+
+    try {
+      const updates: Array<{ id: string; image: string }> = [];
+      const boutiqueUpdates: Array<{ id: string; logoUrl?: string }> = [];
+      let totalSavedBytes = 0;
+
+      for (const prod of products) {
+        if (!prod.image || !isHeavyBase64Image(prod.image, 35 * 1024)) continue;
+        const origBytes = estimateDataUrlBytes(prod.image);
+        const compressed = await compressImageSourceToFile(prod.image, `prod-${prod.id}`, {
+          maxWidth: 760,
+          maxHeight: 760,
+          quality: 0.72,
+          maxSizeBytes: 75 * 1024,
+          preferWebP: true
+        });
+        if (compressed && compressed.sizeBytes > 0 && compressed.sizeBytes < origBytes) {
+          updates.push({ id: prod.id, image: compressed.dataUrl });
+          totalSavedBytes += origBytes - compressed.sizeBytes;
+        }
+      }
+
+      for (const b of marketplaceBoutiques) {
+        if (!b.logoUrl || !isHeavyBase64Image(b.logoUrl, 25 * 1024)) continue;
+        const origBytes = estimateDataUrlBytes(b.logoUrl);
+        const compressed = await compressImageSourceToFile(b.logoUrl, `boutique-${b.id}`, {
+          maxWidth: 400,
+          maxHeight: 400,
+          quality: 0.72,
+          maxSizeBytes: 55 * 1024,
+          preferWebP: true
+        });
+        if (compressed && compressed.sizeBytes > 0 && compressed.sizeBytes < origBytes) {
+          boutiqueUpdates.push({ id: b.id, logoUrl: compressed.dataUrl });
+          totalSavedBytes += origBytes - compressed.sizeBytes;
+        }
+      }
+
+      if (updates.length === 0 && boutiqueUpdates.length === 0) {
+        setImageOptimizationFeedback(
+          'Toutes les images existantes sont déjà légères (WebP < 35 Ko ou URLs externes).'
+        );
+        return;
+      }
+
+      if (onOptimizeImages) {
+        const result = await onOptimizeImages({
+          updates,
+          boutiques: boutiqueUpdates
+        });
+        const savedKb = Math.max(1, Math.round(totalSavedBytes / 1024));
+        setImageOptimizationFeedback(
+          `Optimisation terminée : ${result.updatedProductsCount} produit(s) et ${result.updatedBoutiquesCount} logo(s) convertis en WebP léger (~${savedKb} Ko économisés dans PostgreSQL).`
+        );
+      } else {
+        for (const item of updates) {
+          const target = products.find((p) => p.id === item.id);
+          if (target) {
+            await Promise.resolve(onUpdateProduct({ ...target, image: item.image, hasRealPhoto: true }));
+          }
+        }
+        const savedKb = Math.max(1, Math.round(totalSavedBytes / 1024));
+        setImageOptimizationFeedback(
+          `Optimisation terminée : ${updates.length} image(s) compressée(s) (~${savedKb} Ko économisés).`
+        );
+      }
+    } catch (error) {
+      setImageOptimizationFeedback(
+        error instanceof Error
+          ? error.message
+          : "Erreur lors de l'optimisation des images."
+      );
+    } finally {
+      setIsOptimizingImages(false);
     }
   };
 
@@ -1851,6 +1943,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       effectiveStock = 0;
     }
 
+    let finalProductImage = newProdHasRealPhoto ? newProdImage.trim() : undefined;
+    if (finalProductImage && finalProductImage.startsWith('data:image/')) {
+      finalProductImage = await compressImageDataUrl(finalProductImage, {
+        maxWidth: 800,
+        maxHeight: 800,
+        quality: 0.72,
+        maxSizeBytes: 75 * 1024,
+        preferWebP: true
+      });
+    }
+
     const formattedName = formatProductTitle(newProdName) || newProdName.trim();
     const targetId = editingProductId || `prod-${Date.now()}`;
     const productData: Product = {
@@ -1871,8 +1974,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       details: techSpecs,
       specs: techSpecs,
       // Strict photo policy: only use real photo if provided, else mark hasRealPhoto: false
-      image: newProdHasRealPhoto ? newProdImage : undefined,
-      hasRealPhoto: newProdHasRealPhoto,
+      image: newProdHasRealPhoto ? finalProductImage : undefined,
+      hasRealPhoto: Boolean(newProdHasRealPhoto && finalProductImage),
       videoUrl: newProdVideoUrl.trim() || undefined,
       isPublished: !newProdIsDraft,
       isDraft: newProdIsDraft,
@@ -2324,181 +2427,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     ]);
   };
 
-  // Delivery Zone Creation
-  const handleCreateDeliveryZone = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!hasPerm('manage_delivery')) {
-      alert('Action restreinte : Vous ne disposez pas du droit de gestion de la logistique et livraison.');
-      return;
-    }
-    if (!newZoneName.trim()) return;
-
-    const zoneFee = Number(newZoneFee) || 0;
-    const zoneDelay = newZoneDelay.trim() || '24h à 48h';
-    const zone: DeliveryZone = {
-      id: `zone-${Date.now()}`,
-      name: newZoneName.trim(),
-      tarif: zoneFee,
-      fee: zoneFee,
-      estimatedDelay: zoneDelay,
-      delay: zoneDelay,
-      keywords: newZoneKeywords.split(',').map((k) => k.trim().toLowerCase()).filter(Boolean),
-      isActive: true
-    };
-
-    const nextZones = [...deliveryZones, zone];
-    if (onUpdateDeliveryZones) onUpdateDeliveryZones(nextZones);
-
-    onAddAuditLog({
-      author: currentAdminName,
-      date: new Date().toLocaleString('fr-FR'),
-      actionType: 'create_delivery_zone',
-      description: `Ajout de la zone de livraison "${zone.name}" (${zone.tarif} FCFA)`,
-      entityType: 'delivery',
-      newState: zone
-    });
-
-    setIsAddZoneOpen(false);
-    setNewZoneName('');
-    setNewZoneKeywords('');
-  };
-
-  // Admin Voice Note Recording (WhatsApp-style)
-  const startAdminVoiceRecording = async () => {
-    if (!hasPerm('manage_content') || isRecordingAdminVoice || isSendingAdminChat) return;
-    setAdminVoiceError(null);
-    setAdminVoiceDraft(null);
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setAdminVoiceError('Votre navigateur ne prend pas en charge l’enregistrement audio.');
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      adminVoiceStreamRef.current = stream;
-      const candidateTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-      const chosenType = candidateTypes.find((type) =>
-        typeof MediaRecorder.isTypeSupported === 'function' ? MediaRecorder.isTypeSupported(type) : false
-      );
-      const recorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
-      adminMediaRecorderRef.current = recorder;
-      adminVoiceChunksRef.current = [];
-      adminVoiceCancelledRef.current = false;
-      adminVoiceStartRef.current = Date.now();
-      setAdminRecordingSeconds(0);
-      setIsRecordingAdminVoice(true);
-
-      adminVoiceTimerRef.current = window.setInterval(() => {
-        setAdminRecordingSeconds(Math.max(1, Math.round((Date.now() - adminVoiceStartRef.current) / 1000)));
-      }, 400);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          adminVoiceChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const wasCancelled = adminVoiceCancelledRef.current;
-        const elapsedSec = Math.max(1, Math.round((Date.now() - adminVoiceStartRef.current) / 1000));
-        if (adminVoiceTimerRef.current !== null) {
-          window.clearInterval(adminVoiceTimerRef.current);
-          adminVoiceTimerRef.current = null;
-        }
-        stream.getTracks().forEach((track) => track.stop());
-        adminVoiceStreamRef.current = null;
-        setIsRecordingAdminVoice(false);
-        setAdminRecordingSeconds(0);
-        if (wasCancelled) return;
-
-        const mimeType = recorder.mimeType || chosenType || 'audio/webm';
-        const blob = new Blob(adminVoiceChunksRef.current, { type: mimeType });
-        if (blob.size < 128) {
-          setAdminVoiceError('Enregistrement audio trop court.');
-          return;
-        }
-        setIsSendingAdminChat(true);
-        try {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ''));
-            reader.onerror = () => reject(new Error('Lecture audio impossible.'));
-            reader.readAsDataURL(blob);
-          });
-          const uploadRes = await fetch('/api/messages/voice', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileBase64: dataUrl, mimeType })
-          });
-          const uploadData = await uploadRes.json().catch(() => ({}));
-          if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
-            throw new Error(uploadData.error || 'Échec du téléversement du message vocal.');
-          }
-          setAdminVoiceDraft({
-            audioUrl: uploadData.url,
-            audioDuration: elapsedSec
-          });
-        } catch (err) {
-          setAdminVoiceError(err instanceof Error ? err.message : 'Erreur lors du traitement du vocal.');
-        } finally {
-          setIsSendingAdminChat(false);
-        }
-      };
-
-      recorder.start(250);
-    } catch {
-      setAdminVoiceError('Accès au microphone refusé ou indisponible.');
-      setIsRecordingAdminVoice(false);
-    }
-  };
-
-  const stopAdminVoiceRecording = (cancel = false) => {
-    adminVoiceCancelledRef.current = cancel;
-    if (adminMediaRecorderRef.current && adminMediaRecorderRef.current.state !== 'inactive') {
-      try {
-        adminMediaRecorderRef.current.stop();
-      } catch {}
-    } else if (cancel) {
-      setIsRecordingAdminVoice(false);
-      setAdminRecordingSeconds(0);
-    }
-  };
-
-  const handleSendAdminVoiceDraft = async () => {
-    if (!adminVoiceDraft || !onSendAdminMessage || isSendingAdminChat || !hasPerm('manage_content')) return;
-    setIsSendingAdminChat(true);
-    setAdminVoiceError(null);
-    try {
-      const labelText = adminChatText.trim() || 'Message vocal officiel';
-      await Promise.resolve(onSendAdminMessage(labelText, adminVoiceDraft));
-      setAdminVoiceDraft(null);
-      setAdminChatText('');
-      onAddAuditLog({
-        author: currentAdminName,
-        date: new Date().toLocaleString('fr-FR'),
-        actionType: 'admin_chat_voice',
-        description: `Note vocale officielle envoyée sur l'espace Investisseurs (${adminVoiceDraft.audioDuration}s)`,
-        entityType: 'chat'
-      });
-    } catch (err) {
-      setAdminVoiceError(err instanceof Error ? err.message : 'Envoi du message vocal refusé.');
-    } finally {
-      setIsSendingAdminChat(false);
-    }
-  };
-
-  // Admin writes to Investor Chat (anti-double-send lock)
+  // Admin writes to Investor Chat (text-only, anti-double-send lock)
   const handleSendAdminChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasPerm('manage_content') || isSendingAdminChat || !onSendAdminMessage) return;
-    if (adminVoiceDraft) {
-      await handleSendAdminVoiceDraft();
-      return;
-    }
     if (!adminChatText.trim()) return;
 
     setIsSendingAdminChat(true);
-    setAdminVoiceError(null);
+    setAdminChatError(null);
     try {
       await Promise.resolve(onSendAdminMessage(adminChatText.trim()));
       setAdminChatText('');
@@ -2510,7 +2446,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         entityType: 'chat'
       });
     } catch (err) {
-      setAdminVoiceError(err instanceof Error ? err.message : 'Envoi du message refusé.');
+      setAdminChatError(err instanceof Error ? err.message : 'Envoi du message refusé.');
     } finally {
       setIsSendingAdminChat(false);
     }
@@ -3426,16 +3362,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               </div>
 
-              {/* 4. Gestion de la Photo Réelle (Règle Anti-IA Slop) */}
-              <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
+              {/* 4. Gestion de la Photo Réelle (URL externe prioritaire + Compression WebP auto < 80 Ko) */}
+              <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-slate-900 flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-amber-700 text-sm">photo_camera</span>
-                    <span>Photographie Réelle du Produit (Téléphone / Ordinateur)</span>
+                    <span>Image Produit (URL Externe Légère ou Upload WebP &lt; 80 Ko)</span>
                   </span>
-                  {newProdHasRealPhoto ? (
+                  {newProdHasRealPhoto && newProdImage ? (
                     <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                      ✓ Photo Réelle Fournie
+                      ✓ Photo prête
+                      {newProdImage.startsWith('data:image/')
+                        ? ` (${Math.max(1, Math.round(estimateDataUrlBytes(newProdImage) / 1024))} Ko)`
+                        : ' (URL/Cloud)'}
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
@@ -3444,10 +3383,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   )}
                 </div>
 
+                <div>
+                  <label className="text-[11px] text-slate-700 font-bold block mb-1">
+                    URL d&apos;image externe légère (recommandé : HTTPS / CDN / Supabase Storage)
+                  </label>
+                  <input
+                    type="text"
+                    value={newProdImage}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNewProdImage(val);
+                      setNewProdHasRealPhoto(Boolean(val.trim()));
+                    }}
+                    placeholder="https://cdn.exemple.com/produit.webp ou laissez vide pour importer un fichier..."
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-amber-500"
+                  />
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-center gap-3">
                   <label className="w-full sm:w-auto px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold cursor-pointer border border-slate-300 text-center flex items-center justify-center gap-1.5">
                     <span className="material-symbols-outlined text-sm">upload</span>
-                    <span>Importer la Photo Réelle</span>
+                    <span>Importer &amp; Compresser (WebP &lt; 80 Ko)</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -3473,7 +3429,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           setNewProdImage('');
                           setNewProdHasRealPhoto(false);
                         }}
-                        className="text-[10px] text-red-600 font-bold hover:underline"
+                        className="text-[10px] text-red-600 font-bold hover:underline cursor-pointer"
                       >
                         Retirer la photo
                       </button>
@@ -3481,7 +3437,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   )}
 
                   <p className="text-[10px] text-slate-500 italic">
-                    Conformément aux directives, aucune image illustrative d'IA ne sera affichée. Sans photo réelle, le produit restera marqué « Image à ajouter ».
+                    Toute image uploadée est automatiquement redimensionnée (max 760px) et compressée en WebP léger (&lt; 75 Ko) ou envoyée vers votre stockage cloud pour économiser la bande passante.
                   </p>
                 </div>
               </div>
@@ -3655,6 +3611,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
           )}
 
+          {imageOptimizationFeedback && (
+            <div className="mb-3 rounded-xl bg-cyan-50 border border-cyan-200 px-3.5 py-2.5 text-xs text-cyan-950 font-semibold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base text-cyan-700">compress</span>
+                <span>{imageOptimizationFeedback}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImageOptimizationFeedback(null)}
+                className="text-cyan-700 hover:text-cyan-950 cursor-pointer"
+                aria-label="Fermer la notification d'optimisation d'images"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+          )}
+
           {/* Table des Produits du Catalogue avec Filtres d'État de Disponibilité */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
@@ -3731,6 +3704,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <span className="material-symbols-outlined text-sm font-bold">csv</span>
                     <span>Exporter CSV</span>
                   </button>
+                  {hasPerm('manage_products') && (
+                    <button
+                      type="button"
+                      disabled={isOptimizingImages || products.length === 0}
+                      onClick={() => void handleOptimizeExistingImages()}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-700 hover:bg-cyan-800 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-all shadow-2xs active:scale-95 whitespace-nowrap shrink-0"
+                      title="Compresser toutes les images Base64 existantes en WebP léger (< 75 Ko) pour réduire le poids PostgreSQL"
+                    >
+                      <span className={`material-symbols-outlined text-sm font-bold ${isOptimizingImages ? 'animate-spin' : ''}`}>
+                        {isOptimizingImages ? 'sync' : 'compress'}
+                      </span>
+                      <span>
+                        {isOptimizingImages ? 'Optimisation...' : 'Optimiser les images existantes'}
+                      </span>
+                    </button>
+                  )}
                   {hasPerm('manage_products') && onImportProducts && (
                     <button
                       type="button"
@@ -4315,183 +4304,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </div>
       )}
 
-      {/* =========================================================================
-          TAB: GESTION DES FRAIS DE LIVRAISON SELON LOCALISATION
-          ========================================================================= */}
-      {activeTab === 'logistique' && (
-        <div className="space-y-4 animate-fadeIn">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <h2 className="font-syne text-base sm:text-lg font-bold text-slate-900">
-                Configuration des Frais de Livraison
-              </h2>
-              <p className="text-xs text-slate-500">
-                Définissez les tarifs de transport selon la situation géographique du client.
-              </p>
-            </div>
-            {hasPerm('manage_delivery') && (
-              <button
-                type="button"
-                onClick={() => setIsAddZoneOpen(!isAddZoneOpen)}
-                className="py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
-              >
-                <span className="material-symbols-outlined text-sm">{isAddZoneOpen ? 'close' : 'add'}</span>
-                <span>{isAddZoneOpen ? 'Fermer' : 'Nouvelle Zone'}</span>
-              </button>
-            )}
-          </div>
-
-          {/* Formulaire Zone de Livraison */}
-          {hasPerm('manage_delivery') && isAddZoneOpen && (
-            <form
-              onSubmit={handleCreateDeliveryZone}
-              className="p-4 rounded-2xl bg-slate-50 border-2 border-slate-300 space-y-3 text-xs text-slate-800"
-            >
-              <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-base">local_shipping</span>
-                <span>Ajouter une Zone Géographique</span>
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[11px] text-slate-700 font-bold block mb-1">Nom de la Zone *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newZoneName}
-                    onChange={(e) => setNewZoneName(e.target.value)}
-                    placeholder="Ex: Banfora &amp; Cascades"
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-semibold outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-slate-700 font-bold block mb-1">Tarif de Livraison (FCFA) *</label>
-                  <input
-                    type="number"
-                    required
-                    min={0}
-                    value={newZoneFee}
-                    onChange={(e) => setNewZoneFee(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-bold outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-slate-700 font-bold block mb-1">Délai Estimé</label>
-                  <input
-                    type="text"
-                    value={newZoneDelay}
-                    onChange={(e) => setNewZoneDelay(e.target.value)}
-                    placeholder="Ex: 24h à 48h"
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] text-slate-700 font-bold block mb-1">
-                  Mots-clés de Localité Reconnus (séparés par des virgules)
-                </label>
-                <input
-                  type="text"
-                  value={newZoneKeywords}
-                  onChange={(e) => setNewZoneKeywords(e.target.value)}
-                  placeholder="Ex: banfora, sindou, niangoloko"
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsAddZoneOpen(false)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 font-bold cursor-pointer"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-lg btn-gold-prestige font-bold text-white cursor-pointer shadow-sm"
-                >
-                  Enregistrer la Zone
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Table des zones */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="divide-y divide-slate-100">
-              {deliveryZones.map((zone) => (
-                <div
-                  key={zone.id}
-                  className="p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-xs">{zone.name}</span>
-                      <span className="font-bold text-[#b48c1e] bg-amber-50 px-2 py-0.5 rounded text-xs">
-                        {(zone.fee ?? zone.tarif ?? 0) === 0 ? 'GRATUIT' : `${(zone.fee ?? zone.tarif ?? 0).toLocaleString('fr-FR')} FCFA`}
-                      </span>
-                      {zone.isActive ? (
-                        <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 text-[9px] font-bold">
-                          Désactivée
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Délai : {zone.delay || zone.estimatedDelay || '24h à 48h'} • Mots-clés : {zone.keywords?.join(', ') || 'Tous'}
-                    </div>
-                  </div>
-
-                  {hasPerm('manage_delivery') && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = deliveryZones.map((z) =>
-                            z.id === zone.id ? { ...z, isActive: !z.isActive } : z
-                          );
-                          if (onUpdateDeliveryZones) onUpdateDeliveryZones(updated);
-                        }}
-                        className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] cursor-pointer"
-                      >
-                        {zone.isActive ? 'Désactiver' : 'Activer'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Confirmez-vous la suppression définitive de la zone "${zone.name}" ?`)) {
-                            const updated = deliveryZones.filter((z) => z.id !== zone.id);
-                            if (onUpdateDeliveryZones) onUpdateDeliveryZones(updated);
-                            onAddAuditLog({
-                              author: currentAdminName,
-                              date: new Date().toLocaleString('fr-FR'),
-                              actionType: 'delete_delivery_zone',
-                              description: `Suppression de la zone de livraison "${zone.name}"`,
-                              entityType: 'delivery'
-                            });
-                          }
-                        }}
-                        className="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[11px] cursor-pointer flex items-center gap-0.5"
-                        title="Supprimer cette zone de livraison"
-                      >
-                        <span className="material-symbols-outlined text-xs">delete</span>
-                        <span>Supprimer</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* =========================================================================
           TAB: GESTION DES VIDÉOS & MÉDIAS PUBLICITAIRES
@@ -4544,46 +4356,93 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
               <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
                 {marketplaceBoutiques.map((b) => (
-                  <div key={b.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-2xl shrink-0">{b.flag || '🇧🇫'}</span>
-                      <div className="min-w-0">
-                        <div className="font-syne font-bold text-xs text-slate-900 truncate">{b.name}</div>
-                        <div className="text-[10px] text-slate-500 truncate">{b.country || 'Burkina Faso'} • {b.location || 'Ouagadougou'}</div>
+                  <div key={b.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-2xl shrink-0">{b.flag || '🇧🇫'}</span>
+                        <div className="min-w-0">
+                          <div className="font-syne font-bold text-xs text-slate-900 truncate">{b.name}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{b.country || 'Burkina Faso'} • {b.location || 'Ouagadougou'}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <select
+                          value={b.flag || '🇧🇫'}
+                          disabled={!hasPerm('manage_delivery') && !hasPerm('manage_content')}
+                          onChange={(e) => {
+                            const selectedOption = e.target.selectedOptions[0];
+                            const cName = selectedOption?.getAttribute('data-country') || 'Burkina Faso';
+                            if (onUpdateBoutiqueFlag) {
+                              onUpdateBoutiqueFlag(b.id, e.target.value, cName);
+                            }
+                          }}
+                          className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 outline-none font-medium cursor-pointer disabled:opacity-50"
+                        >
+                          <option value="🇧🇫" data-country="Burkina Faso">🇧🇫 Burkina Faso</option>
+                          <option value="🇨🇮" data-country="Côte d'Ivoire">🇨🇮 Côte d'Ivoire</option>
+                          <option value="🇲🇱" data-country="Mali">🇲🇱 Mali</option>
+                          <option value="🇸🇳" data-country="Sénégal">🇸🇳 Sénégal</option>
+                          <option value="🇹🇬" data-country="Togo">🇹🇬 Togo</option>
+                          <option value="🇧🇯" data-country="Bénin">🇧🇯 Bénin</option>
+                          <option value="🇳🇪" data-country="Niger">🇳🇪 Niger</option>
+                          <option value="🇬🇳" data-country="Guinée">🇬🇳 Guinée</option>
+                          <option value="🇨🇲" data-country="Cameroun">🇨🇲 Cameroun</option>
+                          <option value="🇬🇭" data-country="Ghana">🇬🇭 Ghana</option>
+                          <option value="🇳🇬" data-country="Nigeria">🇳🇬 Nigeria</option>
+                          <option value="🇫🇷" data-country="France">🇫🇷 France</option>
+                          <option value="🇺🇸" data-country="USA">🇺🇸 USA</option>
+                          <option value="🇨🇳" data-country="Chine">🇨🇳 Chine</option>
+                          <option value="🇪🇺" data-country="Union Européenne">🇪🇺 Union Européenne</option>
+                          <option value="🌍" data-country="International">🌍 International</option>
+                        </select>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <select
-                        value={b.flag || '🇧🇫'}
-                        disabled={!hasPerm('manage_delivery') && !hasPerm('manage_content')}
-                        onChange={(e) => {
-                          const selectedOption = e.target.selectedOptions[0];
-                          const cName = selectedOption?.getAttribute('data-country') || 'Burkina Faso';
-                          if (onUpdateBoutiqueFlag) {
-                            onUpdateBoutiqueFlag(b.id, e.target.value, cName);
-                          }
-                        }}
-                        className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-1 outline-none font-medium cursor-pointer disabled:opacity-50"
-                      >
-                        <option value="🇧🇫" data-country="Burkina Faso">🇧🇫 Burkina Faso</option>
-                        <option value="🇨🇮" data-country="Côte d'Ivoire">🇨🇮 Côte d'Ivoire</option>
-                        <option value="🇲🇱" data-country="Mali">🇲🇱 Mali</option>
-                        <option value="🇸🇳" data-country="Sénégal">🇸🇳 Sénégal</option>
-                        <option value="🇹🇬" data-country="Togo">🇹🇬 Togo</option>
-                        <option value="🇧🇯" data-country="Bénin">🇧🇯 Bénin</option>
-                        <option value="🇳🇪" data-country="Niger">🇳🇪 Niger</option>
-                        <option value="🇬🇳" data-country="Guinée">🇬🇳 Guinée</option>
-                        <option value="🇨🇲" data-country="Cameroun">🇨🇲 Cameroun</option>
-                        <option value="🇬🇭" data-country="Ghana">🇬🇭 Ghana</option>
-                        <option value="🇳🇬" data-country="Nigeria">🇳🇬 Nigeria</option>
-                        <option value="🇫🇷" data-country="France">🇫🇷 France</option>
-                        <option value="🇺🇸" data-country="USA">🇺🇸 USA</option>
-                        <option value="🇨🇳" data-country="Chine">🇨🇳 Chine</option>
-                        <option value="🇪🇺" data-country="Union Européenne">🇪🇺 Union Européenne</option>
-                        <option value="🌍" data-country="International">🌍 International</option>
-                      </select>
-                    </div>
+                    {onUpdateBoutiqueLogo && (
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/70">
+                        <img
+                          src={b.logoUrl || '/assets/aistudio/Image_1_397aca35.jpeg'}
+                          alt={`Logo ${b.name}`}
+                          className="w-7 h-7 rounded-lg object-cover border border-slate-200 bg-white shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={b.logoUrl || ''}
+                          disabled={!hasPerm('manage_delivery') && !hasPerm('manage_content')}
+                          onChange={(e) => onUpdateBoutiqueLogo(b.id, e.target.value)}
+                          placeholder="URL externe du logo boutique..."
+                          className="flex-1 min-w-0 bg-white border border-slate-300 rounded-lg px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-500 disabled:opacity-50"
+                        />
+                        <label
+                          className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold cursor-pointer shrink-0 inline-flex items-center gap-1"
+                          title="Importer & compresser le logo en WebP (< 55 Ko)"
+                        >
+                          <span className="material-symbols-outlined text-xs">image</span>
+                          <span>Logo WebP</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={!hasPerm('manage_delivery') && !hasPerm('manage_content')}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              try {
+                                const url = await uploadFileToServer(file, {
+                                  maxWidth: 400,
+                                  maxHeight: 400,
+                                  maxSizeBytes: 55 * 1024
+                                });
+                                onUpdateBoutiqueLogo(b.id, url);
+                              } catch {
+                                // Handled in helper
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4743,95 +4602,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             )}
           </div>
 
-          {/* Admin Chat Broadcast Box (Texte + Note Vocale WhatsApp-style) */}
+          {/* Admin Chat Broadcast Box (Texte uniquement) */}
           {hasPerm('manage_content') && (
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
               <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-emerald-600 text-base">campaign</span>
-                <span>Publier un Message Officiel ou Vocal aux Investisseurs</span>
+                <span>Publier un Message Officiel aux Investisseurs</span>
               </h3>
 
-              {adminVoiceError && (
+              {adminChatError && (
                 <p role="alert" className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  {adminVoiceError}
+                  {adminChatError}
                 </p>
               )}
-
-              {isRecordingAdminVoice ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-rose-50 border border-rose-300">
-                  <div className="flex items-center gap-2 text-xs font-bold text-rose-800">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></span>
-                    <span>Enregistrement vocal en cours… {adminRecordingSeconds}s</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => stopAdminVoiceRecording(true)}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
-                    >
-                      Annuler
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => stopAdminVoiceRecording(false)}
-                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-sm">stop_circle</span>
-                      <span>Terminer</span>
-                    </button>
-                  </div>
-                </div>
-              ) : adminVoiceDraft ? (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-sm">graphic_eq</span>
-                      <span>Note vocale prête ({adminVoiceDraft.audioDuration}s)</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAdminVoiceDraft(null)}
-                      className="text-[11px] font-bold text-red-700 hover:underline cursor-pointer"
-                    >
-                      Supprimer le vocal
-                    </button>
-                  </div>
-                  <audio controls preload="metadata" src={adminVoiceDraft.audioUrl} className="w-full h-9" />
-                </div>
-              ) : null}
 
               <form onSubmit={handleSendAdminChatMessage} className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
-                  required={!adminVoiceDraft}
+                  required
                   value={adminChatText}
                   onChange={(e) => setAdminChatText(e.target.value)}
-                  disabled={isSendingAdminChat || isRecordingAdminVoice}
-                  placeholder={adminVoiceDraft ? 'Légende optionnelle pour le message vocal...' : 'Rédigez un communiqué officiel ou une réponse collective...'}
+                  disabled={isSendingAdminChat}
+                  placeholder="Rédigez un communiqué officiel ou une réponse collective..."
                   className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none focus:border-emerald-500 disabled:opacity-60"
                 />
-                <div className="flex items-center gap-2 shrink-0">
-                  {!isRecordingAdminVoice && !adminVoiceDraft && (
-                    <button
-                      type="button"
-                      disabled={isSendingAdminChat}
-                      onClick={() => void startAdminVoiceRecording()}
-                      className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-bold text-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                      title="Enregistrer un message vocal"
-                    >
-                      <span className="material-symbols-outlined text-sm text-rose-600">mic</span>
-                      <span>Vocal</span>
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={isSendingAdminChat || isRecordingAdminVoice || (!adminChatText.trim() && !adminVoiceDraft)}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="material-symbols-outlined text-sm">send</span>
-                    <span>{isSendingAdminChat ? 'Envoi…' : adminVoiceDraft ? 'Envoyer Vocal' : 'Envoyer'}</span>
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={isSendingAdminChat || !adminChatText.trim()}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-sm">send</span>
+                  <span>{isSendingAdminChat ? 'Envoi…' : 'Envoyer'}</span>
+                </button>
               </form>
             </div>
           )}
@@ -4899,19 +4701,174 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </div>
                     </div>
                     {msg.text && <p className="text-slate-700">{msg.text}</p>}
-                    {(msg.messageType === 'voice' || msg.audioUrl) && msg.audioUrl && (
-                      <div className="pt-1 space-y-1">
-                        <audio controls preload="metadata" src={msg.audioUrl} className="w-full h-8" />
-                        {typeof msg.audioDuration === 'number' && msg.audioDuration > 0 && (
-                          <span className="text-[10px] font-mono text-slate-500">Durée : {msg.audioDuration}s</span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 ))
               )}
             </div>
           </div>
+
+          {/* Commandes Personnalisées par Écrit (Articles non listés) */}
+          {(hasPerm('manage_content') || hasPerm('manage_products') || hasPerm('manage_investors')) && (() => {
+            const filteredOrders =
+              customOrderFilter === 'all'
+                ? customOrders
+                : customOrders.filter((order) => order.status === customOrderFilter);
+            const domainLabels: Record<CustomOrderRecord['domain'], string> = {
+              electronique: 'Électronique',
+              electrotechnique: 'Électrotechnique',
+              informatique: 'Informatique',
+              autre: 'Autre / Spécial'
+            };
+            const statusLabels: Record<CustomOrderRecord['status'], string> = {
+              nouvelle: 'Nouvelle',
+              en_cours: 'En cours',
+              traitee: 'Traitée',
+              annulee: 'Annulée'
+            };
+            const statusClasses: Record<CustomOrderRecord['status'], string> = {
+              nouvelle: 'bg-amber-100 text-amber-900 border-amber-300',
+              en_cours: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+              traitee: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+              annulee: 'bg-red-100 text-red-900 border-red-300'
+            };
+
+            return (
+              <div className="bg-white rounded-2xl border border-amber-300 shadow-xs p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                  <div>
+                    <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-amber-600 text-base">edit_note</span>
+                      <span>Commandes Personnalisées par Écrit ({customOrders.length})</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Demandes libres d’articles non listés envoyées depuis les boutiques ou la messagerie.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-[11px]">
+                    {(['all', 'nouvelle', 'en_cours', 'traitee', 'annulee'] as const).map((statusKey) => (
+                      <button
+                        key={statusKey}
+                        type="button"
+                        onClick={() => setCustomOrderFilter(statusKey)}
+                        className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
+                          customOrderFilter === statusKey
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {statusKey === 'all' ? 'Toutes' : statusLabels[statusKey]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {filteredOrders.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic text-center py-4">
+                    Aucune commande personnalisée enregistrée pour ce filtre.
+                  </p>
+                ) : (
+                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                    {filteredOrders.map((order) => {
+                      const cleanPhone = order.customerPhone.replace(/\D/g, '');
+                      const whatsappReply = cleanPhone
+                        ? `https://wa.me/${cleanPhone.startsWith('226') ? cleanPhone : `226${cleanPhone}`}?text=${encodeURIComponent(
+                            `Bonjour ${order.customerName}, suite à votre demande écrite ELECTRO-MEN (${order.reference}) pour "${order.articleTitle}", voici notre retour : `
+                          )}`
+                        : null;
+                      return (
+                        <div
+                          key={order.id}
+                          className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2 text-xs"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-mono font-bold text-[11px] text-slate-700">
+                                  {order.reference}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-cyan-100 text-cyan-900 text-[10px] font-bold">
+                                  {domainLabels[order.domain]}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-semibold">
+                                  Source : {order.source === 'messagerie' ? 'Messagerie' : 'Boutique'}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${statusClasses[order.status]}`}>
+                                  {statusLabels[order.status]}
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-slate-900 text-sm">{order.articleTitle}</h4>
+                              <p className="text-[11px] text-slate-600">
+                                Client : <strong>{order.customerName}</strong> • {order.customerPhone}
+                                {order.customerEmail ? ` • ${order.customerEmail}` : ''} • Qté : <strong>{order.quantity}</strong>
+                                {order.budgetFcfa ? ` • Budget : ${order.budgetFcfa.toLocaleString('fr-FR')} FCFA` : ''}
+                              </p>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {new Date(order.createdAt).toLocaleString('fr-FR')}
+                            </span>
+                          </div>
+
+                          <p className="p-2.5 rounded-lg bg-white border border-slate-200 text-slate-700 leading-relaxed whitespace-pre-wrap">
+                            {order.description}
+                          </p>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {onUpdateCustomOrderStatus && (
+                                <select
+                                  value={order.status}
+                                  disabled={updatingCustomOrderId === order.id}
+                                  onChange={async (e) => {
+                                    const nextStatus = e.target.value as CustomOrderRecord['status'];
+                                    setUpdatingCustomOrderId(order.id);
+                                    try {
+                                      await onUpdateCustomOrderStatus(order.id, nextStatus);
+                                    } finally {
+                                      setUpdatingCustomOrderId(null);
+                                    }
+                                  }}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-800 cursor-pointer"
+                                >
+                                  <option value="nouvelle">Statut : Nouvelle</option>
+                                  <option value="en_cours">Statut : En cours</option>
+                                  <option value="traitee">Statut : Traitée</option>
+                                  <option value="annulee">Statut : Annulée</option>
+                                </select>
+                              )}
+                              {whatsappReply && (
+                                <a
+                                  href={whatsappReply}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] inline-flex items-center gap-1"
+                                >
+                                  <span className="material-symbols-outlined text-xs">chat</span>
+                                  <span>Répondre WhatsApp</span>
+                                </a>
+                              )}
+                            </div>
+                            {onDeleteCustomOrder && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Supprimer la commande écrite ${order.reference} ?`)) {
+                                    void onDeleteCustomOrder(order.id);
+                                  }
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 font-bold text-[11px] cursor-pointer"
+                              >
+                                Supprimer
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {hasPerm('manage_investors') && onCreateInvestor && (
             <form onSubmit={handleCreateInvestor} className="p-4 rounded-2xl bg-white border border-cyan-200 shadow-xs space-y-3">
@@ -4919,10 +4876,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 <h3 className="font-syne text-sm font-bold text-slate-900">Créer ou activer un compte investisseur</h3>
                 <p className="text-[11px] text-slate-500">Un dossier existant est activé avec son email d’origine sans remplacer son historique. Un nouveau dossier reprend les champs de l’inscription publique; le mot de passe est haché côté serveur.</p>
               </div>
-              <select value={investorProvisioningMode} onChange={(event) => setInvestorProvisioningMode(event.target.value as 'existing' | 'new')} className="rounded-lg border border-slate-300 p-2 text-xs">
-                <option value="existing">Activer un investisseur déjà enregistré</option>
-                <option value="new">Créer un nouveau dossier investisseur</option>
-              </select>
+              <div className="inline-flex flex-wrap rounded-xl bg-slate-100 p-1 border border-slate-200 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setInvestorProvisioningMode('existing')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    investorProvisioningMode === 'existing'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-950'
+                  }`}
+                >
+                  Activer un investisseur existant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInvestorProvisioningMode('new')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    investorProvisioningMode === 'new'
+                      ? 'bg-cyan-700 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-950'
+                  }`}
+                >
+                  Créer un nouveau dossier investisseur
+                </button>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {investorProvisioningMode === 'new' && (
                   <>
@@ -5445,13 +5422,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                         />
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            setInvestorResetPassword(generateProvisionalPassword());
-                                            setShowResetInvestorPassword(true);
-                                          }}
-                                          className="px-2.5 py-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] shrink-0 cursor-pointer"
+                                          disabled={investorManagementLoading}
+                                          onClick={() => void handleInstantGenerateInvestorPassword()}
+                                          className="px-2.5 py-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] shrink-0 cursor-pointer disabled:opacity-50"
+                                          title="Générer et enregistrer immédiatement ce mot de passe en base"
                                         >
-                                          Générer
+                                          Générer &amp; Activer
                                         </button>
                                         <button
                                           type="button"
@@ -8348,46 +8324,88 @@ export const AdminPage: React.FC<AdminPageProps> = ({
             </div>
           )}
 
-          {/* Modification de l'URL Secrète de l'Administration */}
+          {/* Modification de l'URL Secrète de l'Administration & Domaine Officiel */}
           {isPrincipal && (
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[#b48c1e] text-base">link</span>
-                  <span>Modifier l'URL d'Administration</span>
-                </h3>
-                <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 font-bold px-2 py-0.5 rounded font-mono">
-                  {adminCustomUrl}
-                </span>
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[#b48c1e] text-base">link</span>
+                    <span>Modifier l'URL d'Administration</span>
+                  </h3>
+                  <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 font-bold px-2 py-0.5 rounded font-mono">
+                    {adminCustomUrl}
+                  </span>
+                </div>
+
+                {urlMessage && (
+                  <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold">
+                    {urlMessage}
+                  </div>
+                )}
+
+                <form onSubmit={handleSaveUrl} className="space-y-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={editingUrl}
+                      onChange={(e) => setEditingUrl(e.target.value)}
+                      placeholder="Ex : /electromen-gestion ou /admin-prive"
+                      className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono font-bold text-slate-900 outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer shrink-0"
+                    >
+                      Enregistrer l'URL
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Cette route secrète vous permet d'accéder au panneau d'administration. Les moteurs de recherche sont strictement bloqués via <code>robots.txt</code> et la balise <code>noindex, nofollow</code>.
+                  </p>
+                </form>
               </div>
 
-              {urlMessage && (
-                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold">
-                  {urlMessage}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-cyan-700 text-base">public</span>
+                    <span>Nom de Domaine Officiel (Base URL / HTTPS)</span>
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
+                    HTTPS Activé
+                  </span>
                 </div>
-              )}
 
-              <form onSubmit={handleSaveUrl} className="space-y-2">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={editingUrl}
-                    onChange={(e) => setEditingUrl(e.target.value)}
-                    placeholder="Ex : /electromen-gestion ou /admin-prive"
-                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono font-bold text-slate-900 outline-none focus:border-amber-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-lg btn-gold-prestige font-bold text-xs text-white cursor-pointer shrink-0"
-                  >
-                    Enregistrer l'URL
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Cette route secrète vous permet d'accéder au panneau d'administration. Les moteurs de recherche sont strictement bloqués via <code>robots.txt</code> et la balise <code>noindex, nofollow</code>.
-                </p>
-              </form>
+                {seoMessage && (
+                  <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold">
+                    {seoMessage}
+                  </div>
+                )}
+
+                <form onSubmit={handleSaveBaseUrl} className="space-y-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={siteBaseUrlInput}
+                      onChange={(e) => setSiteBaseUrlInput(e.target.value)}
+                      placeholder="https://electromen.bf"
+                      className="flex-1 bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono font-bold text-slate-900 outline-none focus:border-cyan-500"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 font-bold text-xs text-white cursor-pointer shrink-0"
+                    >
+                      Enregistrer le Domaine
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    URL officielle utilisée pour les liens partagés et les balises canoniques de la plateforme.
+                  </p>
+                </form>
+              </div>
             </div>
           )}
         </div>
@@ -8453,421 +8471,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         </section>
       )}
 
-      {/* =========================================================================
-          TAB: CONFIGURATION DU DOMAINE OFFICIEL & SEO TECHNIQUE
-          ========================================================================= */}
-      {activeTab === 'seo' && (
-        <div className="space-y-5 animate-fadeIn">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-syne text-base sm:text-lg font-bold text-slate-900">
-                  Configuration du Domaine &amp; Référencement Naturel (SEO)
-                </h2>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold uppercase">
-                  Google Search Ready
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Définissez l'adresse officielle de votre site, contrôlez les métadonnées canoniques, le fichier robots.txt et le Sitemap XML.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleDownloadSitemap}
-                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <span className="material-symbols-outlined text-sm">download</span>
-                <span>Télécharger sitemap.xml</span>
-              </button>
-            </div>
-          </div>
-
-          {seoMessage && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-600 text-sm">check_circle</span>
-              <span>{seoMessage}</span>
-            </div>
-          )}
-
-          {/* 1. DOMAINE OFFICIEL DU SITE & PROTOCOLE HTTPS */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-                  <span className="material-symbols-outlined text-base">public</span>
-                </div>
-                <div>
-                  <h3 className="font-syne text-sm font-bold text-slate-900">
-                    Nom de Domaine Officiel (Base URL / HTTPS)
-                  </h3>
-                  <span className="text-[11px] text-slate-500">
-                    Adresse racine utilisée pour les liens canoniques, réseaux sociaux et sitemaps
-                  </span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
-                HTTPS Activé
-              </span>
-            </div>
-
-            <form onSubmit={handleSaveBaseUrl} className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  required
-                  value={siteBaseUrlInput}
-                  onChange={(e) => setSiteBaseUrlInput(e.target.value)}
-                  placeholder="https://electromen.bf"
-                  className="flex-1 bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-900 outline-none focus:border-amber-500 focus:bg-white"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 rounded-xl btn-gold-prestige font-bold text-xs text-white cursor-pointer shadow-xs shrink-0 flex items-center justify-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-sm">save</span>
-                  <span>Enregistrer le Domaine</span>
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Exemple : <code>https://electromen.bf</code> ou l'URL fournie par votre hébergeur. Toutes les balises <code>&lt;link rel="canonical"&gt;</code>, OpenGraph (WhatsApp, Facebook) et le sitemap se synchronisent immédiatement avec cette URL.
-              </p>
-            </form>
-          </div>
-
-          {/* 2. MODIFIER L'URL D'ADMINISTRATION SECRÈTE */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-cyan-100 text-cyan-800 flex items-center justify-center font-bold">
-                  <span className="material-symbols-outlined text-base">vpn_key</span>
-                </div>
-                <div>
-                  <h3 className="font-syne text-sm font-bold text-slate-900">
-                    Modifier l'URL d'Accès Administrateur
-                  </h3>
-                  <span className="text-[11px] text-slate-500">
-                    Chemin secret pour ouvrir la console d'administration
-                  </span>
-                </div>
-              </div>
-              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-[10px] font-bold font-mono">
-                {adminCustomUrl}
-              </span>
-            </div>
-
-            <form onSubmit={handleSaveUrl} className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  required
-                  value={editingUrl}
-                  onChange={(e) => setEditingUrl(e.target.value)}
-                  placeholder="Ex : /electromen-gestion ou /admin-direction"
-                  className="flex-1 bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-900 outline-none focus:border-cyan-500 focus:bg-white"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 rounded-xl bg-cyan-700 hover:bg-cyan-800 font-bold text-xs text-white cursor-pointer shadow-xs shrink-0 flex items-center justify-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-sm">link</span>
-                  <span>Mettre à jour l'URL Admin</span>
-                </button>
-              </div>
-
-              {/* Full URL copy widget */}
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
-                <div className="truncate">
-                  <span className="text-slate-500 mr-1.5 font-bold">URL complète d'administration :</span>
-                  <code className="text-slate-900 font-mono font-extrabold select-all">
-                    {(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}{editingUrl.startsWith('/') ? editingUrl : `/${editingUrl}`}
-                  </code>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopyText(
-                      `${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}${editingUrl.startsWith('/') ? editingUrl : `/${editingUrl}`}`,
-                      'admin_url'
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-xs">
-                    {copiedKey === 'admin_url' ? 'done' : 'content_copy'}
-                  </span>
-                  <span>{copiedKey === 'admin_url' ? 'Copié !' : 'Copier le lien'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* 3. CARTOGRAPHIE DES URLS CANONIQUES PUBLIQUES DÉCLARÉES À GOOGLE */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-            <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-600">travel_explore</span>
-              <span>Pages Publiques Indexables Déclarées (URLs Canoniques)</span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              Ces adresses sont transmises à Google via les balises canoniques et le sitemap. Les robots ont interdiction d'indexer l'espace investisseur ou l'administration.
-            </p>
-
-            {(() => {
-              const cleanBase = (siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '');
-              const publicPages = [
-                {
-                  label: "Page d'Accueil & Pôle Industriel",
-                  url: `${cleanBase}/`,
-                  priority: '1.0',
-                  changefreq: 'Quotidien',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Formations Pratiques & Académie',
-                  url: `${cleanBase}/?tab=solutions`,
-                  priority: '0.85',
-                  changefreq: 'Hebdomadaire',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Bourse IR & Actionnariat Participatif (Offres Publiques)',
-                  url: `${cleanBase}/?tab=bourse`,
-                  priority: '0.90',
-                  changefreq: 'Quotidien',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Boutique Électronique & Microcontrôleurs',
-                  url: `${cleanBase}/?tab=boutique_electronique`,
-                  priority: '0.80',
-                  changefreq: 'Hebdomadaire',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Boutique Électrotechnique & Puissance',
-                  url: `${cleanBase}/?tab=boutique_electrotechnique`,
-                  priority: '0.80',
-                  changefreq: 'Hebdomadaire',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Boutique Informatique & Réseaux',
-                  url: `${cleanBase}/?tab=boutique_informatique`,
-                  priority: '0.80',
-                  changefreq: 'Hebdomadaire',
-                  status: 'index, follow'
-                },
-                {
-                  label: 'Catalogue Global Composants',
-                  url: `${cleanBase}/?tab=composants`,
-                  priority: '0.75',
-                  changefreq: 'Hebdomadaire',
-                  status: 'index, follow'
-                }
-              ];
-
-              return (
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                      <tr>
-                        <th className="p-2.5">Section Publique</th>
-                        <th className="p-2.5">URL Canonique</th>
-                        <th className="p-2.5 text-center">Priorité</th>
-                        <th className="p-2.5 text-center">Fréquence</th>
-                        <th className="p-2.5 text-center">Directive Robots</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {publicPages.map((page, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="p-2.5 font-bold text-slate-800">{page.label}</td>
-                          <td className="p-2.5 font-mono text-[11px] text-cyan-800 select-all font-semibold">
-                            {page.url}
-                          </td>
-                          <td className="p-2.5 text-center font-mono font-bold text-emerald-700">
-                            {page.priority}
-                          </td>
-                          <td className="p-2.5 text-center text-slate-600">{page.changefreq}</td>
-                          <td className="p-2.5 text-center">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                              {page.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* 4. SITEMAP XML & FICHIER ROBOTS.TXT */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Colonne 1 : Sitemap XML */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3 flex flex-col justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-amber-600">account_tree</span>
-                    <h3 className="font-syne text-sm font-bold text-slate-900">
-                      Plan du Site XML (/sitemap.xml)
-                    </h3>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">7 URLs Publiques</span>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Fichier XML standard conforme aux spécifications Google Sitemaps. Disponible à la racine publique de votre site.
-                </p>
-                <div className="p-3 rounded-xl bg-slate-950 text-emerald-400 font-mono text-[10px] leading-relaxed overflow-x-auto max-h-48 border border-slate-800">
-                  <pre>{`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/</loc>
-    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/?tab=solutions</loc>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/?tab=bourse</loc>
-    <priority>0.90</priority>
-  </url>
-  ... (7 URLs publiques au total)
-</urlset>`}</pre>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleDownloadSitemap}
-                  className="flex-1 py-2 px-3 rounded-xl btn-gold-prestige font-bold text-xs text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <span className="material-symbols-outlined text-sm">download</span>
-                  <span>Télécharger sitemap.xml</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopyText(
-                      `${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap.xml`,
-                      'sitemap_url'
-                    )
-                  }
-                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1 cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-xs">
-                    {copiedKey === 'sitemap_url' ? 'done' : 'link'}
-                  </span>
-                  <span>{copiedKey === 'sitemap_url' ? 'Copié !' : 'Lien Sitemap'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Colonne 2 : Fichier robots.txt */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3 flex flex-col justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-red-600">shield</span>
-                    <h3 className="font-syne text-sm font-bold text-slate-900">
-                      Protection Robots (/robots.txt)
-                    </h3>
-                  </div>
-                  <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 text-[10px] font-bold">
-                    Zones Privées Exclues
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Garantit que les données personnelles d'investisseurs et l'administration ne seront jamais explorées ni indexées par les robots.
-                </p>
-                <div className="p-3 rounded-xl bg-slate-950 text-slate-300 font-mono text-[10px] leading-relaxed overflow-x-auto max-h-48 border border-slate-800">
-                  <pre>{`User-agent: *
-Allow: /
-Allow: /?tab=accueil
-Allow: /?tab=solutions
-Allow: /?tab=bourse
-Allow: /assets/
-
-# Exclusion stricte des zones sensibles
-Disallow: /admin*
-Disallow: /*?tab=admin*
-Disallow: /*?tab=profil*
-Disallow: /electromen-gestion*
-
-Sitemap: ${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/sitemap.xml`}</pre>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopyText(
-                      `${(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}/robots.txt`,
-                      'robots_url'
-                    )
-                  }
-                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-xs">
-                    {copiedKey === 'robots_url' ? 'done' : 'content_copy'}
-                  </span>
-                  <span>{copiedKey === 'robots_url' ? 'Lien Copié !' : 'Copier l\'adresse de robots.txt'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* 5. GUIDE PAS À PAS : GOOGLE SEARCH CONSOLE */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-slate-900 text-white shadow-sm border border-slate-800 space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-amber-400">help_center</span>
-              <h3 className="font-syne text-sm font-bold text-white">
-                Guide Rapide d'Indexation sur Google Search Console
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1">
-                <span className="font-extrabold text-amber-400 font-mono text-sm">1. Propriété</span>
-                <p className="text-slate-300 text-[11px]">
-                  Rendez-vous sur <strong>search.google.com</strong> et ajoutez votre préfixe d'URL (ex: <code>{(siteBaseUrlInput.trim() || siteBaseUrl).replace(/\/+$/, '')}</code>).
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1">
-                <span className="font-extrabold text-cyan-400 font-mono text-sm">2. Validation</span>
-                <p className="text-slate-300 text-[11px]">
-                  Validez par enregistrement DNS TXT chez votre registrar ou par balise HTML meta dans <code>index.html</code>.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1">
-                <span className="font-extrabold text-emerald-400 font-mono text-sm">3. Sitemap XML</span>
-                <p className="text-slate-300 text-[11px]">
-                  Dans le menu "Sitemaps", saisissez simplement <code>sitemap.xml</code> et cliquez sur "Envoyer".
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1">
-                <span className="font-extrabold text-purple-400 font-mono text-sm">4. Inspection</span>
-                <p className="text-slate-300 text-[11px]">
-                  Utilisez l'outil "Inspection de l'URL" pour demander une indexation prioritaire de votre page d'accueil.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* =========================================================================
           TAB: JOURNAL D'AUDIT & RELANCE PUBLIQUE

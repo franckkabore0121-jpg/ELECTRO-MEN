@@ -8,6 +8,7 @@ import {
 import { getBoutiqueContact } from '../utils/whatsapp.ts';
 import { formatProductTitle } from '../utils/productFormat.ts';
 import { ProductImage } from './ProductImage.tsx';
+import { CustomOrderModal } from './CustomOrderModal.tsx';
 
 export type BoutiqueDomain = 'electronique' | 'electrotechnique' | 'informatique';
 
@@ -19,6 +20,11 @@ interface BoutiqueStorefrontProps {
   shopDescription: string;
   logoUrl?: string;
   locationLabel?: string;
+  flag?: string;
+  country?: string;
+  defaultCustomerName?: string;
+  defaultCustomerPhone?: string;
+  defaultCustomerEmail?: string;
   searchPlaceholder: string;
   emptyLabel: string;
   allDomainProducts: Product[];
@@ -50,6 +56,11 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
   shopDescription,
   logoUrl = DEFAULT_LOGO_URL,
   locationLabel = 'Ouagadougou',
+  flag,
+  country,
+  defaultCustomerName,
+  defaultCustomerPhone,
+  defaultCustomerEmail,
   searchPlaceholder,
   emptyLabel,
   allDomainProducts,
@@ -67,6 +78,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
+  const [isCustomOrderOpen, setIsCustomOrderOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [logoLoadError, setLogoLoadError] = useState<boolean>(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -381,17 +393,17 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               type="button"
               onClick={() => {
                 onRetryLoadProducts();
-                showToast('Catalogue actualisé depuis PostgreSQL');
+                showToast('Actualisation du catalogue lancée');
               }}
               disabled={isLoadingProducts}
               title="Recharger les derniers produits, prix, images et catégories"
-              aria-label="Actualiser les données de la boutique"
+              aria-label="Actualiser le catalogue"
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
             >
               <span className={`material-symbols-outlined text-sm ${isLoadingProducts ? 'animate-spin' : ''}`}>
                 refresh
               </span>
-              <span>Actualiser</span>
+              <span>Actualiser le catalogue</span>
             </button>
           )}
           <span className="text-xs text-slate-500 font-medium tabular-nums whitespace-nowrap">
@@ -400,33 +412,53 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
         </div>
       </div>
 
-      {/* 1. EN-TÊTE COMPACT DE LA BOUTIQUE */}
-      <header className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between gap-2.5">
-          {/* Gauche : Logo circulaire + Nom + Localisation/Accroche */}
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center">
-              {!logoLoadError ? (
-                <img
-                  src={logoUrl}
-                  alt={shopTitle}
-                  referrerPolicy="no-referrer"
-                  onError={() => setLogoLoadError(true)}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="material-symbols-outlined text-xl text-slate-500">
-                  storefront
+      {/* 1. EN-TÊTE UNIFIÉ DE LA BOUTIQUE (NOM UNIQUE + DRAPEAU + ACTIONS COMPLÈTES) */}
+      <header className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-5 shadow-2xs space-y-3.5">
+        <div className="flex items-start justify-between gap-3">
+          {/* Gauche : Logo + Drapeau + Nom unique de la boutique + Coordonnées/Localisation */}
+          <div className="flex items-start gap-3 sm:gap-3.5 min-w-0 flex-1">
+            <div className="relative shrink-0">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shadow-2xs">
+                {!logoLoadError ? (
+                  <img
+                    src={logoUrl}
+                    alt={shopTitle}
+                    referrerPolicy="no-referrer"
+                    onError={() => setLogoLoadError(true)}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="material-symbols-outlined text-xl text-slate-500">
+                    storefront
+                  </span>
+                )}
+              </div>
+              {flag && (
+                <span
+                  title={country || locationLabel}
+                  aria-label={country ? `Pays : ${country}` : 'Drapeau de la boutique'}
+                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-xs flex items-center justify-center text-sm leading-none select-none"
+                >
+                  {flag}
                 </span>
               )}
             </div>
 
-            <div className="min-w-0">
-              <h1 className="font-syne text-sm sm:text-lg font-extrabold text-slate-950 line-clamp-2 leading-tight">
+            <div className="min-w-0 space-y-1">
+              <h1 className="font-syne text-base sm:text-xl font-extrabold text-slate-950 leading-tight">
                 {shopTitle}
               </h1>
-              <p className="text-[11px] sm:text-xs text-slate-500 truncate mt-0.5">
-                {locationLabel} <span aria-hidden="true">·</span> {shopShortSubtitle}
+              <p className="text-[11px] sm:text-xs text-slate-600 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="font-medium text-slate-700">{locationLabel}</span>
+                <span aria-hidden="true">·</span>
+                <span>Ouvert 08h–18h30</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                  {contact.display}
+                </span>
+              </p>
+              <p className="text-[11px] sm:text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                {shopShortSubtitle} — {shopDescription}
               </p>
             </div>
           </div>
@@ -438,19 +470,9 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               onClick={() => setIsInfoOpen(true)}
               title="Informations sur la boutique"
               aria-label="Informations sur la boutique"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+              className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
             >
               <span className="material-symbols-outlined text-[18px]">info</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleShareBoutique}
-              title="Partager la boutique"
-              aria-label="Partager la boutique"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
-            >
-              <span className="material-symbols-outlined text-[18px]">share</span>
             </button>
 
             <button
@@ -459,7 +481,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               title={isSearchOpen ? 'Fermer la recherche' : 'Rechercher un produit'}
               aria-label={isSearchOpen ? 'Fermer la recherche' : 'Rechercher un produit'}
               aria-expanded={isSearchOpen}
-              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors ${
+              className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors ${
                 isSearchOpen || searchQuery
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -475,7 +497,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               onClick={onOpenCart}
               title="Ouvrir le panier"
               aria-label={`Ouvrir le panier (${cartCount} article${cartCount > 1 ? 's' : ''})`}
-              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
+              className="relative w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
             >
               <span className="material-symbols-outlined text-[18px]">shopping_cart</span>
               {cartCount > 0 && (
@@ -485,6 +507,47 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               )}
             </button>
           </div>
+        </div>
+
+        {/* Actions unifiées : Partager, Appeler, WhatsApp & Commande écrite sur mesure */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShareBoutique}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">share</span>
+              <span>Partager</span>
+            </button>
+
+            <a
+              href={`tel:${contact.number}`}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">call</span>
+              <span>Appeler</span>
+            </a>
+
+            <a
+              href={whatsappDirectHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all"
+            >
+              <span className="material-symbols-outlined text-[16px]">chat</span>
+              <span>WhatsApp</span>
+            </a>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsCustomOrderOpen(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-950 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <span className="material-symbols-outlined text-[16px] text-amber-700">edit_note</span>
+            <span>Commander un article non listé / Écrire ma commande</span>
+          </button>
         </div>
 
         {/* Barre de recherche rapide intégrée */}
@@ -536,63 +599,6 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
           );
         })}
       </nav>
-
-      {/* 3. CARTE DE CONTACT RAPIDE DE LA BOUTIQUE */}
-      <section
-        aria-label="Contact rapide de la boutique"
-        className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 flex items-center justify-between gap-3 shadow-2xs"
-      >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center">
-            {!logoLoadError ? (
-              <img
-                src={logoUrl}
-                alt={shopTitle}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="material-symbols-outlined text-lg text-slate-500">
-                storefront
-              </span>
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <h2 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-              {contact.boutiqueName}
-            </h2>
-            <p className="text-[11px] sm:text-xs text-slate-500 truncate">
-              {locationLabel} <span aria-hidden="true">·</span> Ouvert 08h–18h30{' '}
-              <span aria-hidden="true">·</span>{' '}
-              <span className="font-mono tabular-nums text-slate-700 font-medium">
-                {contact.display}
-              </span>
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <a
-            href={`tel:${contact.number}`}
-            title={`Appeler ${contact.display}`}
-            aria-label={`Appeler ${contact.display}`}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 inline-flex items-center justify-center transition-colors shrink-0"
-          >
-            <span className="material-symbols-outlined text-[18px]">call</span>
-          </a>
-
-          <a
-            href={whatsappDirectHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3.5 sm:px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition-all"
-          >
-            <span className="material-symbols-outlined text-base">chat</span>
-            <span>WhatsApp</span>
-          </a>
-        </div>
-      </section>
 
       {/* 4. SECTIONS PRODUITS STRUCTURÉES EN GRILLES / RANGÉES */}
       {isLoadingProducts && publishedShopProducts.length === 0 ? (
@@ -649,18 +655,28 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               </p>
             )}
           </div>
-          {isFilteredView && (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {isFilteredView && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGroup('all');
+                  setSearchQuery('');
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition-colors"
+              >
+                Afficher tout le catalogue
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => {
-                setSelectedGroup('all');
-                setSearchQuery('');
-              }}
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition-colors"
+              onClick={() => setIsCustomOrderOpen(true)}
+              className="px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-950 text-xs font-bold cursor-pointer transition-colors inline-flex items-center gap-1.5"
             >
-              Afficher tout le catalogue
+              <span className="material-symbols-outlined text-base text-amber-700">edit_note</span>
+              <span>Écrire ma commande sur mesure</span>
             </button>
-          )}
+          </div>
         </section>
       ) : isFilteredView ? (
         <section className="space-y-3">
@@ -773,7 +789,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500">Livraison</span>
-                <span className="font-semibold text-slate-900">Ouagadougou &amp; National</span>
+                <span className="font-semibold text-slate-900">Négociée avec le vendeur</span>
               </div>
             </div>
 
@@ -842,6 +858,16 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
           </div>
         </div>
       )}
+      {/* Modal Commande Personnalisée par écrit */}
+      <CustomOrderModal
+        isOpen={isCustomOrderOpen}
+        onClose={() => setIsCustomOrderOpen(false)}
+        defaultDomain={domain}
+        source="boutique"
+        defaultCustomerName={defaultCustomerName}
+        defaultCustomerPhone={defaultCustomerPhone}
+        defaultCustomerEmail={defaultCustomerEmail}
+      />
     </div>
   );
 };

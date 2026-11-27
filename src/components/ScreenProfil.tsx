@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { InvestorWallet, InvestorProfile, ProfitDistribution } from '../data/mockData.ts';
+import { InvestorWallet, InvestorProfile, ProfitDistribution, InvestmentProject } from '../data/mockData.ts';
+import type { ShareAllocation } from './ScreenBourseIR.tsx';
 
 interface ScreenProfilProps {
   currentProfile?: InvestorProfile | null;
   onUpdateProfile: (updated: Partial<InvestorProfile>) => void;
   wallet?: InvestorWallet;
+  totalInvested?: number;
+  shareAllocations?: ShareAllocation[];
+  projects?: InvestmentProject[];
   profitDistributions?: ProfitDistribution[];
   onOpenWallet?: (defaultAction?: 'depot' | 'retrait' | 'history') => void;
   onOpenCertificate?: () => void;
@@ -19,6 +23,9 @@ export const ScreenProfil: React.FC<ScreenProfilProps> = ({
   currentProfile,
   onUpdateProfile,
   wallet = { balance: 0, sharesCount: 0, dividendsEarned: 0 },
+  totalInvested,
+  shareAllocations = [],
+  projects = [],
   profitDistributions = [],
   onOpenWallet,
   onGoTab,
@@ -147,6 +154,38 @@ export const ScreenProfil: React.FC<ScreenProfilProps> = ({
     }
   };
 
+  const effectiveInvested =
+    typeof totalInvested === 'number' && Number.isFinite(totalInvested)
+      ? totalInvested
+      : shareAllocations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+  const realOwnershipPct = (() => {
+    let allocatedTotalPool = 0;
+    let allocatedShares = 0;
+    for (const alloc of shareAllocations) {
+      const matched = projects.find(
+        (p) =>
+          (alloc.operationId && p.id === alloc.operationId) ||
+          (alloc.operationTitle && p.title.toLowerCase() === alloc.operationTitle.toLowerCase())
+      );
+      if (matched) {
+        const pool = Math.max(Number(matched.availableShares || 0), Number(alloc.shares || 0));
+        if (pool > 0) {
+          allocatedTotalPool += pool;
+          allocatedShares += Number(alloc.shares || 0);
+        }
+      }
+    }
+    if (allocatedTotalPool > 0 && allocatedShares > 0) {
+      return Math.min(100, (allocatedShares / allocatedTotalPool) * 100);
+    }
+    const fallbackPool = projects.reduce((sum, p) => sum + Math.max(0, Number(p.availableShares || 0)), 0);
+    if (fallbackPool > 0 && wallet.sharesCount > 0) {
+      return Math.min(100, (wallet.sharesCount / fallbackPool) * 100);
+    }
+    return null;
+  })();
+
   if (!currentProfile) {
     return (
       <div className="max-w-xl mx-auto py-12 px-4 text-center space-y-6 animate-fadeIn">
@@ -265,7 +304,7 @@ export const ScreenProfil: React.FC<ScreenProfilProps> = ({
       </section>
 
       {/* =========================================================================
-          VUE 1 : MON PORTEFEUILLE & BÉNÉFICES (PAS DE FORMATIONS NI ATTESTATIONS)
+          VUE 1 : MON PORTEFEUILLE & BÉNÉFICES (DONNÉES RÉELLES EN BASE)
           ========================================================================= */}
       {activeTab === 'overview' && (
         <div className="space-y-5 animate-fadeIn">
@@ -324,15 +363,27 @@ export const ScreenProfil: React.FC<ScreenProfilProps> = ({
               </div>
             </div>
 
-            {/* Détails du Capital & Dividendes de CET investisseur */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Détails réels du Capital, Parts & Dividendes de CET investisseur */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-bold block">Parts détenues</span>
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Montant Réel Investi</span>
                 <div className="font-syne text-[18px] text-slate-900 font-extrabold">
-                  {wallet.sharesCount.toLocaleString('fr-FR')}
+                  {effectiveInvested.toLocaleString('fr-FR')} <span className="text-[11px] text-slate-600 font-bold">FCFA</span>
                 </div>
-                <span className="text-[11px] text-cyan-700 font-medium block">
-                  Leur valeur dépend du prix de chaque opération
+                <span className="text-[11px] text-amber-700 font-medium block">
+                  Enregistré et synchronisé en base
+                </span>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-1">
+                <span className="text-[10px] text-slate-500 uppercase font-bold block">Parts &amp; Part Projet</span>
+                <div className="font-syne text-[18px] text-slate-900 font-extrabold">
+                  {wallet.sharesCount.toLocaleString('fr-FR')} <span className="text-[12px] font-bold text-slate-500">part{wallet.sharesCount > 1 ? 's' : ''}</span>
+                </div>
+                <span className="text-[11px] text-cyan-700 font-semibold block">
+                  {realOwnershipPct !== null
+                    ? `Part réelle : ${realOwnershipPct.toFixed(2)}% du projet`
+                    : `${shareAllocations.length} allocation(s) active(s)`}
                 </span>
               </div>
 
@@ -341,7 +392,11 @@ export const ScreenProfil: React.FC<ScreenProfilProps> = ({
                 <div className="font-syne text-[18px] text-cyan-700 font-extrabold">
                   {wallet.dividendsEarned.toLocaleString('fr-FR')} <span className="text-[11px] text-slate-600 font-bold">FCFA</span>
                 </div>
-                <span className="text-[11px] text-slate-500 block">Partagés équitablement</span>
+                <span className="text-[11px] text-slate-500 block">
+                  {effectiveInvested > 0 && wallet.dividendsEarned > 0
+                    ? `+${((wallet.dividendsEarned / effectiveInvested) * 100).toFixed(1)}% perçu sur capital`
+                    : 'Versements réels validés'}
+                </span>
               </div>
             </div>
 

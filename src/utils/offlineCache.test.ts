@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  CATALOG_CACHE_TTL_MS,
   OFFLINE_BOUTIQUES_KEY,
   OFFLINE_CART_KEY,
   OFFLINE_GROUPS_KEY,
   OFFLINE_PRODUCTS_KEY,
+  invalidateCatalogCache,
+  isCatalogCacheFresh,
   loadCartItems,
   loadOfflineBoutiques,
+  loadOfflineConfig,
   loadOfflineGroups,
   loadOfflineProducts,
+  markCatalogCacheUpdated,
   saveCartItems,
   saveOfflineBoutiques,
+  saveOfflineConfig,
   saveOfflineGroups,
   saveOfflineProducts
 } from './offlineCache.ts';
@@ -100,6 +106,45 @@ describe('offlineCache', () => {
     expect(loadOfflineGroups()?.electronique?.[0].label).toBe('Microcontrôleurs');
     expect(loadOfflineBoutiques()).toHaveLength(1);
     expect(loadOfflineBoutiques()[0].id).toBe('b-1');
+  });
+
+  it('tracks 10-minute catalog cache freshness and invalidation', () => {
+    const now = 1_700_000_000_000;
+    expect(isCatalogCacheFresh(CATALOG_CACHE_TTL_MS, now)).toBe(false);
+
+    saveOfflineProducts([
+      {
+        id: 'p-ttl',
+        ref: 'TTL-1',
+        name: 'Capteur DHT22',
+        category: 'capteurs',
+        categoryLabel: 'Capteurs',
+        domain: 'electronique',
+        price: 3500,
+        stock: 5,
+        description: 'Capteur numérique'
+      }
+    ]);
+    markCatalogCacheUpdated(now);
+
+    expect(isCatalogCacheFresh(CATALOG_CACHE_TTL_MS, now + 5 * 60 * 1000)).toBe(true);
+    expect(isCatalogCacheFresh(CATALOG_CACHE_TTL_MS, now + CATALOG_CACHE_TTL_MS + 1000)).toBe(false);
+
+    invalidateCatalogCache();
+    expect(isCatalogCacheFresh(CATALOG_CACHE_TTL_MS, now + 1000)).toBe(false);
+  });
+
+  it('persists offline config snapshot cleanly', () => {
+    saveOfflineConfig({
+      heroVideoUrl: 'https://example.com/hero.mp4',
+      isMaintenanceMode: false,
+      isInvestorChatOpen: true
+    });
+
+    const loaded = loadOfflineConfig();
+    expect(loaded?.heroVideoUrl).toBe('https://example.com/hero.mp4');
+    expect(loaded?.isMaintenanceMode).toBe(false);
+    expect(loaded?.isInvestorChatOpen).toBe(true);
   });
 
   it('persists cart items and filters malformed entries', () => {

@@ -85,6 +85,12 @@ export const Header: React.FC<HeaderProps> = ({
     });
   };
 
+  const isInsideBoutique =
+    currentTab === 'boutique_electronique' ||
+    currentTab === 'boutique_electrotechnique' ||
+    currentTab === 'boutique_informatique' ||
+    currentTab === 'composants';
+
   return (
     <>
       <header className="fixed top-0 left-0 w-full z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs transition-all">
@@ -144,6 +150,13 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* DROITE : INSTALLER PWA (DESKTOP) + PANIER + 3 POINTS (LANGUE, À PROPOS, MODE) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {isInsideBoutique && (
+              <PWAInstallButton
+                variant="header-mobile"
+                lang={currentLang}
+                onOpenGuideModal={() => setInstallGuideOpen(true)}
+              />
+            )}
             <PWAInstallButton
               variant="header-desktop"
               lang={currentLang}
@@ -289,50 +302,52 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* =========================================================================
-            ROW 2 : BARRE DE RECHERCHE + BOUTON INSTALLER COMPACT SUR MOBILE
+            ROW 2 : BARRE DE RECHERCHE (masquée à l'intérieur des boutiques pour éviter le doublon)
             ========================================================================= */}
-        <div className="border-t border-slate-100 bg-slate-50/80 px-4 sm:px-6 lg:px-8 py-2">
-          <div className="max-w-7xl mx-auto flex items-center gap-2">
-            <div className="flex-1 min-w-0 h-11 px-4 sm:px-5 rounded-2xl bg-white border border-slate-300 focus-within:border-[#d4af37] text-slate-800 flex items-center justify-between gap-3 shadow-2xs hover:shadow-xs transition-all">
-              <span className="material-symbols-outlined text-slate-400 text-xl shrink-0">
-                search
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange ? onSearchChange(e.target.value) : onOpenSearch()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onOpenSearch();
-                }}
-                placeholder={currentLang === 'FR' ? 'Rechercher un produit, une boutique...' : 'Search for a product, a shop...'}
-                className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden font-medium"
-              />
-              {searchQuery && onSearchChange && (
+        {!isInsideBoutique && (
+          <div className="border-t border-slate-100 bg-slate-50/80 px-4 sm:px-6 lg:px-8 py-2">
+            <div className="max-w-7xl mx-auto flex items-center gap-2">
+              <div className="flex-1 min-w-0 h-11 px-4 sm:px-5 rounded-2xl bg-white border border-slate-300 focus-within:border-[#d4af37] text-slate-800 flex items-center justify-between gap-3 shadow-2xs hover:shadow-xs transition-all">
+                <span className="material-symbols-outlined text-slate-400 text-xl shrink-0">
+                  search
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange ? onSearchChange(e.target.value) : onOpenSearch()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onOpenSearch();
+                  }}
+                  placeholder={currentLang === 'FR' ? 'Rechercher un produit, une boutique...' : 'Search for a product, a shop...'}
+                  className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden font-medium"
+                />
+                {searchQuery && onSearchChange && (
+                  <button
+                    type="button"
+                    onClick={() => onSearchChange('')}
+                    className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-xs cursor-pointer shrink-0"
+                  >
+                    ✕
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => onSearchChange('')}
-                  className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-xs cursor-pointer shrink-0"
+                  onClick={onOpenSearch}
+                  className="flex items-center gap-1 text-slate-400 hover:text-[#b48c1e] shrink-0 pl-2 border-l border-slate-200 cursor-pointer"
+                  title="Filtres avancés"
                 >
-                  ✕
+                  <span className="material-symbols-outlined text-lg">tune</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={onOpenSearch}
-                className="flex items-center gap-1 text-slate-400 hover:text-[#b48c1e] shrink-0 pl-2 border-l border-slate-200 cursor-pointer"
-                title="Filtres avancés"
-              >
-                <span className="material-symbols-outlined text-lg">tune</span>
-              </button>
-            </div>
+              </div>
 
-            <PWAInstallButton
-              variant="header-mobile"
-              lang={currentLang}
-              onOpenGuideModal={() => setInstallGuideOpen(true)}
-            />
+              <PWAInstallButton
+                variant="header-mobile"
+                lang={currentLang}
+                onOpenGuideModal={() => setInstallGuideOpen(true)}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* MOBILE SLIDE-DOWN MENU */}
         {mobileMenuOpen && (
@@ -432,8 +447,8 @@ export const Header: React.FC<HeaderProps> = ({
         lang={currentLang}
       />
 
-      {/* Top spacer (Header height is approx 115px) */}
-      <div className="h-28 sm:h-30"></div>
+      {/* Top spacer dynamically sized whether Row 2 search bar is visible */}
+      <div className={isInsideBoutique ? 'h-16 sm:h-[68px]' : 'h-28 sm:h-30'}></div>
     </>
   );
 };

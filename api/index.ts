@@ -6,23 +6,6 @@ export default async function handler(
   req: IncomingMessage & { url?: string },
   res: ServerResponse
 ) {
-  try {
-    await ensureServerInitialized();
-  } catch (error) {
-    logPostgresError('Vercel Init', error, process.env.DATABASE_URL);
-    const formatted = formatTechnicalErrorMessage(error);
-    if (!res.headersSent) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({
-        success: false,
-        code: formatted.code,
-        error: formatted.message
-      }));
-    }
-    return;
-  }
-
   if (typeof req.url === 'string') {
     const parsed = new URL(req.url, 'http://localhost');
     const targetPath = parsed.searchParams.get('__pathname');
@@ -32,5 +15,25 @@ export default async function handler(
       req.url = remainingQuery ? `${targetPath}?${remainingQuery}` : targetPath;
     }
   }
+
+  try {
+    await ensureServerInitialized();
+  } catch (error) {
+    logPostgresError('Vercel Init', error, process.env.DATABASE_URL);
+    const formatted = formatTechnicalErrorMessage(error);
+    if (!res.headersSent) {
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.end(JSON.stringify({
+        success: false,
+        degraded: true,
+        code: formatted.code,
+        error: formatted.message
+      }));
+    }
+    return;
+  }
+
   return app(req as Parameters<typeof app>[0], res as Parameters<typeof app>[1]);
 }

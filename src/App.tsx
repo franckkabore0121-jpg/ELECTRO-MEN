@@ -29,9 +29,9 @@ import { WalletModal } from './components/WalletModal.tsx';
 import { SharePaymentModal } from './components/SharePaymentModal.tsx';
 import { EmailViewerModal } from './components/EmailViewerModal.tsx';
 import { BoutiquesDirectory } from './components/BoutiquesDirectory.tsx';
+import { CustomOrderRecord } from './components/CustomOrderModal.tsx';
 import {
   PROJECTS,
-  DELIVERY_ZONES,
   MARKETPLACE_BOUTIQUES,
   MarketplaceBoutique,
   CartItem,
@@ -44,7 +44,6 @@ import {
   InvestorWallet,
   EmailNotification,
   InvestorProfile,
-  DeliveryZone,
   AppNotification,
   FundOperationRequest,
   INITIAL_FUND_REQUESTS,
@@ -65,14 +64,27 @@ import {
   withNoCacheParam
 } from './utils/productFormat.ts';
 import {
+  invalidateCatalogCache,
+  isCatalogCacheFresh,
   loadCartItems,
+  loadOfflineActivities,
   loadOfflineBoutiques,
+  loadOfflineConfig,
+  loadOfflineCourses,
+  loadOfflineDocuments,
   loadOfflineGroups,
   loadOfflineProducts,
+  loadOfflineProjects,
+  markCatalogCacheUpdated,
   saveCartItems,
+  saveOfflineActivities,
   saveOfflineBoutiques,
+  saveOfflineConfig,
+  saveOfflineCourses,
+  saveOfflineDocuments,
   saveOfflineGroups,
-  saveOfflineProducts
+  saveOfflineProducts,
+  saveOfflineProjects
 } from './utils/offlineCache.ts';
 import { OfflineIndicator } from './components/OfflineIndicator.tsx';
 
@@ -144,23 +156,17 @@ export default function App() {
     }
   }, [currentProfile]);
 
-  // Catalog Products state loaded directly from PostgreSQL Neon with offline cache fallback
-  const [products, setProducts] = useState<Product[]>(() => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return loadOfflineProducts();
-    }
-    return [];
+  // Catalog Products state loaded from 10-min local cache first, then PostgreSQL Neon with degraded fallback
+  const [products, setProducts] = useState<Product[]>(() => loadOfflineProducts());
+  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    return !isCatalogCacheFresh();
   });
-  const [isLoadingProducts, setIsLoadingProducts] = useState<boolean>(() =>
-    typeof navigator !== 'undefined' && !navigator.onLine ? false : true
-  );
   const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
   const [isUsingOfflineData, setIsUsingOfflineData] = useState<boolean>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? loadOfflineProducts().length > 0 : false
   );
   const productsRequestRef = useRef<AbortController | null>(null);
-  const hasSkippedInitialProductsSyncRef = useRef<boolean>(false);
-  const isInitialTabEffectRef = useRef<boolean>(true);
 
   const applyServerGroups = useCallback(
     (
@@ -199,6 +205,23 @@ export default function App() {
     if (cachedBoutiques.length > 0) {
       setMarketplaceBoutiques(cachedBoutiques);
     }
+    const cachedCourses = loadOfflineCourses();
+    if (cachedCourses) setCourses(cachedCourses);
+    const cachedProjects = loadOfflineProjects();
+    if (cachedProjects && cachedProjects.length > 0) setProjects(cachedProjects);
+    const cachedActivities = loadOfflineActivities();
+    if (cachedActivities) setInvestorActivities(cachedActivities);
+    const cachedDocuments = loadOfflineDocuments();
+    if (cachedDocuments) setInvestorDocuments(cachedDocuments);
+    const cachedConfig = loadOfflineConfig();
+    if (cachedConfig) {
+      if (cachedConfig.heroVideoUrl) setHeroVideoUrl(cachedConfig.heroVideoUrl);
+      if (cachedConfig.formationsVideoUrl) setFormationsVideoUrl(cachedConfig.formationsVideoUrl);
+      if (cachedConfig.customAdminUrl) setAdminCustomUrl(cachedConfig.customAdminUrl);
+      if (typeof cachedConfig.isMaintenanceMode === 'boolean') setIsMaintenanceMode(cachedConfig.isMaintenanceMode);
+      if (typeof cachedConfig.isInvestorChatOpen === 'boolean') setIsInvestorChatOpen(cachedConfig.isInvestorChatOpen);
+    }
+
     const cachedProducts = loadOfflineProducts();
     if (cachedProducts.length > 0) {
       setProducts(cachedProducts);
@@ -206,10 +229,11 @@ export default function App() {
       setIsUsingOfflineData(true);
       return true;
     }
+    setIsUsingOfflineData(true);
     return false;
   }, [applyServerGroups]);
 
-  const fetchProductsNow = useCallback(async (showSpinner = false): Promise<void> => {
+  const fetchProductsNow = useCallback(async (showSpinner = false, forceRefresh = false): Promise<void> => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       const hasCached = hydrateFromOfflineCache();
       setIsLoadingProducts(false);
@@ -221,9 +245,25 @@ export default function App() {
       return;
     }
 
+    if (!forceRefresh && isCatalogCacheFresh()) {
+      const cached = loadOfflineProducts();
+      if (cached.length > 0) {
+        setProducts(cached);
+        const cachedGroups = loadOfflineGroups();
+        if (cachedGroups) applyServerGroups(cachedGroups, false);
+        const cachedBoutiques = loadOfflineBoutiques();
+        if (cachedBoutiques.length > 0) setMarketplaceBoutiques(cachedBoutiques);
+        setProductsLoadError(null);
+        setIsUsingOfflineData(false);
+        setIsLoadingProducts(false);
+        return;
+      }
+    }
+
     productsRequestRef.current?.abort();
     const controller = new AbortController();
     productsRequestRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
     if (showSpinner) setIsLoadingProducts(true);
     setProductsLoadError(null);
     try {
@@ -233,12 +273,12 @@ export default function App() {
       });
       if (!response.ok) {
         const errPayload = await response.json().catch(() => null) as { error?: string } | null;
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted || response.status >= 500) {
           const restored = hydrateFromOfflineCache();
           if (!restored) {
             setProductsLoadError(
               errPayload?.error ||
-                `Impossible de charger les produits depuis PostgreSQL (HTTP ${response.status}).`
+                `Catalogue temporairement indisponible (HTTP ${response.status}).`
             );
           }
         }
@@ -252,6 +292,7 @@ export default function App() {
         const normalizedList = data.products.map(normalizeClientProduct);
         setProducts(normalizedList);
         saveOfflineProducts(normalizedList);
+        markCatalogCacheUpdated();
         setProductsLoadError(null);
         setIsUsingOfflineData(false);
         applyServerGroups(data.groups);
@@ -266,16 +307,21 @@ export default function App() {
         );
       }
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        console.error('Unable to load live products from PostgreSQL:', error);
+      const isTimeoutAbort =
+        error instanceof DOMException &&
+        error.name === 'AbortError' &&
+        productsRequestRef.current === controller;
+      if (!(error instanceof DOMException && error.name === 'AbortError') || isTimeoutAbort) {
+        console.warn('Unable to load live products from PostgreSQL — using cached snapshot:', error);
         const restored = hydrateFromOfflineCache();
         if (!restored) {
           setProductsLoadError(
-            'Connexion au serveur catalogue interrompue. Vérifiez le réseau ou DATABASE_URL.'
+            'Connexion au serveur catalogue interrompue. Mode secours local activé.'
           );
         }
       }
     } finally {
+      window.clearTimeout(timeoutId);
       if (productsRequestRef.current === controller) {
         productsRequestRef.current = null;
         setIsLoadingProducts(false);
@@ -283,44 +329,27 @@ export default function App() {
     }
   }, [applyServerGroups, hydrateFromOfflineCache]);
 
+  const handleManualCatalogRefresh = useCallback(() => {
+    invalidateCatalogCache();
+    void fetchProductsNow(true, true);
+  }, [fetchProductsNow]);
+
   useEffect(() => {
-    try {
-      localStorage.removeItem('electromen_products');
-      localStorage.removeItem('electromen_domain_groups');
-      localStorage.removeItem('electromen_custom_groups');
-      localStorage.removeItem('electromen_marketplace_boutiques');
-    } catch {
-      // ignore
-    }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       hydrateFromOfflineCache();
+      setIsLoadingProducts(false);
+      return;
     }
-    void fetchProductsNow(true);
+    void fetchProductsNow(!isCatalogCacheFresh(), false);
     return () => {
       productsRequestRef.current?.abort();
     };
   }, [fetchProductsNow, hydrateFromOfflineCache]);
 
-  useEffect(() => {
-    if (isInitialTabEffectRef.current) {
-      isInitialTabEffectRef.current = false;
-      return;
-    }
-    if (
-      currentTab === 'accueil' ||
-      currentTab === 'boutiques' ||
-      currentTab === 'boutique_electronique' ||
-      currentTab === 'boutique_electrotechnique' ||
-      currentTab === 'boutique_informatique' ||
-      currentTab === 'composants' ||
-      currentTab === 'admin'
-    ) {
-      void fetchProductsNow(false);
-    }
-  }, [currentTab, fetchProductsNow]);
-
-  // Courses state with Admin mutability (empty by default; controlled entirely by administrator)
+  // Courses state with Admin mutability + offline snapshot persistence
   const [courses, setCourses] = useState<Course[]>(() => {
+    const cached = loadOfflineCourses();
+    if (cached) return cached;
     try {
       const saved = localStorage.getItem('electromen_courses');
       if (saved !== null) {
@@ -334,6 +363,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    saveOfflineCourses(courses);
     try {
       localStorage.setItem('electromen_courses', JSON.stringify(courses));
     } catch {
@@ -343,6 +373,8 @@ export default function App() {
 
   // Investment Projects state with Admin mutability
   const [projects, setProjects] = useState<InvestmentProject[]>(() => {
+    const cached = loadOfflineProjects();
+    if (cached && cached.length > 0) return cached;
     try {
       const saved = localStorage.getItem('electromen_projects');
       if (saved) return JSON.parse(saved);
@@ -353,6 +385,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    saveOfflineProjects(projects);
     try {
       localStorage.setItem('electromen_projects', JSON.stringify(projects));
     } catch {
@@ -362,10 +395,8 @@ export default function App() {
 
   // Marketplace Boutiques state synced from PostgreSQL config with offline cache fallback
   const [marketplaceBoutiques, setMarketplaceBoutiques] = useState<MarketplaceBoutique[]>(() => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      const cached = loadOfflineBoutiques();
-      if (cached.length > 0) return cached;
-    }
+    const cached = loadOfflineBoutiques();
+    if (cached.length > 0) return cached;
     return MARKETPLACE_BOUTIQUES;
   });
 
@@ -376,6 +407,8 @@ export default function App() {
           ? { ...b, flag: newFlag, country: countryName || b.country }
           : b
       );
+      saveOfflineBoutiques(next);
+      markCatalogCacheUpdated();
       void fetch(withNoCacheParam('/api/admin/boutiques'), {
         method: 'PUT',
         ...NO_CACHE_FETCH_INIT,
@@ -387,6 +420,37 @@ export default function App() {
       }).catch((err) => {
         console.error('Unable to persist boutique configuration to PostgreSQL:', err);
       });
+      return next;
+    });
+  };
+
+  const handleUpdateBoutiqueLogo = (boutiqueId: string, logoUrl: string) => {
+    setMarketplaceBoutiques((prev) => {
+      const next = prev.map((b) =>
+        b.id === boutiqueId ? { ...b, logoUrl } : b
+      );
+      saveOfflineBoutiques(next);
+      markCatalogCacheUpdated();
+      void fetch(withNoCacheParam('/api/admin/boutiques'), {
+        method: 'PUT',
+        ...NO_CACHE_FETCH_INIT,
+        headers: {
+          ...NO_CACHE_FETCH_INIT.headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ boutiques: next })
+      })
+        .then((res) => res.json().catch(() => null))
+        .then((data) => {
+          if (data?.success && Array.isArray(data.boutiques)) {
+            setMarketplaceBoutiques(data.boutiques);
+            saveOfflineBoutiques(data.boutiques);
+            markCatalogCacheUpdated();
+          }
+        })
+        .catch((err) => {
+          console.error('Unable to persist boutique logo to PostgreSQL:', err);
+        });
       return next;
     });
   };
@@ -572,24 +636,14 @@ export default function App() {
     }
   }, [formationsVideoUrl]);
 
-  // Delivery Zones state
-  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>(() => {
-    try {
-      const saved = localStorage.getItem('electromen_delivery_zones');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return DELIVERY_ZONES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('electromen_delivery_zones', JSON.stringify(deliveryZones));
-    } catch {
-      // ignore
-    }
-  }, [deliveryZones]);
+  // Custom Written Orders state (Admin) & Investor Portfolio Snapshot
+  const [customOrders, setCustomOrders] = useState<CustomOrderRecord[]>([]);
+  const [investorPortfolio, setInvestorPortfolio] = useState<{
+    totalInvested: number;
+    sharesCount: number;
+    dividendsEarned: number;
+    shareAllocations: ShareAllocation[];
+  } | null>(null);
 
   // App Notifications (WhatsApp-style)
   const [appNotifications, setAppNotifications] = useState<AppNotification[]>(() => {
@@ -682,9 +736,6 @@ export default function App() {
     senderName: String(raw?.senderName || 'Participant'),
     senderPhone: typeof raw?.senderPhone === 'string' ? raw.senderPhone : undefined,
     senderRole: raw?.senderRole === 'admin' ? 'admin' : 'investor',
-    messageType: raw?.messageType === 'voice' || raw?.audioUrl ? 'voice' : 'text',
-    audioUrl: typeof raw?.audioUrl === 'string' ? raw.audioUrl : undefined,
-    audioDuration: typeof raw?.audioDuration === 'number' ? raw.audioDuration : undefined,
     text: String(raw?.text || ''),
     timestamp: String(raw?.timestamp || raw?.time || ''),
     isOfficial: typeof raw?.isOfficial === 'boolean' ? raw.isOfficial : raw?.senderRole === 'admin',
@@ -713,8 +764,7 @@ export default function App() {
   const handleSendInvestorMessage = async (
     text: string,
     _senderName: string,
-    _isOfficial = false,
-    voice?: { audioUrl: string; audioDuration?: number }
+    _isOfficial = false
   ) => {
     const response = await fetch('/api/messages', {
       method: 'POST',
@@ -722,8 +772,7 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        senderRole: 'investor',
-        ...(voice ? { messageType: 'voice', audioUrl: voice.audioUrl, audioDuration: voice.audioDuration } : {})
+        senderRole: 'investor'
       })
     });
     const data = await response.json();
@@ -734,18 +783,14 @@ export default function App() {
     setInvestorMessages((prev) => [...prev.filter((m) => m.id !== normalized.id), normalized]);
   };
 
-  const handleSendAdminMessage = async (
-    text: string,
-    voice?: { audioUrl: string; audioDuration?: number }
-  ) => {
+  const handleSendAdminMessage = async (text: string) => {
     const response = await fetch('/api/messages', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        senderRole: 'admin',
-        ...(voice ? { messageType: 'voice', audioUrl: voice.audioUrl, audioDuration: voice.audioDuration } : {})
+        senderRole: 'admin'
       })
     });
     const data = await response.json();
@@ -754,6 +799,38 @@ export default function App() {
     }
     const normalized = normalizeServerMessage(data.message);
     setInvestorMessages((prev) => [...prev.filter((m) => m.id !== normalized.id), normalized]);
+  };
+
+  const handleUpdateCustomOrderStatus = async (
+    id: string,
+    status: CustomOrderRecord['status'],
+    adminNote?: string
+  ) => {
+    const response = await fetch(`/api/admin/custom-orders/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, ...(adminNote !== undefined ? { adminNote } : {}) })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || !data.order) {
+      alert(data.error || 'Mise à jour du statut impossible.');
+      return;
+    }
+    setCustomOrders((prev) => prev.map((item) => (item.id === id ? data.order : item)));
+  };
+
+  const handleDeleteCustomOrder = async (id: string) => {
+    const response = await fetch(`/api/admin/custom-orders/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      alert(data.error || 'Suppression impossible.');
+      return;
+    }
+    setCustomOrders((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleToggleInvestorChat = async () => {
@@ -899,11 +976,16 @@ export default function App() {
       }).catch(() => {});
     };
 
-    // Immediate ping
-    sendHeartbeat();
+    // Immediate ping only when visible; slow 60s cadence to minimize serverless bandwidth
+    if (document.visibilityState === 'visible') {
+      sendHeartbeat();
+    }
 
-    // Regular 10s ping
-    const interval = setInterval(sendHeartbeat, 10000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        sendHeartbeat();
+      }
+    }, 60000);
 
     const handleUnload = () => {
       try {
@@ -1117,13 +1199,18 @@ export default function App() {
       }
     };
 
+    if (currentTab !== 'admin') return;
     fetchServerInvestors();
-    const interval = setInterval(fetchServerInvestors, 3500);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchServerInvestors();
+      }
+    }, 20000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [currentAdminRole, currentAdminPermissions]);
+  }, [currentAdminRole, currentAdminPermissions, currentTab]);
 
   // Audit Logs & Rollback System
   const [auditLogs, setAuditLogs] = useState<AuditAction[]>(() => {
@@ -1361,19 +1448,31 @@ export default function App() {
     }));
   };
 
-  // Dynamic Domain Groups state synced directly with PostgreSQL
+  // Dynamic Domain Groups state hydrated from offline cache and synced with PostgreSQL
   const [domainGroups, setDomainGroups] = useState<{
     electronique: CategoryGroup[];
     electrotechnique: CategoryGroup[];
     informatique: CategoryGroup[];
-  }>({
-    electronique: ELECTRONIQUE_GROUPS,
-    electrotechnique: ELECTROTECHNIQUE_GROUPS,
-    informatique: INFORMATIQUE_GROUPS
+  }>(() => {
+    const cached = loadOfflineGroups();
+    if (cached) {
+      return {
+        electronique: Array.isArray(cached.electronique) && cached.electronique.length > 0 ? cached.electronique : ELECTRONIQUE_GROUPS,
+        electrotechnique: Array.isArray(cached.electrotechnique) && cached.electrotechnique.length > 0 ? cached.electrotechnique : ELECTROTECHNIQUE_GROUPS,
+        informatique: Array.isArray(cached.informatique) && cached.informatique.length > 0 ? cached.informatique : INFORMATIQUE_GROUPS
+      };
+    }
+    return {
+      electronique: ELECTRONIQUE_GROUPS,
+      electrotechnique: ELECTROTECHNIQUE_GROUPS,
+      informatique: INFORMATIQUE_GROUPS
+    };
   });
 
-  // Investor Activities & Documents (Empty by default, admin manages)
+  // Investor Activities & Documents hydrated from offline snapshot
   const [investorActivities, setInvestorActivities] = useState<InvestorActivity[]>(() => {
+    const cached = loadOfflineActivities();
+    if (cached) return cached;
     try {
       const saved = localStorage.getItem('electromen_investor_activities');
       if (saved) return JSON.parse(saved);
@@ -1382,12 +1481,15 @@ export default function App() {
   });
 
   useEffect(() => {
+    saveOfflineActivities(investorActivities);
     try {
       localStorage.setItem('electromen_investor_activities', JSON.stringify(investorActivities));
     } catch {}
   }, [investorActivities]);
 
   const [investorDocuments, setInvestorDocuments] = useState<InvestorDocument[]>(() => {
+    const cached = loadOfflineDocuments();
+    if (cached) return cached;
     try {
       const saved = localStorage.getItem('electromen_investor_documents');
       if (saved) return JSON.parse(saved);
@@ -1396,6 +1498,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    saveOfflineDocuments(investorDocuments);
     try {
       localStorage.setItem('electromen_investor_documents', JSON.stringify(investorDocuments));
     } catch {}
@@ -1405,20 +1508,31 @@ export default function App() {
     let active = true;
     let refreshTimer: number | undefined;
     let activeRequest: AbortController | null = null;
+    let hadPublicFallbackError = false;
 
     const fetchSnapshot = async <T,>(url: string, signal: AbortSignal): Promise<T | null> => {
+      const timeoutSignal = new AbortController();
+      const onParentAbort = () => timeoutSignal.abort();
+      signal.addEventListener('abort', onParentAbort, { once: true });
+      const timer = window.setTimeout(() => timeoutSignal.abort(), 8000);
       try {
         const response = await fetch(withNoCacheParam(url), {
           ...NO_CACHE_FETCH_INIT,
-          signal
+          signal: timeoutSignal.signal
         });
-        if (!response.ok) return null;
+        if (!response.ok) {
+          if (response.status >= 500) hadPublicFallbackError = true;
+          return null;
+        }
         return await response.json() as T;
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          console.error(`Unable to refresh live content from ${url}:`, error);
+          hadPublicFallbackError = true;
         }
         return null;
+      } finally {
+        window.clearTimeout(timer);
+        signal.removeEventListener('abort', onParentAbort);
       }
     };
 
@@ -1453,10 +1567,15 @@ export default function App() {
       }
     };
 
-    const refreshContent = async () => {
+    const refreshContent = async (forcePublicRefresh = false) => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        hydrateFromOfflineCache();
+        return;
+      }
       activeRequest?.abort();
       const controller = new AbortController();
       activeRequest = controller;
+      hadPublicFallbackError = false;
 
       const canReadAdminOperations =
         currentAdminRole === 'admin_principal' ||
@@ -1475,13 +1594,14 @@ export default function App() {
         currentAdminPermissions.includes('manage_investors') ||
         currentAdminPermissions.includes('manage_operations');
       const canReadMessagesAndProfits = Boolean(currentAdminRole || currentProfile?.email);
+      const canReadCustomOrders =
+        currentAdminRole === 'admin_principal' ||
+        currentAdminPermissions.includes('manage_content') ||
+        currentAdminPermissions.includes('manage_products') ||
+        currentAdminPermissions.includes('manage_investors');
 
+      const shouldFetchPublic = forcePublicRefresh || !isCatalogCacheFresh() || Boolean(currentAdminRole);
       const operationUrl = canReadAdminOperations ? '/api/admin/operations' : '/api/operations';
-      if (hasSkippedInitialProductsSyncRef.current) {
-        void fetchProductsNow(false);
-      } else {
-        hasSkippedInitialProductsSyncRef.current = true;
-      }
 
       const [
         operationData,
@@ -1494,25 +1614,39 @@ export default function App() {
         adminAuditData,
         adminSubscriptionsData,
         investorWalletData,
+        investorMeData,
+        adminCustomOrdersData,
         messagesData,
         profitDistributionsData
       ] = await Promise.all([
-        fetchSnapshot<{ operations: InvestmentProject[] }>(operationUrl, controller.signal),
-        fetchSnapshot<{ courses: Course[] }>('/api/courses', controller.signal),
-        fetchSnapshot<{ activities: InvestorActivity[] }>('/api/activities', controller.signal),
-        fetchSnapshot<{ documents: InvestorDocument[] }>('/api/documents', controller.signal),
-        fetchSnapshot<{
-          groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
-        }>('/api/groups', controller.signal),
-        fetchSnapshot<{
-          heroVideoUrl?: string;
-          formationsVideoUrl?: string;
-          customAdminUrl?: string;
-          isMaintenanceMode?: boolean;
-          isInvestorChatOpen?: boolean;
-          boutiques?: MarketplaceBoutique[];
-          needsAdminSetup?: boolean;
-        }>('/api/admin/config', controller.signal),
+        shouldFetchPublic || canReadAdminOperations
+          ? fetchSnapshot<{ operations: InvestmentProject[] }>(operationUrl, controller.signal)
+          : Promise.resolve(null),
+        shouldFetchPublic
+          ? fetchSnapshot<{ courses: Course[] }>('/api/courses', controller.signal)
+          : Promise.resolve(null),
+        shouldFetchPublic
+          ? fetchSnapshot<{ activities: InvestorActivity[] }>('/api/activities', controller.signal)
+          : Promise.resolve(null),
+        shouldFetchPublic
+          ? fetchSnapshot<{ documents: InvestorDocument[] }>('/api/documents', controller.signal)
+          : Promise.resolve(null),
+        shouldFetchPublic
+          ? fetchSnapshot<{
+              groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
+            }>('/api/groups', controller.signal)
+          : Promise.resolve(null),
+        shouldFetchPublic
+          ? fetchSnapshot<{
+              heroVideoUrl?: string;
+              formationsVideoUrl?: string;
+              customAdminUrl?: string;
+              isMaintenanceMode?: boolean;
+              isInvestorChatOpen?: boolean;
+              boutiques?: MarketplaceBoutique[];
+              needsAdminSetup?: boolean;
+            }>('/api/admin/config', controller.signal)
+          : Promise.resolve(null),
         canReadAdminFunds
           ? fetchSnapshot<{ fundRequests?: FundOperationRequest[]; transactions?: WalletTransaction[] }>('/api/admin/fund-requests', controller.signal)
           : Promise.resolve(null),
@@ -1535,6 +1669,12 @@ export default function App() {
               transactions?: WalletTransaction[];
             }>('/api/investor/wallet', controller.signal)
           : Promise.resolve(null),
+        currentProfile?.email
+          ? fetchSnapshot<{ success?: boolean; investor?: RegisteredInvestor }>('/api/investor/me', controller.signal)
+          : Promise.resolve(null),
+        canReadCustomOrders
+          ? fetchSnapshot<{ success?: boolean; orders?: CustomOrderRecord[] }>('/api/admin/custom-orders', controller.signal)
+          : Promise.resolve(null),
         canReadMessagesAndProfits
           ? fetchSnapshot<{ messages?: any[]; isInvestorChatOpen?: boolean }>('/api/messages', controller.signal)
           : Promise.resolve(null),
@@ -1544,10 +1684,25 @@ export default function App() {
       ]);
 
       if (!active || controller.signal.aborted) return;
-      if (operationData && Array.isArray(operationData.operations)) setProjects(operationData.operations);
-      if (courseData && Array.isArray(courseData.courses)) setCourses(courseData.courses);
-      if (activityData && Array.isArray(activityData.activities)) setInvestorActivities(activityData.activities);
-      if (documentData && Array.isArray(documentData.documents)) setInvestorDocuments(documentData.documents);
+      if (hadPublicFallbackError && shouldFetchPublic) {
+        hydrateFromOfflineCache();
+      }
+      if (operationData && Array.isArray(operationData.operations)) {
+        setProjects(operationData.operations);
+        saveOfflineProjects(operationData.operations);
+      }
+      if (courseData && Array.isArray(courseData.courses)) {
+        setCourses(courseData.courses);
+        saveOfflineCourses(courseData.courses);
+      }
+      if (activityData && Array.isArray(activityData.activities)) {
+        setInvestorActivities(activityData.activities);
+        saveOfflineActivities(activityData.activities);
+      }
+      if (documentData && Array.isArray(documentData.documents)) {
+        setInvestorDocuments(documentData.documents);
+        saveOfflineDocuments(documentData.documents);
+      }
       if (groupsData?.groups) applyServerGroups(groupsData.groups);
 
       if (adminAuditData && Array.isArray(adminAuditData.auditLogs)) {
@@ -1555,6 +1710,20 @@ export default function App() {
       }
       if (adminSubscriptionsData && Array.isArray(adminSubscriptionsData.subscriptions)) {
         setSubscriptions(adminSubscriptionsData.subscriptions);
+      }
+      if (adminCustomOrdersData && Array.isArray(adminCustomOrdersData.orders)) {
+        setCustomOrders(adminCustomOrdersData.orders);
+      }
+      if (investorMeData?.success && investorMeData.investor) {
+        const me = investorMeData.investor;
+        setInvestorPortfolio({
+          totalInvested: Number(me.totalInvested || 0),
+          sharesCount: Number(me.sharesCount || 0),
+          dividendsEarned: Number(me.dividendsEarned || 0),
+          shareAllocations: Array.isArray(me.shareAllocations) ? me.shareAllocations : []
+        });
+      } else if (!currentProfile?.email) {
+        setInvestorPortfolio(null);
       }
 
       if (messagesData) {
@@ -1609,11 +1778,18 @@ export default function App() {
           setMarketplaceBoutiques(normalizedBoutiques);
           saveOfflineBoutiques(normalizedBoutiques);
         }
+        saveOfflineConfig({
+          heroVideoUrl: configData.heroVideoUrl,
+          formationsVideoUrl: configData.formationsVideoUrl,
+          customAdminUrl: configData.customAdminUrl,
+          isMaintenanceMode: configData.isMaintenanceMode,
+          isInvestorChatOpen: configData.isInvestorChatOpen
+        });
         if (typeof configData.needsAdminSetup === 'boolean') setNeedsAdminSetup(configData.needsAdminSetup);
       }
     };
 
-    const scheduleRefresh = (event?: Event) => {
+    const scheduleAdminEventRefresh = (event?: Event) => {
       if (event && 'data' in event && typeof (event as MessageEvent).data === 'string') {
         try {
           const parsed = JSON.parse((event as MessageEvent).data);
@@ -1627,48 +1803,38 @@ export default function App() {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined;
-        void refreshContent();
-      }, 100);
+        void fetchProductsNow(false, true);
+        void refreshContent(true);
+      }, 150);
     };
 
-    const eventSource = new EventSource(withNoCacheParam('/api/events/stream'));
-    eventSource.addEventListener('DATA_CHANGED', scheduleRefresh);
-    eventSource.addEventListener('SYNC_REQUIRED', scheduleRefresh);
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') scheduleRefresh();
-    };
-    const handlePageShow = () => {
-      scheduleRefresh();
-    };
-    const handleFocusOrOnline = () => {
-      scheduleRefresh();
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pageshow', handlePageShow);
-    window.addEventListener('focus', handleFocusOrOnline);
-    window.addEventListener('online', handleFocusOrOnline);
+    // Only attach SSE for authenticated admin sessions outside serverless Vercel, and never listen to SYNC_REQUIRED storms
+    const isVercelHost =
+      typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+    let eventSource: EventSource | null = null;
+    if (currentAdminRole && !isVercelHost && typeof EventSource !== 'undefined') {
+      eventSource = new EventSource(withNoCacheParam('/api/events/stream'));
+      eventSource.addEventListener('DATA_CHANGED', scheduleAdminEventRefresh);
+    }
 
-    // Fallback polling every 20s while visible to guarantee desktop/mobile sync even across serverless instances
-    const fallbackPolling = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void fetchProductsNow(false);
+    const handleBackOnline = () => {
+      if (!isCatalogCacheFresh()) {
+        void fetchProductsNow(false, true);
+        void refreshContent(true);
       }
-    }, 20000);
+    };
+    window.addEventListener('online', handleBackOnline);
 
-    void refreshContent();
+    void refreshContent(false);
 
     return () => {
       active = false;
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
-      window.clearInterval(fallbackPolling);
       activeRequest?.abort();
-      eventSource.close();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pageshow', handlePageShow);
-      window.removeEventListener('focus', handleFocusOrOnline);
-      window.removeEventListener('online', handleFocusOrOnline);
+      eventSource?.close();
+      window.removeEventListener('online', handleBackOnline);
     };
-  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email, fetchProductsNow, applyServerGroups]);
+  }, [currentAdminRole, currentAdminPermissions, currentProfile?.email, fetchProductsNow, applyServerGroups, hydrateFromOfflineCache]);
 
   const cartCount = cartItems.reduce((acc, it) => acc + it.quantity, 0);
 
@@ -1891,6 +2057,7 @@ export default function App() {
         setProducts((prev) => {
           const next = prev.map((p) => (p.id === cleanUpdated.id ? normalizedServer : p));
           saveOfflineProducts(next);
+          markCatalogCacheUpdated();
           return next;
         });
       }
@@ -1932,6 +2099,7 @@ export default function App() {
             ...prev.filter((p) => p.id !== cleanNewProd.id && p.id !== normalizedServer.id)
           ];
           saveOfflineProducts(next);
+          markCatalogCacheUpdated();
           return next;
         });
       }
@@ -1960,6 +2128,7 @@ export default function App() {
         alert(data.error || 'Suppression du produit refusée par le serveur.');
       } else {
         saveOfflineProducts(optimisticNext);
+        markCatalogCacheUpdated();
       }
     } catch {
       setProducts(previous);
@@ -1998,10 +2167,47 @@ export default function App() {
       const normalizedAll = data.products.map(normalizeClientProduct);
       setProducts(normalizedAll);
       saveOfflineProducts(normalizedAll);
+      markCatalogCacheUpdated();
     }
     return {
       createdCount: Number(data.createdCount || 0),
       updatedCount: Number(data.updatedCount || 0)
+    };
+  };
+
+  const handleAdminOptimizeImages = async (payload: {
+    updates: Array<{ id: string; image: string }>;
+    boutiques?: Array<{ id: string; logoUrl?: string }>;
+  }): Promise<{ updatedProductsCount: number; updatedBoutiquesCount: number }> => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error("Connexion Internet requise pour enregistrer les images optimisées.");
+    }
+    const res = await fetch(withNoCacheParam('/api/admin/products/optimize-images'), {
+      method: 'POST',
+      ...NO_CACHE_FETCH_INIT,
+      headers: {
+        ...NO_CACHE_FETCH_INIT.headers,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "L'optimisation des images a été refusée par le serveur.");
+    }
+    if (Array.isArray(data.products)) {
+      const normalizedAll = data.products.map(normalizeClientProduct);
+      setProducts(normalizedAll);
+      saveOfflineProducts(normalizedAll);
+    }
+    if (Array.isArray(data.boutiques) && data.boutiques.length > 0) {
+      setMarketplaceBoutiques(data.boutiques);
+      saveOfflineBoutiques(data.boutiques);
+    }
+    markCatalogCacheUpdated();
+    return {
+      updatedProductsCount: Number(data.updatedProductsCount || 0),
+      updatedBoutiquesCount: Number(data.updatedBoutiquesCount || 0)
     };
   };
 
@@ -2717,6 +2923,8 @@ export default function App() {
 
   // Group Management Handlers (Admin can add & delete any group including defaults)
   const persistDomainGroups = (nextGroups: typeof domainGroups) => {
+    saveOfflineGroups(nextGroups);
+    markCatalogCacheUpdated();
     void fetch(withNoCacheParam('/api/admin/groups'), {
       ...NO_CACHE_FETCH_INIT,
       method: 'PUT',
@@ -3259,7 +3467,7 @@ export default function App() {
             products={products}
             isLoadingProducts={isLoadingProducts}
             productsLoadError={productsLoadError}
-            onRetryLoadProducts={() => void fetchProductsNow(true)}
+            onRetryLoadProducts={handleManualCatalogRefresh}
             courses={courses}
             projects={projects}
             heroVideoUrl={heroVideoUrl}
@@ -3284,7 +3492,7 @@ export default function App() {
           <BoutiquesDirectory
             boutiques={marketplaceBoutiques}
             onSelectBoutique={(tabId) => setCurrentTab(tabId as TabType)}
-            onRefresh={() => void fetchProductsNow(true)}
+            onRefresh={handleManualCatalogRefresh}
             isRefreshing={isLoadingProducts}
             isAdmin={false}
           />
@@ -3298,10 +3506,15 @@ export default function App() {
               products={products}
               isLoadingProducts={isLoadingProducts}
               productsLoadError={productsLoadError}
-              onRetryLoadProducts={() => void fetchProductsNow(true)}
+              onRetryLoadProducts={handleManualCatalogRefresh}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}
+              flag={shopMeta?.flag}
+              country={shopMeta?.country}
+              defaultCustomerName={currentProfile?.name}
+              defaultCustomerPhone={currentProfile?.phone}
+              defaultCustomerEmail={currentProfile?.email}
               groups={domainGroups.electronique}
               onAddToCart={(prod) => handleAddToCart(prod, 1)}
               onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -3319,10 +3532,15 @@ export default function App() {
               products={products}
               isLoadingProducts={isLoadingProducts}
               productsLoadError={productsLoadError}
-              onRetryLoadProducts={() => void fetchProductsNow(true)}
+              onRetryLoadProducts={handleManualCatalogRefresh}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}
+              flag={shopMeta?.flag}
+              country={shopMeta?.country}
+              defaultCustomerName={currentProfile?.name}
+              defaultCustomerPhone={currentProfile?.phone}
+              defaultCustomerEmail={currentProfile?.email}
               groups={domainGroups.electrotechnique}
               onAddToCart={(prod) => handleAddToCart(prod, 1)}
               onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -3340,10 +3558,15 @@ export default function App() {
               products={products}
               isLoadingProducts={isLoadingProducts}
               productsLoadError={productsLoadError}
-              onRetryLoadProducts={() => void fetchProductsNow(true)}
+              onRetryLoadProducts={handleManualCatalogRefresh}
               cartCount={cartCount}
               logoUrl={shopMeta?.logoUrl}
               locationLabel={shopMeta?.location}
+              flag={shopMeta?.flag}
+              country={shopMeta?.country}
+              defaultCustomerName={currentProfile?.name}
+              defaultCustomerPhone={currentProfile?.phone}
+              defaultCustomerEmail={currentProfile?.email}
               groups={domainGroups.informatique}
               onAddToCart={(prod) => handleAddToCart(prod, 1)}
               onSelectProduct={(prod) => setSelectedProduct(prod)}
@@ -3390,23 +3613,50 @@ export default function App() {
         )}
 
         {/* PAGE 4 : PROFIL PERSONNEL ET CONFIDENTIEL */}
-        {currentTab === 'profil' && (
-          <ScreenProfil
-            currentProfile={currentProfile}
-            onUpdateProfile={handleUpdateProfile}
-            wallet={currentWallet}
-            profitDistributions={profitDistributions}
-            onOpenWallet={(action = 'depot') => {
-              setWalletDefaultAction(action);
-              setIsWalletOpen(true);
-            }}
-            onOpenCertificate={() => setIsCertOpen(true)}
-            onOpenPdf={() => setIsPdfOpen(true)}
-            onOpenVideo={() => setIsVideoOpen(true)}
-            onGoTab={(tab) => setCurrentTab(tab)}
-            onLogout={() => setCurrentTab('bourse')}
-          />
-        )}
+        {currentTab === 'profil' && (() => {
+          const matchedAdminInvestor = currentProfile
+            ? registeredInvestors.find(
+                (inv) =>
+                  inv.id === currentProfile.id ||
+                  inv.email.trim().toLowerCase() === currentProfile.email.trim().toLowerCase()
+              )
+            : undefined;
+          const resolvedTotalInvested =
+            investorPortfolio?.totalInvested ?? matchedAdminInvestor?.totalInvested ?? 0;
+          const resolvedAllocations =
+            investorPortfolio?.shareAllocations ?? matchedAdminInvestor?.shareAllocations ?? [];
+          const resolvedWallet = {
+            ...currentWallet,
+            sharesCount:
+              investorPortfolio?.sharesCount ??
+              matchedAdminInvestor?.sharesCount ??
+              currentWallet.sharesCount,
+            dividendsEarned:
+              investorPortfolio?.dividendsEarned ??
+              matchedAdminInvestor?.dividendsEarned ??
+              currentWallet.dividendsEarned
+          };
+          return (
+            <ScreenProfil
+              currentProfile={currentProfile}
+              onUpdateProfile={handleUpdateProfile}
+              wallet={resolvedWallet}
+              totalInvested={resolvedTotalInvested}
+              shareAllocations={resolvedAllocations}
+              projects={projects}
+              profitDistributions={profitDistributions}
+              onOpenWallet={(action = 'depot') => {
+                setWalletDefaultAction(action);
+                setIsWalletOpen(true);
+              }}
+              onOpenCertificate={() => setIsCertOpen(true)}
+              onOpenPdf={() => setIsPdfOpen(true)}
+              onOpenVideo={() => setIsVideoOpen(true)}
+              onGoTab={(tab) => setCurrentTab(tab)}
+              onLogout={() => setCurrentTab('bourse')}
+            />
+          );
+        })()}
 
         {/* PAGE ADMINISTRATEUR DANS UN FICHIER DISTINCT : ADMINPAGE */}
         {currentTab === 'admin' && currentAdminRole && (
@@ -3449,11 +3699,12 @@ export default function App() {
             onChangeFormationsVideoUrl={setFormationsVideoUrl}
             products={products}
             isLoadingProducts={isLoadingProducts}
-            onRefreshProducts={() => void fetchProductsNow(true)}
+            onRefreshProducts={handleManualCatalogRefresh}
             onUpdateProduct={handleAdminUpdateProduct}
             onAddProduct={handleAdminAddProduct}
             onDeleteProduct={handleAdminDeleteProduct}
             onImportProducts={handleAdminImportProducts}
+            onOptimizeImages={handleAdminOptimizeImages}
             courses={courses}
             onUpdateCourse={handleAdminUpdateCourse}
             onAddCourse={handleAdminAddCourse}
@@ -3471,8 +3722,9 @@ export default function App() {
             onAdjustWallet={handleAdminAdjustWallet}
             transactions={transactions}
             emails={emails}
-            deliveryZones={deliveryZones}
-            onUpdateDeliveryZones={setDeliveryZones}
+            customOrders={customOrders}
+            onUpdateCustomOrderStatus={handleUpdateCustomOrderStatus}
+            onDeleteCustomOrder={handleDeleteCustomOrder}
             appNotifications={appNotifications}
             onAddNotification={handleAddNotification}
             isInvestorChatOpen={isInvestorChatOpen}
@@ -3519,6 +3771,7 @@ export default function App() {
             onPurgeTestData={handleAdminPurgeTestData}
             marketplaceBoutiques={marketplaceBoutiques}
             onUpdateBoutiqueFlag={handleUpdateBoutiqueFlag}
+            onUpdateBoutiqueLogo={handleUpdateBoutiqueLogo}
             onExitAdmin={handleAdminLogout}
           />
         )}
@@ -3568,7 +3821,6 @@ export default function App() {
         }
         clientDefaultName={currentProfile?.name || ''}
         clientDefaultPhone={currentProfile?.phone || ''}
-        deliveryZones={deliveryZones}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
@@ -4027,7 +4279,7 @@ export default function App() {
       />
       <OfflineIndicator
         isUsingOfflineData={isUsingOfflineData}
-        onRetrySync={() => void fetchProductsNow(true)}
+        onRetrySync={handleManualCatalogRefresh}
       />
     </div>
   );

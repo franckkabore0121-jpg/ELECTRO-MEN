@@ -10,6 +10,11 @@ interface ScreenBoutiqueInformatiqueProps {
   cartCount?: number;
   logoUrl?: string;
   locationLabel?: string;
+  flag?: string;
+  country?: string;
+  defaultCustomerName?: string;
+  defaultCustomerPhone?: string;
+  defaultCustomerEmail?: string;
   onAddToCart: (product: Product) => void;
   onSelectProduct: (product: Product) => void;
   onOpenCart: () => void;
@@ -26,6 +31,11 @@ export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProp
   cartCount = 0,
   logoUrl,
   locationLabel,
+  flag,
+  country,
+  defaultCustomerName,
+  defaultCustomerPhone,
+  defaultCustomerEmail,
   onAddToCart,
   onSelectProduct,
   onOpenCart,
@@ -65,6 +75,11 @@ export const ScreenBoutiqueInformatique: React.FC<ScreenBoutiqueInformatiqueProp
       shopDescription="Ordinateurs portables et professionnels, SSD, mémoire RAM, serveurs, routeurs, commutateurs réseau et périphériques informatiques avec support technique local."
       logoUrl={logoUrl}
       locationLabel={locationLabel}
+      flag={flag}
+      country={country}
+      defaultCustomerName={defaultCustomerName}
+      defaultCustomerPhone={defaultCustomerPhone}
+      defaultCustomerEmail={defaultCustomerEmail}
       searchPlaceholder="Rechercher un ordinateur, SSD, écran, routeur..."
       emptyLabel="Aucun équipement informatique trouvé"
       allDomainProducts={infoProducts}

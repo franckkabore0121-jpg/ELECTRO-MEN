@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CartItem,
   WHATSAPP_CONTACTS,
@@ -31,16 +31,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onClearCart,
   clientDefaultName = '',
   clientDefaultPhone = '',
-  deliveryZones = DELIVERY_ZONES
+  deliveryZones: _deliveryZones = DELIVERY_ZONES
 }) => {
-  const activeDeliveryZones = useMemo(() => {
-    return deliveryZones.filter((z) => z.isActive);
-  }, [deliveryZones]);
-
-  const [selectedZoneId, setSelectedZoneId] = useState<string>(activeDeliveryZones[0]?.id || 'zone-ouaga');
-  const [customLocalityInput, setCustomLocalityInput] = useState('');
-  const [isCustomLocality, setIsCustomLocality] = useState(false);
-  const [localityWarning, setLocalityWarning] = useState<string | null>(null);
+  const [deliveryAddressInput, setDeliveryAddressInput] = useState('');
 
   const [isOrdered, setIsOrdered] = useState(false);
 
@@ -115,38 +108,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   // Calculate pricing
   const subtotal = items.reduce((acc, it) => acc + it.product.price * it.quantity, 0);
 
-  // Find active zone
-  const currentZone = activeDeliveryZones.find((z) => z.id === selectedZoneId);
-  const shippingFee = isCustomLocality ? 0 : currentZone ? currentZone.tarif : 1000;
-
-  // Calculate total: subtotal + delivery fee
-  const total = subtotal + shippingFee;
-
-  // Check custom locality against delivery zones
-  const handleCustomLocalityCheck = (val: string) => {
-    setCustomLocalityInput(val);
-    const clean = val.toLowerCase().trim();
-    if (!clean) {
-      setLocalityWarning(null);
-      return;
-    }
-
-    const matchedZone = activeDeliveryZones.find((z) =>
-      z.keywords.some((kw) => clean.includes(kw.toLowerCase()))
-    );
-
-    if (matchedZone) {
-      setSelectedZoneId(matchedZone.id);
-      setIsCustomLocality(false);
-      setLocalityWarning(`Zone reconnue automatiquement : ${matchedZone.name} (${matchedZone.tarif.toLocaleString('fr-FR')} FCFA).`);
-    } else {
-      setIsCustomLocality(true);
-      setLocalityWarning(
-        "Localité spécifique non reconnue dans le barème standard. Les frais exacts seront confirmés par notre service logistique sur devis plutôt qu’un tarif inventé."
-      );
-    }
-  };
-
   const handleWhatsAppCheckout = () => {
     setFormError(null);
     if (!customerName.trim()) {
@@ -171,8 +132,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     orderText += `*COORDONNÉES CLIENT :*\n`;
     orderText += `• Nom du Client : ${customerName.trim()}\n`;
     orderText += `• WhatsApp Client : +226 ${customerPhone.trim()}\n`;
-    orderText += `• Zone de livraison : ${isCustomLocality ? `Localité spéciale: ${customLocalityInput}` : currentZone?.name || 'Ouagadougou'}\n`;
-    orderText += `• Délai estimé : ${currentZone?.estimatedDelay || 'À confirmer'}\n\n`;
+    orderText += `• Adresse / Ville de livraison : ${deliveryAddressInput.trim() || 'À préciser avec le vendeur'}\n\n`;
 
     orderText += `*ARTICLES SÉLECTIONNÉS :*\n`;
     items.forEach((it, idx) => {
@@ -180,10 +140,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     });
 
     orderText += `\n*RÉCAPITULATIF FINANCIER :*\n`;
-    orderText += `• Sous-total : ${subtotal.toLocaleString('fr-FR')} FCFA\n`;
-    orderText += `• Frais de livraison : ${isCustomLocality ? 'À convenir avec le transporteur' : `${shippingFee.toLocaleString('fr-FR')} FCFA`}\n`;
-    orderText += `*• TOTAL NET À RÉGLER : ${total.toLocaleString('fr-FR')} FCFA*\n\n`;
-    orderText += `Bonjour ${destinationContact.service}, je souhaite valider cette commande et convenir des détails de règlement (Orange Money / Moov Money / Espèces). Merci !`;
+    orderText += `• Sous-total articles : ${subtotal.toLocaleString('fr-FR')} FCFA\n`;
+    orderText += `• Frais de livraison : À négocier directement avec le vendeur\n\n`;
+    orderText += `Bonjour ${destinationContact.service}, je souhaite valider cette commande et convenir avec vous des modalités de livraison et de règlement. Merci !`;
 
     const cleanDestNumber = destinationContact.number.replace('+', '').trim();
     const encoded = encodeURIComponent(orderText);
@@ -420,70 +379,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
 
               {/* =========================================================================
-                  MODULE GESTION DES FRAIS DE LIVRAISON SELON LA LOCALISATION
+                  ADRESSE DE LIVRAISON (FRAIS NÉGOCIÉS DIRECTEMENT AVEC LE VENDEUR)
                   ========================================================================= */}
               <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-slate-700 uppercase font-bold flex items-center gap-1">
-                    <span className="material-symbols-outlined text-sm text-cyan-700">local_shipping</span>
-                    <span>Zone de Livraison</span>
+                    <span className="material-symbols-outlined text-sm text-cyan-700">location_on</span>
+                    <span>Lieu de livraison souhaité</span>
                   </span>
-                  {currentZone && (
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      {currentZone.estimatedDelay}
-                    </span>
-                  )}
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    Négocié avec le vendeur
+                  </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  <select
-                    value={selectedZoneId}
-                    onChange={(e) => {
-                      setSelectedZoneId(e.target.value);
-                      setIsCustomLocality(false);
-                      setLocalityWarning(null);
-                    }}
-                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 font-medium outline-none focus:border-amber-500"
-                  >
-                    {activeDeliveryZones.map((z) => (
-                      <option key={z.id} value={z.id}>
-                        {z.name} — {z.tarif === 0 ? 'Gratuit' : `${z.tarif.toLocaleString('fr-FR')} FCFA`} ({z.estimatedDelay})
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Saisie d'une localité spécifique avec vérification */}
-                  <div className="pt-1">
-                    <input
-                      type="text"
-                      value={customLocalityInput}
-                      onChange={(e) => handleCustomLocalityCheck(e.target.value)}
-                      placeholder="Préciser votre quartier ou ville (ex: Somgandé, Koudougou, Bobo)..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs text-slate-900 outline-none focus:bg-white focus:border-cyan-600"
-                    />
-                    {localityWarning && (
-                      <p
-                        className={`text-[11px] mt-1 flex items-start gap-1 p-2 rounded-lg ${
-                          isCustomLocality
-                            ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                            : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                        }`}
-                      >
-                        <span className="material-symbols-outlined text-sm shrink-0">
-                          {isCustomLocality ? 'help_outline' : 'check_circle'}
-                        </span>
-                        <span>{localityWarning}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <input
+                  type="text"
+                  value={deliveryAddressInput}
+                  onChange={(e) => setDeliveryAddressInput(e.target.value)}
+                  placeholder="Quartier, ville ou point de retrait (ex : Ouaga 2000, Bobo...)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 outline-none focus:bg-white focus:border-cyan-600"
+                />
               </div>
 
               {/* Note de commande directe via WhatsApp */}
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
                 <span className="material-symbols-outlined text-amber-700 text-base shrink-0 mt-0.5">info</span>
                 <p className="text-[11px] leading-relaxed">
-                  Votre commande sera transmise directement à notre équipe via WhatsApp pour finalisation et confirmation de livraison.
+                  Les frais et modalités de livraison sont discutés et convenus directement entre vous et le vendeur lors de la confirmation WhatsApp.
                 </p>
               </div>
             </>
@@ -500,16 +422,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
 
               <div className="flex justify-between text-slate-600">
-                <span>Frais de livraison ({isCustomLocality ? 'Sur devis' : currentZone?.name})</span>
-                <span className="font-semibold text-slate-800">
-                  {isCustomLocality ? 'À confirmer' : `${shippingFee.toLocaleString('fr-FR')} FCFA`}
+                <span>Frais de livraison</span>
+                <span className="font-semibold text-slate-700">
+                  À négocier avec le vendeur
                 </span>
               </div>
 
               <div className="flex justify-between text-sm font-bold text-slate-900 pt-1.5 border-t border-slate-100">
-                <span>Total net</span>
+                <span>Total articles</span>
                 <span className="text-base font-extrabold text-slate-900">
-                  {total.toLocaleString('fr-FR')} FCFA
+                  {subtotal.toLocaleString('fr-FR')} FCFA
                 </span>
               </div>
             </div>

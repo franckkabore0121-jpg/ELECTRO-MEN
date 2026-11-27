@@ -63,6 +63,7 @@ import {
   deleteApplicationRecord,
   FundRequestRuleError,
   initializeApplicationStore,
+  isApplicationStoreDegraded,
   readApplicationData,
   readInvestorSubscriptions,
   saveApplicationBackup,
@@ -85,7 +86,6 @@ import {
   InvalidMediaUploadError,
   MediaStorageConfigurationError,
   parseBase64MediaUpload,
-  parseBase64VoiceUpload,
   resolveAllowedMediaUpload
 } from './server/supabaseStorage.ts';
 import {
@@ -140,7 +140,8 @@ type LiveResource =
   | 'investors'
   | 'admins'
   | 'messages'
-  | 'profits';
+  | 'profits'
+  | 'custom-orders';
 
 const dataEventClients = new Set<Response>();
 let dataRevision = 0;
@@ -193,7 +194,7 @@ app.get('/api/events/stream', (req: Request, res: Response) => {
   });
   res.flushHeaders();
   if (process.env.VERCEL) {
-    res.write('retry: 15000\nevent: SYNC_REQUIRED\ndata: {}\n\n');
+    res.write(': vercel-serverless-no-sse\n\n');
     res.end();
     return;
   }
@@ -385,6 +386,7 @@ const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
 const UPLOADS_DIR = path.resolve('public/uploads');
 const MESSAGES_FILE = path.join(DATA_DIR, 'investor-messages.json');
 const PROFIT_DISTRIBUTIONS_FILE = path.join(DATA_DIR, 'profit-distributions.json');
+const CUSTOM_ORDERS_FILE = path.join(DATA_DIR, 'custom-orders.json');
 const dataKeyByFile = new Map<string, ApplicationDataKey>([
   [CONFIG_FILE, 'admin-config'],
   [OPERATIONS_FILE, 'operations'],
@@ -397,7 +399,8 @@ const dataKeyByFile = new Map<string, ApplicationDataKey>([
   [AUDIT_LOGS_FILE, 'audit-logs'],
   [PRODUCTS_FILE, 'products'],
   [MESSAGES_FILE, 'investor-messages'],
-  [PROFIT_DISTRIBUTIONS_FILE, 'profit-distributions']
+  [PROFIT_DISTRIBUTIONS_FILE, 'profit-distributions'],
+  [CUSTOM_ORDERS_FILE, 'custom-orders']
 ]);
 const liveResourceByFile = new Map<string, LiveResource>([
   [CONFIG_FILE, 'config'],
@@ -410,7 +413,8 @@ const liveResourceByFile = new Map<string, LiveResource>([
   [SUBSCRIPTIONS_FILE, 'subscriptions'],
   [GROUPS_FILE, 'groups'],
   [MESSAGES_FILE, 'messages'],
-  [PROFIT_DISTRIBUTIONS_FILE, 'profits']
+  [PROFIT_DISTRIBUTIONS_FILE, 'profits'],
+  [CUSTOM_ORDERS_FILE, 'custom-orders']
 ]);
 
 app.get('/uploads/:filename', asyncRoute(async (req: Request, res: Response, next: NextFunction) => {
@@ -435,7 +439,53 @@ app.get('/uploads/:filename', asyncRoute(async (req: Request, res: Response, nex
   const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
   res.redirect(302, data.publicUrl);
 }));
-app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', etag: true }));
+
+const PRODUCT_IMAGE_MAX_LEN = 120000;
+
+async function offloadDataImageIfCloudConfigured(
+  rawUrl: string | undefined,
+  folder: 'uploads' = 'uploads'
+): Promise<string | undefined> {
+  if (!rawUrl || !rawUrl.startsWith('data:image/') || /^data:image\/svg\+xml/i.test(rawUrl)) {
+    return rawUrl;
+  }
+  let parsed;
+  try {
+    parsed = parseBase64MediaUpload(rawUrl, undefined);
+  } catch {
+    return rawUrl;
+  }
+
+  let supabaseStorage;
+  try {
+    supabaseStorage = getSupabaseStorage();
+  } catch {
+    supabaseStorage = undefined;
+  }
+
+  const filename = `media-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${parsed.extension}`;
+  if (supabaseStorage) {
+    try {
+      const objectKey = createMediaObjectKey(folder, filename);
+      const { error } = await supabaseStorage.client.storage
+        .from(supabaseStorage.bucket)
+        .upload(objectKey, parsed.buffer, {
+          cacheControl: '2592000',
+          contentType: parsed.contentType,
+          upsert: false
+        });
+      if (!error) {
+        const { data } = supabaseStorage.client.storage.from(supabaseStorage.bucket).getPublicUrl(objectKey);
+        if (data?.publicUrl) return data.publicUrl;
+      }
+    } catch {
+      // Fall back to keeping the compressed lightweight WebP image if Supabase upload is unavailable
+    }
+  }
+
+  return rawUrl;
+}
 
 // =========================================================================
 // DATA UTILITIES & STORAGE HELPERS
@@ -981,12 +1031,28 @@ export interface ServerInvestorMessage {
   senderName: string;
   senderEmail?: string;
   senderRole: 'investor' | 'admin';
-  messageType: 'text' | 'voice';
+  messageType: 'text';
   text: string;
-  audioUrl?: string;
-  audioDuration?: number;
   time: string;
   createdAt: string;
+}
+
+export interface ServerCustomOrder {
+  id: string;
+  reference: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  domain: 'electronique' | 'electrotechnique' | 'informatique' | 'autre';
+  articleTitle: string;
+  description: string;
+  quantity: number;
+  budgetFcfa?: number;
+  status: 'nouvelle' | 'en_cours' | 'traitee' | 'annulee';
+  adminNote?: string;
+  source: 'boutique' | 'messagerie';
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ServerProfitDistribution {
@@ -1561,7 +1627,16 @@ app.post('/api/investor/login', authRateLimiter, async (req: Request, res: Respo
 
   try {
     const investor = await findInvestorByEmail<ServerInvestorUser>(cleanEmail);
-    if (!investor || !verifyInvestorPassword(password, investor)) {
+    const trimmedPassword = password.trim();
+    const matchedExact = Boolean(investor && verifyInvestorPassword(password, investor));
+    const matchedTrimmed = Boolean(
+      !matchedExact &&
+      investor &&
+      trimmedPassword.length > 0 &&
+      trimmedPassword !== password &&
+      verifyInvestorPassword(trimmedPassword, investor)
+    );
+    if (!investor || (!matchedExact && !matchedTrimmed)) {
       recordFailedAttempt(attemptKey);
       return res.status(401).json({ success: false, error: 'Adresse e-mail ou mot de passe incorrect.' });
     }
@@ -1569,18 +1644,21 @@ app.post('/api/investor/login', authRateLimiter, async (req: Request, res: Respo
       return res.status(403).json({ success: false, error: 'Ce compte investisseur est temporairement suspendu. Contactez l’administrateur.' });
     }
 
+    const effectivePassword = matchedExact ? password : trimmedPassword;
     recordSuccessfulAttempt(attemptKey);
     let authenticatedInvestor = investor;
     if (
       investor.passwordAlgorithm !== INVESTOR_PASSWORD_ALGORITHM ||
       investor.assignedPassword !== undefined ||
-      investor.assignedPasswordPlainText !== undefined
+      investor.assignedPasswordPlainText !== undefined ||
+      investor.email !== cleanEmail
     ) {
       const upgradedInvestor = await updateInvestor<ServerInvestorUser>(
         investor.id,
         (current) => ({
-          ...withInvestorPassword(current, password),
-          passwordEscrow: encryptInvestorEscrowPassword(password)
+          ...withInvestorPassword(current, effectivePassword),
+          email: cleanEmail,
+          passwordEscrow: encryptInvestorEscrowPassword(effectivePassword)
         })
       );
       if (!upgradedInvestor) {
@@ -3117,10 +3195,13 @@ app.post('/api/admin/products', asyncRoute(async (req: Request, res: Response) =
   const cleanDescription = prod.description !== undefined
     ? sanitizePlainText(prod.description, { maxLength: 2000, allowNewlines: true })
     : undefined;
-  const cleanImage = prod.image !== undefined ? validateSafeUrlOrPath(prod.image, 10000) : undefined;
-  if (cleanDescription === null || cleanImage === null) {
-    return res.status(400).json({ success: false, error: 'Description ou URL image produit invalide.' });
+  const validatedImage = prod.image !== undefined ? validateSafeUrlOrPath(prod.image, PRODUCT_IMAGE_MAX_LEN) : undefined;
+  if (cleanDescription === null || validatedImage === null) {
+    return res.status(400).json({ success: false, error: 'Description ou URL image produit invalide (image max 80 Ko recommandée).' });
   }
+  const cleanImage = validatedImage !== undefined
+    ? await offloadDataImageIfCloudConfigured(validatedImage)
+    : undefined;
   const cleanPrice = prod.price !== undefined ? validateSafeNonNegativeInt(prod.price, { max: 500_000_000 }) : undefined;
   if (prod.price !== undefined && cleanPrice === null) {
     return res.status(400).json({ success: false, error: 'Prix du produit invalide.' });
@@ -3240,8 +3321,8 @@ app.post('/api/admin/products/bulk-csv', asyncRoute(async (req: Request, res: Re
       return res.status(400).json({ success: false, error: `Ligne ${i + 1} ("${cleanName}") : description invalide.` });
     }
 
-    const validatedImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, 500000) : '';
-    const cleanImage = validatedImage ?? '';
+    const validatedImage = raw.image !== undefined && raw.image !== '' ? validateSafeUrlOrPath(raw.image, PRODUCT_IMAGE_MAX_LEN) : '';
+    const cleanImage = (validatedImage ? await offloadDataImageIfCloudConfigured(validatedImage) : validatedImage) ?? '';
 
     const validatedVideo = raw.videoUrl !== undefined && raw.videoUrl !== '' ? validateSafeUrlOrPath(raw.videoUrl, 2048) : '';
     const cleanVideo = validatedVideo ?? '';
@@ -3395,10 +3476,13 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
   if (updateData.stock !== undefined && cleanStock === null) {
     return res.status(400).json({ success: false, error: 'Stock du produit invalide.' });
   }
-  const cleanImage = updateData.image !== undefined ? validateSafeUrlOrPath(updateData.image, 10000) : undefined;
-  if (updateData.image !== undefined && cleanImage === null) {
-    return res.status(400).json({ success: false, error: 'URL d’image invalide.' });
+  const validatedImage = updateData.image !== undefined ? validateSafeUrlOrPath(updateData.image, PRODUCT_IMAGE_MAX_LEN) : undefined;
+  if (validatedImage === null) {
+    return res.status(400).json({ success: false, error: 'URL d’image invalide ou image trop volumineuse (compressez à moins de 80 Ko).' });
   }
+  const cleanImage = validatedImage !== undefined
+    ? await offloadDataImageIfCloudConfigured(validatedImage)
+    : undefined;
 
   const nowIso = new Date().toISOString();
   const products = await readJson<any[]>(PRODUCTS_FILE, []);
@@ -3430,6 +3514,106 @@ app.put('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response
   await addServerAuditLog(admin.name, 'update_product', `Modification du produit "${products[idx].name}" (${products[idx].ref})`, 'product', id);
   broadcastDataChanged('products');
   res.json({ success: true, product: products[idx] });
+}));
+
+app.post('/api/admin/products/optimize-images', asyncRoute(async (req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const admin = await requireAdminPermission(req, res, 'manage_products');
+  if (!admin) return;
+
+  const rawUpdates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+  const rawBoutiques = Array.isArray(req.body?.boutiques) ? req.body.boutiques : [];
+  if (rawUpdates.length === 0 && rawBoutiques.length === 0) {
+    return res.status(400).json({ success: false, error: 'Aucune image optimisée fournie.' });
+  }
+  if (rawUpdates.length > 500 || rawBoutiques.length > 30) {
+    return res.status(400).json({ success: false, error: 'Lot d’optimisation trop volumineux.' });
+  }
+
+  const updateMap = new Map<string, string>();
+  for (const entry of rawUpdates) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const id = validateSafeId((entry as { id?: unknown }).id);
+    const validatedImage = validateSafeUrlOrPath((entry as { image?: unknown }).image, PRODUCT_IMAGE_MAX_LEN);
+    if (!id || !validatedImage) continue;
+    const storedUrl = await offloadDataImageIfCloudConfigured(validatedImage);
+    if (storedUrl) updateMap.set(id, storedUrl);
+  }
+
+  let updatedProductsCount = 0;
+  let products = await readJson<any[]>(PRODUCTS_FILE, []);
+  if (updateMap.size > 0) {
+    const nowIso = new Date().toISOString();
+    products = products.map((item) => {
+      if (!item || typeof item.id !== 'string') return item;
+      const nextImage = updateMap.get(item.id);
+      if (!nextImage) return item;
+      updatedProductsCount += 1;
+      return normalizeProductRecord({
+        ...item,
+        image: nextImage,
+        hasRealPhoto: true,
+        updatedAt: nowIso
+      }) || {
+        ...item,
+        image: nextImage,
+        hasRealPhoto: true,
+        updatedAt: nowIso
+      };
+    });
+    if (updatedProductsCount > 0) {
+      await writeJson(PRODUCTS_FILE, products);
+      broadcastDataChanged('products');
+    }
+  }
+
+  let updatedBoutiquesCount = 0;
+  let nextBoutiques: unknown[] | undefined;
+  if (rawBoutiques.length > 0) {
+    const logoMap = new Map<string, string>();
+    for (const b of rawBoutiques) {
+      if (!b || typeof b !== 'object' || Array.isArray(b)) continue;
+      const bId = validateSafeId((b as { id?: unknown }).id);
+      const validatedLogo = validateSafeUrlOrPath((b as { logoUrl?: unknown }).logoUrl, PRODUCT_IMAGE_MAX_LEN);
+      if (!bId || !validatedLogo) continue;
+      const storedLogo = await offloadDataImageIfCloudConfigured(validatedLogo);
+      if (storedLogo) logoMap.set(bId, storedLogo);
+    }
+    if (logoMap.size > 0) {
+      const config = await loadConfig();
+      if (Array.isArray(config.boutiques)) {
+        config.boutiques = config.boutiques.map((b: Record<string, unknown>) => {
+          const bId = typeof b.id === 'string' ? b.id : '';
+          const nextLogo = logoMap.get(bId);
+          if (!nextLogo) return b;
+          updatedBoutiquesCount += 1;
+          return { ...b, logoUrl: nextLogo };
+        });
+        if (updatedBoutiquesCount > 0) {
+          await saveConfig(config);
+          nextBoutiques = config.boutiques;
+          broadcastDataChanged('config');
+        }
+      }
+    }
+  }
+
+  if (updatedProductsCount > 0 || updatedBoutiquesCount > 0) {
+    await addServerAuditLog(
+      admin.name,
+      'optimize_images',
+      `Optimisation WebP effectuée (${updatedProductsCount} produit(s), ${updatedBoutiquesCount} logo(s) boutique)`,
+      'product'
+    );
+  }
+
+  res.json({
+    success: true,
+    updatedProductsCount,
+    updatedBoutiquesCount,
+    products,
+    ...(nextBoutiques ? { boutiques: nextBoutiques } : {})
+  });
 }));
 
 app.delete('/api/admin/products/:id', asyncRoute(async (req: Request, res: Response) => {
@@ -3730,8 +3914,12 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
   if (typeof email !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, error: 'Veuillez renseigner l’adresse e-mail et le mot de passe.' });
   }
-  const cleanEmail = email.trim().toLowerCase();
-  if (password.length < 8 || password.length > 128) {
+  const cleanEmail = validateEmailInput(email);
+  const cleanPassword = password.trim();
+  if (!cleanEmail) {
+    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
+  }
+  if (cleanPassword.length < 8 || cleanPassword.length > 128) {
     return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 8 et 128 caractères.' });
   }
 
@@ -3782,8 +3970,8 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
       }
     }
 
-    const { hash, salt } = hashInvestorPassword(password);
-    const passwordEscrow = encryptInvestorEscrowPassword(password);
+    const { hash, salt } = hashInvestorPassword(cleanPassword);
+    const passwordEscrow = encryptInvestorEscrowPassword(cleanPassword);
     const cleanLastName = lastName.trim();
     const cleanFirstName = firstName.trim();
     const fullName = `${cleanFirstName} ${cleanLastName}`;
@@ -3833,9 +4021,6 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
     });
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ success: false, error: 'L’adresse e-mail est invalide.' });
-  }
   const existingInvestor = await findInvestorByEmail<ServerInvestorUser>(cleanEmail);
   if (!existingInvestor) {
     return res.status(404).json({
@@ -3847,8 +4032,9 @@ app.post('/api/admin/investors', asyncRoute(async (req: Request, res: Response) 
   const updatedInvestor = await updateInvestor<ServerInvestorUser>(
     existingInvestor.id,
     (current) => ({
-      ...withInvestorPassword(current, password),
-      passwordEscrow: encryptInvestorEscrowPassword(password)
+      ...withInvestorPassword(current, cleanPassword),
+      email: cleanEmail,
+      passwordEscrow: encryptInvestorEscrowPassword(cleanPassword)
     })
   );
   if (!updatedInvestor) {
@@ -4038,14 +4224,17 @@ app.put('/api/admin/investors/:id/password', sensitiveActionRateLimiter, asyncRo
   const admin = await requireAdminPermission(req, res, 'manage_investors_password');
   if (!admin) return;
   const { password } = req.body || {};
-  if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+  const cleanPassword = typeof password === 'string' ? password.trim() : '';
+  if (cleanPassword.length < 8 || cleanPassword.length > 128) {
     return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 8 et 128 caractères.' });
   }
   const investor = await findInvestorByIdentifier<ServerInvestorUser>(req.params.id);
   if (!investor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
-  const passwordEscrow = encryptInvestorEscrowPassword(password);
+  const normalizedEmail = investor.email.trim().toLowerCase();
+  const passwordEscrow = encryptInvestorEscrowPassword(cleanPassword);
   const updatedInvestor = await updateInvestor<ServerInvestorUser>(investor.id, (current) => ({
-    ...withInvestorPassword(current, password),
+    ...withInvestorPassword(current, cleanPassword),
+    email: current.email.trim().toLowerCase() || normalizedEmail,
     passwordEscrow
   }));
   if (!updatedInvestor) return res.status(404).json({ success: false, error: 'Investisseur introuvable.' });
@@ -4606,6 +4795,7 @@ async function buildFullBackup() {
     courses: await readJson(COURSES_FILE, []),
     courseCategories: await readJson(COURSE_CATEGORIES_FILE, []),
     products: await readJson(PRODUCTS_FILE, []),
+    customOrders: await readJson(CUSTOM_ORDERS_FILE, []),
     auditLogs: await readJson(AUDIT_LOGS_FILE, [])
   };
 }
@@ -4644,6 +4834,7 @@ app.post('/api/admin/total-reset', sensitiveActionRateLimiter, asyncRoute(async 
   await writeJson(COURSES_FILE, []);
   await writeJson(COURSE_CATEGORIES_FILE, []);
   await writeJson(PRODUCTS_FILE, []);
+  await writeJson(CUSTOM_ORDERS_FILE, []);
   await clearUserOtps();
   await writeJson(AUDIT_LOGS_FILE, [
     {
@@ -4843,17 +5034,24 @@ app.put('/api/admin/boutiques', asyncRoute(async (req: Request, res: Response) =
   if (!boutiques) {
     return res.status(400).json({ success: false, error: 'Liste de boutiques invalide.' });
   }
-  const sanitized = boutiques
-    .filter((b: unknown): b is Record<string, unknown> => Boolean(b && typeof b === 'object' && !Array.isArray(b)))
-    .slice(0, 20)
-    .map((b: Record<string, unknown>) => ({
-      ...b,
-      name: sanitizePlainText(b.name, { maxLength: 100 }) || 'Boutique',
-      location: sanitizePlainText(b.location, { maxLength: 100 }) || 'Ouagadougou',
-      country: sanitizePlainText(b.country, { maxLength: 100 }) || '',
-      flag: sanitizePlainText(b.flag, { maxLength: 16 }) || '',
-      activities: sanitizePlainText(b.activities, { maxLength: 200 }) || ''
-    }));
+  const sanitized = await Promise.all(
+    boutiques
+      .filter((b: unknown): b is Record<string, unknown> => Boolean(b && typeof b === 'object' && !Array.isArray(b)))
+      .slice(0, 20)
+      .map(async (b: Record<string, unknown>) => {
+        const validatedLogo = b.logoUrl !== undefined ? validateSafeUrlOrPath(b.logoUrl, PRODUCT_IMAGE_MAX_LEN) : undefined;
+        const cleanLogoUrl = validatedLogo ? await offloadDataImageIfCloudConfigured(validatedLogo) : undefined;
+        return {
+          ...b,
+          name: sanitizePlainText(b.name, { maxLength: 100 }) || 'Boutique',
+          location: sanitizePlainText(b.location, { maxLength: 100 }) || 'Ouagadougou',
+          country: sanitizePlainText(b.country, { maxLength: 100 }) || '',
+          flag: sanitizePlainText(b.flag, { maxLength: 16 }) || '',
+          activities: sanitizePlainText(b.activities, { maxLength: 200 }) || '',
+          ...(cleanLogoUrl ? { logoUrl: cleanLogoUrl } : {})
+        };
+      })
+  );
   const config = await loadConfig();
   config.boutiques = sanitized;
   await saveConfig(config);
@@ -5366,9 +5564,9 @@ app.post('/api/upload', asyncRoute(async (req: Request, res: Response) => {
     throw err;
   }
 
-  let storage = null;
+  let supabaseStorage = null;
   try {
-    storage = getSupabaseStorage();
+    supabaseStorage = getSupabaseStorage();
   } catch (error) {
     if (error instanceof MediaStorageConfigurationError) {
       return res.status(503).json({ success: false, error: error.message });
@@ -5377,47 +5575,47 @@ app.post('/api/upload', asyncRoute(async (req: Request, res: Response) => {
   }
 
   const filename = `media-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${parsedUpload.extension}`;
-  if (!storage) {
-    if (process.env.VERCEL) {
-      return res.status(503).json({
-        success: false,
-        error: 'Stockage média Supabase requis en environnement serverless (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).'
+  const folder = parsedUpload.contentType.startsWith('video/') ? 'videos' : 'uploads';
+
+  if (supabaseStorage) {
+    const objectKey = createMediaObjectKey(folder, filename);
+    const { error } = await supabaseStorage.client.storage.from(supabaseStorage.bucket).upload(objectKey, parsedUpload.buffer, {
+      cacheControl: '2592000',
+      contentType: parsedUpload.contentType,
+      upsert: false
+    });
+    if (!error) {
+      const { data } = supabaseStorage.client.storage.from(supabaseStorage.bucket).getPublicUrl(objectKey);
+      return res.json({
+        success: true,
+        url: data.publicUrl,
+        size: parsedUpload.buffer.length,
+        filename,
+        storage: 'supabase'
       });
     }
-    await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
-    const destination = path.resolve(UPLOADS_DIR, filename);
-    if (!destination.startsWith(UPLOADS_DIR + path.sep)) {
-      return res.status(400).json({ success: false, error: 'Chemin de fichier média invalide.' });
-    }
-    await fs.promises.writeFile(destination, parsedUpload.buffer);
-    return res.json({
-      success: true,
-      url: `/uploads/${filename}`,
-      size: parsedUpload.buffer.length,
-      filename,
-      storage: 'local'
-    });
-  }
-
-  const folder = parsedUpload.contentType.startsWith('video/') ? 'videos' : 'uploads';
-  const objectKey = createMediaObjectKey(folder, filename);
-  const { error } = await storage.client.storage.from(storage.bucket).upload(objectKey, parsedUpload.buffer, {
-    cacheControl: '3600',
-    contentType: parsedUpload.contentType,
-    upsert: false
-  });
-  if (error) {
     console.error('Supabase media upload failed:', error.message);
     return res.status(502).json({ success: false, error: 'Échec de l’envoi du fichier vers Supabase Storage.' });
   }
 
-  const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
+  if (process.env.VERCEL) {
+    return res.status(503).json({
+      success: false,
+      error: 'Stockage média Supabase Storage non configuré en environnement serverless.'
+    });
+  }
+  await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
+  const destination = path.resolve(UPLOADS_DIR, filename);
+  if (!destination.startsWith(UPLOADS_DIR + path.sep)) {
+    return res.status(400).json({ success: false, error: 'Chemin de fichier média invalide.' });
+  }
+  await fs.promises.writeFile(destination, parsedUpload.buffer);
   return res.json({
     success: true,
-    url: data.publicUrl,
+    url: `/uploads/${filename}`,
     size: parsedUpload.buffer.length,
     filename,
-    storage: 'supabase'
+    storage: 'local'
   });
 }));
 
@@ -5474,7 +5672,7 @@ app.post('/api/upload/signed-url', asyncRoute(async (req: Request, res: Response
 }));
 
 // =========================================================================
-// INVESTOR & ADMIN MESSAGING + WHATSAPP-STYLE VOICE NOTES
+// INVESTOR & ADMIN MESSAGING + WRITTEN CUSTOM ORDERS
 // =========================================================================
 
 app.get('/api/messages', asyncRoute(async (req: Request, res: Response) => {
@@ -5489,91 +5687,8 @@ app.get('/api/messages', asyncRoute(async (req: Request, res: Response) => {
   const messages = await readJson<ServerInvestorMessage[]>(MESSAGES_FILE, []);
   return res.json({
     success: true,
-    messages,
+    messages: messages.filter((m) => m && typeof m.text === 'string'),
     isInvestorChatOpen: config.isInvestorChatOpen !== false
-  });
-}));
-
-app.post('/api/messages/voice', sensitiveActionRateLimiter, asyncRoute(async (req: Request, res: Response) => {
-  const [admin, investor, config] = await Promise.all([
-    getAuthenticatedAdmin(req),
-    getAuthenticatedInvestor(req),
-    loadConfig()
-  ]);
-  if (!admin && !investor) {
-    return res.status(401).json({ success: false, error: 'Connexion requise pour envoyer un message vocal.' });
-  }
-  if (admin && !hasAdminPermission(admin, 'manage_content') && !investor) {
-    return res.status(403).json({ success: false, error: 'Droit Messagerie requis pour envoyer un message vocal administrateur.' });
-  }
-  if (!admin && investor) {
-    if (investor.status === 'bloque' || investor.status === 'suspendu') {
-      return res.status(403).json({ success: false, error: 'Votre compte est suspendu.' });
-    }
-    if (config.isInvestorChatOpen === false) {
-      return res.status(403).json({ success: false, error: 'La messagerie des investisseurs est actuellement suspendue par l’administrateur.' });
-    }
-  }
-
-  const { fileBase64, mimeType } = req.body || {};
-  let parsedVoice;
-  try {
-    parsedVoice = parseBase64VoiceUpload(fileBase64, mimeType);
-  } catch (err) {
-    if (err instanceof InvalidMediaUploadError) {
-      return res.status(400).json({ success: false, error: err.message });
-    }
-    throw err;
-  }
-
-  let storage = null;
-  try {
-    storage = getSupabaseStorage();
-  } catch (error) {
-    if (error instanceof MediaStorageConfigurationError) {
-      return res.status(503).json({ success: false, error: error.message });
-    }
-    throw error;
-  }
-
-  const filename = `voice-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${parsedVoice.extension}`;
-  if (!storage) {
-    if (process.env.VERCEL) {
-      return res.status(503).json({
-        success: false,
-        error: 'Stockage audio Supabase requis en environnement serverless (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).'
-      });
-    }
-    await fs.promises.mkdir(UPLOADS_DIR, { recursive: true });
-    const destination = path.resolve(UPLOADS_DIR, filename);
-    if (!destination.startsWith(UPLOADS_DIR + path.sep)) {
-      return res.status(400).json({ success: false, error: 'Chemin de fichier audio invalide.' });
-    }
-    await fs.promises.writeFile(destination, parsedVoice.buffer);
-    return res.json({
-      success: true,
-      url: `/uploads/${filename}`,
-      size: parsedVoice.buffer.length,
-      filename
-    });
-  }
-
-  const objectKey = createMediaObjectKey('voice', filename);
-  const { error } = await storage.client.storage.from(storage.bucket).upload(objectKey, parsedVoice.buffer, {
-    cacheControl: '3600',
-    contentType: parsedVoice.contentType,
-    upsert: false
-  });
-  if (error) {
-    console.error('Supabase voice upload failed:', error.message);
-    return res.status(502).json({ success: false, error: 'Échec de l’envoi du message vocal vers Supabase Storage.' });
-  }
-  const { data } = storage.client.storage.from(storage.bucket).getPublicUrl(objectKey);
-  return res.json({
-    success: true,
-    url: data.publicUrl,
-    size: parsedVoice.buffer.length,
-    filename
   });
 }));
 
@@ -5598,29 +5713,10 @@ app.post('/api/messages', asyncRoute(async (req: Request, res: Response) => {
     }
   }
 
-  const { text, audioUrl, audioDuration, messageType } = req.body || {};
-  const isVoice = messageType === 'voice' || Boolean(audioUrl);
-  let cleanAudioUrl: string | undefined;
-  let cleanDuration: number | undefined;
-  let cleanText = '';
-
-  if (isVoice) {
-    const validatedAudioUrl = validateSafeUrlOrPath(audioUrl, 2048);
-    if (!validatedAudioUrl) {
-      return res.status(400).json({ success: false, error: 'Lien audio vocal invalide.' });
-    }
-    cleanAudioUrl = validatedAudioUrl;
-    if (audioDuration !== undefined) {
-      const parsedDur = validateSafeNonNegativeInt(audioDuration, { max: 600 });
-      if (parsedDur !== null) cleanDuration = parsedDur;
-    }
-    cleanText = sanitizePlainText(text, { maxLength: 300 }) || 'Message vocal';
-  } else {
-    const validatedText = sanitizePlainText(text, { minLength: 1, maxLength: 1500, required: true, allowNewlines: true });
-    if (!validatedText) {
-      return res.status(400).json({ success: false, error: 'Veuillez saisir un message valide (1 500 caractères max).' });
-    }
-    cleanText = validatedText;
+  const { text } = req.body || {};
+  const cleanText = sanitizePlainText(text, { minLength: 1, maxLength: 1500, required: true, allowNewlines: true });
+  if (!cleanText) {
+    return res.status(400).json({ success: false, error: 'Veuillez saisir un message texte valide (1 500 caractères max).' });
   }
 
   const now = new Date();
@@ -5635,10 +5731,8 @@ app.post('/api/messages', asyncRoute(async (req: Request, res: Response) => {
       : investor!.name,
     senderEmail: senderIsAdmin ? admin!.email : investor!.email,
     senderRole: senderIsAdmin ? 'admin' : 'investor',
-    messageType: isVoice ? 'voice' : 'text',
+    messageType: 'text',
     text: cleanText,
-    ...(cleanAudioUrl ? { audioUrl: cleanAudioUrl } : {}),
-    ...(cleanDuration !== undefined ? { audioDuration: cleanDuration } : {}),
     time: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
     createdAt: now.toISOString()
   };
@@ -5689,6 +5783,121 @@ app.delete('/api/admin/messages', asyncRoute(async (req: Request, res: Response)
   await writeJson(MESSAGES_FILE, []);
   await addServerAuditLog(admin.name, 'clear_messages', 'Suppression de tout le fil de discussion investisseurs', 'system');
   broadcastDataChanged('messages');
+  return res.json({ success: true });
+}));
+
+app.post('/api/custom-orders', sensitiveActionRateLimiter, asyncRoute(async (req: Request, res: Response) => {
+  const body = req.body || {};
+  const customerName = sanitizePlainText(body.customerName, { minLength: 2, maxLength: 80, required: true });
+  const customerPhone = validatePhoneInput(body.customerPhone);
+  const customerEmail = body.customerEmail ? validateEmailInput(body.customerEmail) : undefined;
+  if (body.customerEmail && !customerEmail) {
+    return res.status(400).json({ success: false, error: 'Adresse e-mail invalide.' });
+  }
+  const articleTitle = sanitizePlainText(body.articleTitle, { minLength: 2, maxLength: 140, required: true });
+  const description = sanitizePlainText(body.description, { minLength: 5, maxLength: 2000, required: true, allowNewlines: true });
+  if (!customerName || !customerPhone || !articleTitle || !description) {
+    return res.status(400).json({
+      success: false,
+      error: 'Veuillez renseigner votre nom, un numéro de téléphone valide, le nom de l’article et la description de votre commande.'
+    });
+  }
+
+  const allowedDomains = new Set(['electronique', 'electrotechnique', 'informatique', 'autre']);
+  const domain = typeof body.domain === 'string' && allowedDomains.has(body.domain)
+    ? (body.domain as ServerCustomOrder['domain'])
+    : 'autre';
+  const parsedQty = body.quantity !== undefined ? validateSafePositiveInt(body.quantity, { max: 10000 }) : 1;
+  if (parsedQty === null) {
+    return res.status(400).json({ success: false, error: 'Quantité invalide (entier entre 1 et 10 000).' });
+  }
+  let budgetFcfa: number | undefined;
+  if (body.budgetFcfa !== undefined && body.budgetFcfa !== '' && body.budgetFcfa !== null) {
+    const parsedBudget = validateSafePositiveInt(body.budgetFcfa, { max: 1_000_000_000 });
+    if (parsedBudget === null) {
+      return res.status(400).json({ success: false, error: 'Budget estimatif invalide.' });
+    }
+    budgetFcfa = parsedBudget;
+  }
+  const source: ServerCustomOrder['source'] = body.source === 'messagerie' ? 'messagerie' : 'boutique';
+
+  const now = new Date();
+  const order: ServerCustomOrder = {
+    id: `cmd-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+    reference: `CMD-${Math.floor(100000 + Math.random() * 900000)}`,
+    customerName,
+    customerPhone,
+    ...(customerEmail ? { customerEmail } : {}),
+    domain,
+    articleTitle,
+    description,
+    quantity: parsedQty,
+    ...(budgetFcfa !== undefined ? { budgetFcfa } : {}),
+    status: 'nouvelle',
+    source,
+    createdAt: now.toISOString()
+  };
+
+  await appendApplicationRecord('custom-orders', order);
+  broadcastDataChanged('custom-orders');
+  await addServerAuditLog(
+    customerName,
+    'create_custom_order',
+    `Nouvelle commande écrite (${order.reference}) : ${articleTitle} x${parsedQty} (${domain})`,
+    'system',
+    order.id
+  );
+  return res.status(201).json({ success: true, order });
+}));
+
+app.get('/api/admin/custom-orders', asyncRoute(async (req: Request, res: Response) => {
+  const admin = await requireAdminAnyPermission(req, res, ['manage_content', 'manage_products', 'manage_investors']);
+  if (!admin) return;
+  const orders = await readApplicationData<ServerCustomOrder[]>('custom-orders', []);
+  return res.json({ success: true, orders });
+}));
+
+app.patch('/api/admin/custom-orders/:id/status', asyncRoute(async (req: Request, res: Response) => {
+  const admin = await requireAdminAnyPermission(req, res, ['manage_content', 'manage_products', 'manage_investors']);
+  if (!admin) return;
+  const id = validateSafeId(req.params.id);
+  if (!id) return res.status(400).json({ success: false, error: 'Identifiant invalide.' });
+  const allowedStatuses = new Set(['nouvelle', 'en_cours', 'traitee', 'annulee']);
+  const nextStatus = req.body?.status;
+  if (typeof nextStatus !== 'string' || !allowedStatuses.has(nextStatus)) {
+    return res.status(400).json({ success: false, error: 'Statut de commande invalide.' });
+  }
+  const adminNote = req.body?.adminNote !== undefined
+    ? sanitizePlainText(req.body.adminNote, { maxLength: 500, allowNewlines: true }) || ''
+    : undefined;
+
+  const updated = await updateApplicationRecord<ServerCustomOrder>('custom-orders', id, (current) => ({
+    ...current,
+    status: nextStatus as ServerCustomOrder['status'],
+    ...(adminNote !== undefined ? { adminNote } : {}),
+    updatedAt: new Date().toISOString()
+  }));
+  if (!updated) return res.status(404).json({ success: false, error: 'Commande introuvable.' });
+  broadcastDataChanged('custom-orders');
+  await addServerAuditLog(
+    admin.name,
+    'update_custom_order_status',
+    `Commande personnalisée ${updated.reference} passée au statut "${nextStatus}"`,
+    'system',
+    id
+  );
+  return res.json({ success: true, order: updated });
+}));
+
+app.delete('/api/admin/custom-orders/:id', asyncRoute(async (req: Request, res: Response) => {
+  const admin = await requireAdminAnyPermission(req, res, ['manage_content', 'manage_products', 'manage_investors']);
+  if (!admin) return;
+  const id = validateSafeId(req.params.id);
+  if (!id) return res.status(400).json({ success: false, error: 'Identifiant invalide.' });
+  const removed = await deleteApplicationRecord('custom-orders', id);
+  if (!removed) return res.status(404).json({ success: false, error: 'Commande introuvable.' });
+  broadcastDataChanged('custom-orders');
+  await addServerAuditLog(admin.name, 'delete_custom_order', `Suppression de la commande personnalisée ${id}`, 'system', id);
   return res.json({ success: true });
 }));
 
@@ -6045,7 +6254,17 @@ const apiErrorHandler: ErrorRequestHandler = (error, req, res, next) => {
   logPostgresError(`API ${req.method} ${req.originalUrl || req.path}`, error, process.env.DATABASE_URL);
   if (res.headersSent) return next(error);
   const formatted = formatTechnicalErrorMessage(error);
-  res.status(500).json({ success: false, code: formatted.code, error: formatted.message });
+  const isDbOutage =
+    isApplicationStoreDegraded() ||
+    formatted.code === 'PG_UNREACHABLE' ||
+    formatted.code === 'PG_TIMEOUT' ||
+    formatted.code === 'DB_NOT_INITIALIZED';
+  res.status(isDbOutage ? 503 : 500).json({
+    success: false,
+    degraded: isDbOutage,
+    code: formatted.code,
+    error: formatted.message
+  });
 };
 app.use(apiErrorHandler);
 

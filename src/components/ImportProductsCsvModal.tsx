@@ -6,6 +6,7 @@ import {
   parseAndValidateProductsCsv
 } from '../utils/csvProducts.ts';
 import { useOnlineStatus } from '../utils/pwa.ts';
+import { compressImageDataUrl } from '../utils/imageCompression.ts';
 
 export interface ImportProductsCsvModalProps {
   isOpen: boolean;
@@ -121,7 +122,26 @@ export const ImportProductsCsvModal: React.FC<ImportProductsCsvModalProps> = ({
     setIsImporting(true);
     setImportError(null);
     try {
-      await onConfirmImport(parseResult.validProducts, {
+      const optimizedProducts = await Promise.all(
+        parseResult.validProducts.map(async (prod) => {
+          if (!prod.image || !prod.image.startsWith('data:image/')) {
+            return prod;
+          }
+          const compressed = await compressImageDataUrl(prod.image, {
+            maxWidth: 800,
+            maxHeight: 800,
+            quality: 0.72,
+            maxSizeBytes: 75 * 1024,
+            preferWebP: true
+          });
+          return {
+            ...prod,
+            image: compressed,
+            hasRealPhoto: Boolean(compressed)
+          };
+        })
+      );
+      await onConfirmImport(optimizedProducts, {
         upsertByRef,
         filename: selectedFileName || 'import.csv'
       });

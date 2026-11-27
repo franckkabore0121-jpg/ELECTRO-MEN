@@ -429,7 +429,7 @@ export function buildPostgresPoolConfig(connectionString: string, isVercel: bool
     connectionString: normalizedUrl,
     max: isVercel ? 3 : 10,
     idleTimeoutMillis: isVercel ? 10000 : 30000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: isVercel ? 5500 : 7500,
     allowExitOnIdle: isVercel
   };
 

@@ -212,11 +212,11 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   const label =
     lang === 'FR'
       ? variant === 'header-mobile'
-        ? 'Installer'
-        : "Installer l'application"
+        ? 'App'
+        : 'Installer'
       : variant === 'header-mobile'
-      ? 'Install'
-      : 'Install App';
+      ? 'App'
+      : 'Install';
 
   if (variant === 'menu-item') {
     return (
@@ -224,16 +224,16 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         <button
           type="button"
           onClick={() => void handleClick()}
-          className="w-full px-3 py-2.5 rounded-xl hover:bg-amber-50 flex items-center justify-between text-left text-xs font-semibold text-slate-800 hover:text-slate-950 transition-colors cursor-pointer"
+          className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center justify-between text-left text-xs font-semibold text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined text-base text-[#b48c1e]">
+            <span className="material-symbols-outlined text-base text-slate-600">
               install_mobile
             </span>
             <span>{lang === 'FR' ? "Installer l'application" : 'Install App'}</span>
           </div>
-          <span className="px-1.5 py-0.5 rounded bg-slate-900 text-[#d4af37] text-[10px] font-extrabold">
-            APP
+          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold">
+            PWA
           </span>
         </button>
 
@@ -262,12 +262,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           onClick={() => void handleClick()}
           aria-label={lang === 'FR' ? "Installer l'application ELECTRO-MEN" : 'Install ELECTRO-MEN App'}
           title={lang === 'FR' ? "Installer l'application" : 'Install App'}
-          className="md:hidden h-11 px-3 rounded-2xl bg-slate-950 hover:bg-slate-800 text-white border border-[#d4af37]/60 shadow-2xs flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 transition-all"
+          className="md:hidden h-8 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/90 flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-colors"
         >
-          <span className="material-symbols-outlined text-[18px] text-[#d4af37]">
-            download_for_offline
+          <span className="material-symbols-outlined text-[15px] text-slate-600">
+            download
           </span>
-          <span className="text-[11px] font-extrabold tracking-tight whitespace-nowrap">
+          <span className="text-[11px] font-semibold tracking-tight whitespace-nowrap">
             {label}
           </span>
         </button>
@@ -294,12 +294,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       <button
         type="button"
         onClick={() => void handleClick()}
-        aria-label={label}
-        title={label}
-        className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-slate-950 hover:bg-slate-800 text-white border border-[#d4af37]/60 shadow-2xs hover:shadow-xs text-xs font-bold cursor-pointer active:scale-95 transition-all whitespace-nowrap"
+        aria-label={lang === 'FR' ? "Installer l'application ELECTRO-MEN" : 'Install ELECTRO-MEN App'}
+        title={lang === 'FR' ? "Installer l'application" : 'Install App'}
+        className="hidden md:inline-flex items-center gap-1 h-8 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/90 text-[11px] font-semibold cursor-pointer active:scale-95 transition-colors whitespace-nowrap"
       >
-        <span className="material-symbols-outlined text-[17px] text-[#d4af37]">
-          download_for_offline
+        <span className="material-symbols-outlined text-[15px] text-slate-600">
+          download
         </span>
         <span>{label}</span>
       </button>

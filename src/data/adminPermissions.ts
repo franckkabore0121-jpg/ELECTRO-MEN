@@ -86,8 +86,8 @@ export const ADMIN_PERMISSION_DEFINITIONS: AdminPermissionDefinition[] = [
   },
   {
     id: 'manage_delivery',
-    label: 'Logistique & Boutiques',
-    description: 'Gérer les zones/tarifs de livraison et les pays/drapeaux des boutiques.',
+    label: 'Drapeaux & Pays des Boutiques',
+    description: 'Définir le pays et le drapeau affichés sur les cartes des boutiques.',
     category: 'Trésorerie & Logistique'
   },
   {

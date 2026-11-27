@@ -1,8 +1,23 @@
-const CACHE_VERSION = 'electromen-pwa-v1';
+const CACHE_VERSION = 'electromen-pwa-v3';
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MEDIA_CACHE = `${CACHE_VERSION}-media`;
+const MAX_MEDIA_CACHE_ENTRIES = 180;
 const VALID_CACHES = new Set([APP_SHELL_CACHE, RUNTIME_CACHE, MEDIA_CACHE]);
+
+async function trimCacheEntries(cacheName, maxEntries) {
+  try {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    if (keys.length <= maxEntries) return;
+    const excess = keys.length - maxEntries;
+    for (let i = 0; i < excess; i += 1) {
+      await cache.delete(keys[i]);
+    }
+  } catch {
+    // Ignore cache pruning failures
+  }
+}
 
 const APP_SHELL_URLS = [
   '/',
@@ -107,20 +122,32 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Uploaded media (/uploads/*): Network-First so admin image updates appear immediately online, with offline cache fallback
-  if (isSameOrigin && url.pathname.startsWith('/uploads/')) {
+  // Uploaded media (/uploads/*) & external/Supabase product images: Cache-First so images are downloaded once
+  const isExternalProductImage =
+    !isSameOrigin &&
+    url.protocol === 'https:' &&
+    (request.destination === 'image' ||
+      url.hostname.endsWith('.supabase.co') ||
+      url.hostname.endsWith('.supabase.in'));
+
+  if ((isSameOrigin && url.pathname.startsWith('/uploads/')) || isExternalProductImage) {
     event.respondWith(
       (async () => {
+        const mediaCache = await caches.open(MEDIA_CACHE);
+        const cached = await mediaCache.match(request);
+        if (cached) {
+          return cached;
+        }
         try {
           const networkResponse = await fetch(request);
-          if (networkResponse && networkResponse.ok) {
-            const mediaCache = await caches.open(MEDIA_CACHE);
-            mediaCache.put(request, networkResponse.clone()).catch(() => {});
+          if (networkResponse && (networkResponse.ok || networkResponse.type === 'opaque')) {
+            mediaCache
+              .put(request, networkResponse.clone())
+              .then(() => trimCacheEntries(MEDIA_CACHE, MAX_MEDIA_CACHE_ENTRIES))
+              .catch(() => {});
           }
           return networkResponse;
         } catch {
-          const cached = await caches.match(request);
-          if (cached) return cached;
           return new Response('', { status: 404, statusText: 'Offline' });
         }
       })()

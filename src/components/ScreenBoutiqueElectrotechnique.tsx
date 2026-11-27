@@ -10,6 +10,11 @@ interface ScreenBoutiqueElectrotechniqueProps {
   cartCount?: number;
   logoUrl?: string;
   locationLabel?: string;
+  flag?: string;
+  country?: string;
+  defaultCustomerName?: string;
+  defaultCustomerPhone?: string;
+  defaultCustomerEmail?: string;
   onAddToCart: (product: Product) => void;
   onSelectProduct: (product: Product) => void;
   onOpenCart: () => void;
@@ -26,6 +31,11 @@ export const ScreenBoutiqueElectrotechnique: React.FC<ScreenBoutiqueElectrotechn
   cartCount = 0,
   logoUrl,
   locationLabel,
+  flag,
+  country,
+  defaultCustomerName,
+  defaultCustomerPhone,
+  defaultCustomerEmail,
   onAddToCart,
   onSelectProduct,
   onOpenCart,
@@ -65,6 +75,11 @@ export const ScreenBoutiqueElectrotechnique: React.FC<ScreenBoutiqueElectrotechn
       shopDescription="Disjoncteurs industriels, contacteurs, variateurs de fréquence, automates, onduleurs et appareillage haute puissance pour installations tertiaires et industrielles."
       logoUrl={logoUrl}
       locationLabel={locationLabel}
+      flag={flag}
+      country={country}
+      defaultCustomerName={defaultCustomerName}
+      defaultCustomerPhone={defaultCustomerPhone}
+      defaultCustomerEmail={defaultCustomerEmail}
       searchPlaceholder="Rechercher un disjoncteur, variateur 380V, contacteur..."
       emptyLabel="Aucun matériel électrotechnique trouvé"
       allDomainProducts={electrotechProducts}

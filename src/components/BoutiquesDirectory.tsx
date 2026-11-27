@@ -76,13 +76,15 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
               type="button"
               onClick={onRefresh}
               disabled={isRefreshing}
-              title="Actualiser les données des boutiques"
+              title="Actualiser les données des boutiques et du catalogue"
+              aria-label="Actualiser le catalogue"
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap"
             >
               <span className={`material-symbols-outlined text-sm ${isRefreshing ? 'animate-spin' : ''}`}>
                 refresh
               </span>
-              <span>Actualiser</span>
+              <span className="hidden sm:inline">Actualiser le catalogue</span>
+              <span className="sm:hidden">Actualiser</span>
             </button>
           )}
           <span className="text-[11px] font-mono text-slate-400 font-medium">
@@ -107,7 +109,7 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
                   : 'border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-[#d4af37]'
               }`}
             >
-              {/* Drapeau Pays dans le coin supérieur (uniquement configuré par l'administrateur) */}
+              {/* Drapeau Pays dans le coin supérieur (défini par l'administrateur, strictement en lecture seule pour les clients) */}
               <div className="flex justify-end w-full min-h-[24px]">
                 {isAdmin ? (
                   <button
@@ -132,8 +134,17 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
                   </button>
                 ) : (
                   b.flag ? (
-                    <span className="text-base sm:text-lg leading-none" title={b.country}>
-                      {b.flag}
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-50 border border-slate-200/80 text-sm sm:text-base leading-none select-none"
+                      title={b.country || 'Pays de la boutique'}
+                      aria-label={b.country ? `Pays : ${b.country}` : 'Drapeau de la boutique'}
+                    >
+                      <span>{b.flag}</span>
+                      {b.country && (
+                        <span className="hidden sm:inline text-[10px] font-semibold text-slate-600">
+                          {b.country}
+                        </span>
+                      )}
                     </span>
                   ) : null
                 )}
@@ -192,7 +203,7 @@ export const BoutiquesDirectory: React.FC<BoutiquesDirectoryProps> = ({
       {/* =========================================================================
           MODAL DE CONFIGURATION DU DRAPEAU PAR L'ADMINISTRATEUR
           ========================================================================= */}
-      {editingBoutique && (
+      {isAdmin && editingBoutique && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fadeIn"
           onClick={() => setEditingBoutique(null)}

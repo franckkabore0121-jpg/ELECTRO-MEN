@@ -310,14 +310,14 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
               type="button"
               onClick={onRetryLoadProducts}
               disabled={isLoadingProducts}
-              title="Recharger les derniers produits, prix et images"
+              title="Recharger les derniers produits, prix et images depuis le serveur"
               aria-label="Actualiser le catalogue"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-[#d4af37] text-slate-700 hover:text-slate-950 text-[11px] font-bold cursor-pointer transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
             >
               <span className={`material-symbols-outlined text-sm ${isLoadingProducts ? 'animate-spin' : ''}`}>
                 refresh
               </span>
-              <span>Actualiser</span>
+              <span>Actualiser le catalogue</span>
             </button>
           )}
         </div>

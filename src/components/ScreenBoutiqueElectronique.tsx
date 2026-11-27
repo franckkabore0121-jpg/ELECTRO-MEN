@@ -10,6 +10,11 @@ interface ScreenBoutiqueElectroniqueProps {
   cartCount?: number;
   logoUrl?: string;
   locationLabel?: string;
+  flag?: string;
+  country?: string;
+  defaultCustomerName?: string;
+  defaultCustomerPhone?: string;
+  defaultCustomerEmail?: string;
   onAddToCart: (product: Product) => void;
   onSelectProduct: (product: Product) => void;
   onOpenCart: () => void;
@@ -26,6 +31,11 @@ export const ScreenBoutiqueElectronique: React.FC<ScreenBoutiqueElectroniqueProp
   cartCount = 0,
   logoUrl,
   locationLabel,
+  flag,
+  country,
+  defaultCustomerName,
+  defaultCustomerPhone,
+  defaultCustomerEmail,
   onAddToCart,
   onSelectProduct,
   onOpenCart,
@@ -70,6 +80,11 @@ export const ScreenBoutiqueElectronique: React.FC<ScreenBoutiqueElectroniqueProp
       shopDescription="Microcontrôleurs, capteurs, modules IoT, circuits intégrés, composants passifs et outillage de prototypage disponibles en stock à Ouagadougou ou sur commande."
       logoUrl={logoUrl}
       locationLabel={locationLabel}
+      flag={flag}
+      country={country}
+      defaultCustomerName={defaultCustomerName}
+      defaultCustomerPhone={defaultCustomerPhone}
+      defaultCustomerEmail={defaultCustomerEmail}
       searchPlaceholder="Rechercher un composant électronique, référence, capteur..."
       emptyLabel="Aucun composant électronique trouvé"
       allDomainProducts={electroniqueProducts}

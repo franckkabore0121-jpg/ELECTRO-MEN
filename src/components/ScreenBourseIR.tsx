@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { InvestmentProject, InvestorProfile, InvestorActivity, InvestorDocument } from '../data/mockData.ts';
 import { validatePersonData } from '../utils/validation.ts';
+import { CustomOrderModal } from './CustomOrderModal.tsx';
 
 export type InvestorStatus = 'demande_non_soumise' | 'en_attente' | 'approuve' | 'refuse' | 'suspendu' | 'bloque';
 
@@ -41,9 +42,6 @@ export interface InvestorMessage {
   senderName: string;
   senderPhone?: string;
   senderRole?: 'admin' | 'investor';
-  messageType?: 'text' | 'voice';
-  audioUrl?: string;
-  audioDuration?: number;
   text: string;
   timestamp: string;
   isOfficial?: boolean;
@@ -93,8 +91,7 @@ interface ScreenBourseIRProps {
   onSendMessage?: (
     text: string,
     senderName: string,
-    isOfficial?: boolean,
-    voice?: { audioUrl: string; audioDuration?: number }
+    isOfficial?: boolean
   ) => void | Promise<void>;
   isMessagingOpen?: boolean;
   projects?: InvestmentProject[];
@@ -136,6 +133,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [authMode, setAuthMode] = useState<'login' | 'register'>(() =>
     hasSeenInvestorAccount ? 'login' : 'register'
   );
+  const [isCustomOrderOpen, setIsCustomOrderOpen] = useState(false);
 
   // Registration Form State (no username, real name & prenom validation)
   const [regLastName, setRegLastName] = useState('');
@@ -296,21 +294,12 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [submittingSub, setSubmittingSub] = useState(false);
   const [subSuccess, setSubSuccess] = useState<string | null>(null);
 
-  // Community Chat Messages + WhatsApp-style Voice Notes
+  // Community Chat Messages (text-only)
   const [localMessages, setLocalMessages] = useState<InvestorMessage[]>([]);
 
   const activeMessages = externalMessages || localMessages;
   const [newMessageText, setNewMessageText] = useState('');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [voiceDurationSec, setVoiceDurationSec] = useState(0);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const audioStreamRef = React.useRef<MediaStream | null>(null);
-  const voiceChunksRef = React.useRef<Blob[]>([]);
-  const voiceTimerRef = React.useRef<number | null>(null);
-  const voiceCancelledRef = React.useRef(false);
-  const voiceStartTimeRef = React.useRef<number>(0);
 
   // Handle Investor Registration
   const handleRegister = async (e: React.FormEvent) => {
@@ -411,8 +400,8 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: loginEmail.trim(),
-          password: loginPassword
+          email: loginEmail.trim().toLowerCase(),
+          password: loginPassword.trim()
         })
       });
       const data = await res.json();
@@ -422,6 +411,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       }
       setActiveInvestor(data.investor);
       setIsLoggedIn(true);
+      setLoginPassword('');
       onInvestorSessionChange?.({
         id: data.investor.id,
         name: data.investor.name,
@@ -577,136 +567,6 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
     }
   };
 
-  React.useEffect(() => {
-    return () => {
-      if (voiceTimerRef.current !== null) window.clearInterval(voiceTimerRef.current);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        voiceCancelledRef.current = true;
-        mediaRecorderRef.current.stop();
-      }
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
-  const stopVoiceRecording = (cancel = false) => {
-    voiceCancelledRef.current = cancel;
-    if (voiceTimerRef.current !== null) {
-      window.clearInterval(voiceTimerRef.current);
-      voiceTimerRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    } else {
-      setIsRecordingVoice(false);
-      setVoiceDurationSec(0);
-    }
-  };
-
-  const startVoiceRecording = async () => {
-    if (!activeInvestor || !isMessagingOpen || isRecordingVoice || isSendingMessage) return;
-    setVoiceError(null);
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setVoiceError('Votre navigateur ne prend pas en charge l’enregistrement audio.');
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-      const candidateTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-      const chosenType = candidateTypes.find((type) =>
-        typeof MediaRecorder.isTypeSupported === 'function' ? MediaRecorder.isTypeSupported(type) : false
-      );
-      const recorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      voiceChunksRef.current = [];
-      voiceCancelledRef.current = false;
-      voiceStartTimeRef.current = Date.now();
-      setVoiceDurationSec(0);
-      setIsRecordingVoice(true);
-
-      voiceTimerRef.current = window.setInterval(() => {
-        setVoiceDurationSec(Math.max(1, Math.round((Date.now() - voiceStartTimeRef.current) / 1000)));
-      }, 400);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          voiceChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const wasCancelled = voiceCancelledRef.current;
-        const elapsedSec = Math.max(1, Math.round((Date.now() - voiceStartTimeRef.current) / 1000));
-        if (voiceTimerRef.current !== null) {
-          window.clearInterval(voiceTimerRef.current);
-          voiceTimerRef.current = null;
-        }
-        stream.getTracks().forEach((track) => track.stop());
-        audioStreamRef.current = null;
-        setIsRecordingVoice(false);
-        setVoiceDurationSec(0);
-        if (wasCancelled) return;
-
-        const mimeType = recorder.mimeType || chosenType || 'audio/webm';
-        const blob = new Blob(voiceChunksRef.current, { type: mimeType });
-        if (blob.size < 128) {
-          setVoiceError('Enregistrement audio trop court.');
-          return;
-        }
-        setIsSendingMessage(true);
-        try {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ''));
-            reader.onerror = () => reject(new Error('Lecture audio impossible.'));
-            reader.readAsDataURL(blob);
-          });
-          const uploadRes = await fetch('/api/messages/voice', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileBase64: dataUrl, mimeType })
-          });
-          const uploadData = await uploadRes.json();
-          if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
-            throw new Error(uploadData.error || 'Échec du téléversement du message vocal.');
-          }
-          if (externalOnSendMessage) {
-            await externalOnSendMessage('Message vocal', activeInvestor.name, false, {
-              audioUrl: uploadData.url,
-              audioDuration: elapsedSec
-            });
-          } else {
-            setLocalMessages((prev) => [
-              ...prev,
-              {
-                id: `msg-${Date.now()}`,
-                senderName: activeInvestor.name,
-                senderPhone: activeInvestor.phone,
-                senderRole: 'investor',
-                messageType: 'voice',
-                audioUrl: uploadData.url,
-                audioDuration: elapsedSec,
-                text: 'Message vocal',
-                timestamp: 'À l’instant'
-              }
-            ]);
-          }
-        } catch (err) {
-          setVoiceError(err instanceof Error ? err.message : 'Erreur lors de l’envoi du message vocal.');
-        } finally {
-          setIsSendingMessage(false);
-        }
-      };
-
-      recorder.start(250);
-    } catch {
-      setVoiceError('Accès au microphone refusé ou indisponible.');
-      setIsRecordingVoice(false);
-    }
-  };
 
   // Handle Chat Message
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -812,6 +672,63 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const remainingShares = Math.max(0, (selectedOp?.availableShares || 0) - (selectedOp?.subscribedShares || 0));
   const hasOpenOffers = operationsList.some((o) => o.offerStatus === 'Ouvert');
 
+  const dashboardStats = React.useMemo(() => {
+    const totalInvested = Number(activeInvestor?.totalInvested || 0);
+    const sharesCount = Number(activeInvestor?.sharesCount || 0);
+    const dividendsEarned = Number(activeInvestor?.dividendsEarned || 0);
+    const allocations = Array.isArray(activeInvestor?.shareAllocations)
+      ? activeInvestor.shareAllocations
+      : [];
+
+    const enrichedAllocations = allocations.map((alloc) => {
+      const matchedOp = projects.find(
+        (p) =>
+          (alloc.operationId && p.id === alloc.operationId) ||
+          (alloc.operationTitle && p.title.toLowerCase() === alloc.operationTitle.toLowerCase())
+      );
+      const opTotalShares = matchedOp
+        ? Math.max(Number(matchedOp.availableShares || 0), Number(alloc.shares || 0))
+        : 0;
+      const sharePct =
+        opTotalShares > 0 ? Math.min(100, (Number(alloc.shares || 0) / opTotalShares) * 100) : null;
+      return { ...alloc, sharePct, opTotalShares };
+    });
+
+    const allocatedTotalPool = enrichedAllocations.reduce(
+      (sum, item) => sum + (item.opTotalShares > 0 ? item.opTotalShares : 0),
+      0
+    );
+    const allocatedSharesSum = enrichedAllocations.reduce(
+      (sum, item) => sum + (item.opTotalShares > 0 ? Number(item.shares || 0) : 0),
+      0
+    );
+    const fallbackTotalShares = projects.reduce(
+      (sum, p) => sum + Math.max(0, Number(p.availableShares || 0)),
+      0
+    );
+
+    let globalOwnershipPct: number | null = null;
+    if (allocatedTotalPool > 0 && allocatedSharesSum > 0) {
+      globalOwnershipPct = Math.min(100, (allocatedSharesSum / allocatedTotalPool) * 100);
+    } else if (fallbackTotalShares > 0 && sharesCount > 0) {
+      globalOwnershipPct = Math.min(100, (sharesCount / fallbackTotalShares) * 100);
+    }
+
+    const realizedYieldPct =
+      totalInvested > 0 && dividendsEarned > 0
+        ? (dividendsEarned / totalInvested) * 100
+        : null;
+
+    return {
+      totalInvested,
+      sharesCount,
+      dividendsEarned,
+      enrichedAllocations,
+      globalOwnershipPct,
+      realizedYieldPct
+    };
+  }, [activeInvestor, projects]);
+
   return (
     <div className="space-y-6 pb-12 animate-fadeIn text-[#0f172a] bg-white">
       {/* =========================================================================
@@ -866,25 +783,45 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
           ========================================================================= */}
       {!isLoggedIn || !activeInvestor ? (
         <section className="max-w-xl mx-auto p-5 sm:p-6 bg-white rounded-2xl border-2 border-amber-400 shadow-xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-amber-600 text-2xl">account_circle</span>
               <h2 className="font-syne text-lg font-extrabold text-slate-900">
-                {authMode === 'register' ? 'Devenir Investisseur ELECTRO-MEN' : 'Connexion à votre Espace Investisseur'}
+                {authMode === 'register' ? 'Devenir Investisseur ELECTRO-MEN' : 'Connexion Investisseur'}
               </h2>
             </div>
-            {(authMode === 'register' || !hasSeenInvestorAccount) && (
+            <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 self-start sm:self-auto">
               <button
                 type="button"
                 onClick={() => {
-                  setAuthMode(authMode === 'register' ? 'login' : 'register');
+                  setAuthMode('login');
                   setLoginError(null);
+                  setRegError(null);
                 }}
-                className="text-xs text-cyan-700 hover:underline font-medium"
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  authMode === 'login'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                {authMode === 'register' ? 'Déjà un compte ? Se connecter' : 'Créer un compte'}
+                Se connecter
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register');
+                  setLoginError(null);
+                  setRegError(null);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  authMode === 'register'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Créer un compte
+              </button>
+            </div>
           </div>
 
           {authLoading ? (
@@ -1602,23 +1539,26 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                 </p>
               </div>
 
-              {/* Cartes Clés du Tableau de bord */}
+              {/* Cartes Clés du Tableau de bord (Données réelles issues de la base PostgreSQL) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 {/* SOMME INVESTIE */}
                 <div className="p-4 rounded-2xl bg-white border-2 border-amber-400 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">
-                      Somme Investie
+                      Montant Réel Investi
                     </span>
                     <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
                       <span className="material-symbols-outlined text-lg">account_balance</span>
                     </div>
                   </div>
                   <div className="font-syne text-2xl font-black text-slate-900">
-                    {(activeInvestor?.totalInvested || 0).toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
+                    {dashboardStats.totalInvested.toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
                   </div>
                   <div className="text-[11px] text-amber-800 font-bold">
-                    {activeInvestor?.sharesCount || 0} parts officielles détenues
+                    {dashboardStats.sharesCount} part{dashboardStats.sharesCount > 1 ? 's' : ''} détenue{dashboardStats.sharesCount > 1 ? 's' : ''}
+                    {dashboardStats.globalOwnershipPct !== null
+                      ? ` · ${dashboardStats.globalOwnershipPct.toFixed(2)}% du capital ouvert`
+                      : ''}
                   </div>
                 </div>
 
@@ -1633,10 +1573,12 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                     </div>
                   </div>
                   <div className="font-syne text-2xl font-black text-emerald-700">
-                    +{(activeInvestor?.dividendsEarned || 0).toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
+                    +{dashboardStats.dividendsEarned.toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
                   </div>
                   <div className="text-[11px] text-emerald-800 font-bold">
-                    Rendement annuel estimé : 15% à 18%
+                    {dashboardStats.realizedYieldPct !== null
+                      ? `+${dashboardStats.realizedYieldPct.toFixed(1)}% perçu sur capital investi`
+                      : 'Dividendes réels enregistrés en base'}
                   </div>
                 </div>
 
@@ -1651,28 +1593,30 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                     </div>
                   </div>
                   <div className="font-syne text-2xl font-black text-cyan-800">
-                    {((activeInvestor?.totalInvested || 0) + (activeInvestor?.dividendsEarned || 0)).toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
+                    {(dashboardStats.totalInvested + dashboardStats.dividendsEarned).toLocaleString('fr-FR')} <span className="text-sm font-normal text-slate-500">FCFA</span>
                   </div>
                   <div className="text-[11px] text-cyan-800 font-bold">
-                    Capital garanti par actifs réels
+                    {dashboardStats.globalOwnershipPct !== null
+                      ? `Part projet réelle : ${dashboardStats.globalOwnershipPct.toFixed(2)}%`
+                      : 'Capital & bénéfices cumulés'}
                   </div>
                 </div>
               </div>
 
               {/* Détail des parts détenues par Boutique et par Opération */}
-              {Array.isArray(activeInvestor?.shareAllocations) && activeInvestor.shareAllocations.length > 0 && (
+              {dashboardStats.enrichedAllocations.length > 0 && (
                 <div className="p-4 rounded-2xl bg-white border border-amber-300 shadow-xs space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-syne text-sm font-bold text-slate-900 flex items-center gap-1.5">
                       <span className="material-symbols-outlined text-amber-600 text-lg">pie_chart</span>
-                      <span>Répartition de mes parts par Boutique &amp; Opération</span>
+                      <span>Répartition réelle de mes parts par Boutique &amp; Opération</span>
                     </h3>
                     <span className="text-[11px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
-                      {activeInvestor.shareAllocations.length} ligne(s)
+                      {dashboardStats.enrichedAllocations.length} ligne(s)
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                    {activeInvestor.shareAllocations.map((alloc) => (
+                    {dashboardStats.enrichedAllocations.map((alloc) => (
                       <div
                         key={alloc.id}
                         className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3"
@@ -1686,6 +1630,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                         <div className="text-right shrink-0">
                           <div className="font-syne font-extrabold text-amber-800">
                             {alloc.shares} part{alloc.shares > 1 ? 's' : ''}
+                            {alloc.sharePct !== null ? ` (${alloc.sharePct.toFixed(1)}%)` : ''}
                           </div>
                           <div className="text-[11px] font-mono text-slate-600">
                             {(alloc.amount || 0).toLocaleString('fr-FR')} FCFA
@@ -2030,16 +1975,26 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
               ========================================================================= */}
           {activeSection === 'messages' && (
             <div className="space-y-4 animate-fadeIn">
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-cyan-800 uppercase tracking-wider block">
-                  Espace d'Échange Exclusif
-                </span>
-                <h2 className="font-syne text-xl font-black text-slate-900">
-                  Messagerie &amp; Discussion des Investisseurs
-                </h2>
-                <p className="text-xs text-slate-600">
-                  Échangez en direct avec les autres associés, posez vos questions et recevez les réponses de la Direction.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-cyan-800 uppercase tracking-wider block">
+                    Espace d'Échange Exclusif
+                  </span>
+                  <h2 className="font-syne text-xl font-black text-slate-900">
+                    Messagerie &amp; Discussion des Investisseurs
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Échangez par écrit avec les autres associés, posez vos questions et recevez les réponses de la Direction.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomOrderOpen(true)}
+                  className="px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-base">edit_note</span>
+                  <span>Commander un article non listé / Écrire ma commande</span>
+                </button>
               </div>
 
               {/* BANNIÈRE SI LA MESSAGERIE EST FERMÉE PAR L'ADMINISTRATEUR */}
@@ -2087,12 +2042,11 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                 <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/50">
                   {activeMessages.length === 0 ? (
                     <div className="text-center text-xs text-slate-400 italic py-10">
-                      Aucun message dans le canal pour le moment. Soyez le premier à écrire ou envoyer un vocal !
+                      Aucun message dans le canal pour le moment. Soyez le premier à écrire !
                     </div>
                   ) : (
                     activeMessages.map((msg) => {
                       const isMe = activeInvestor ? msg.senderName === activeInvestor.name : false;
-                      const isVoice = msg.messageType === 'voice' || Boolean(msg.audioUrl);
                       return (
                         <div
                           key={msg.id}
@@ -2123,17 +2077,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                                 : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
                             }`}
                           >
-                            {isVoice && msg.audioUrl ? (
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5 text-[11px] font-bold">
-                                  <span className="material-symbols-outlined text-sm">mic</span>
-                                  <span>Message vocal{msg.audioDuration ? ` (${msg.audioDuration}s)` : ''}</span>
-                                </div>
-                                <audio controls preload="metadata" src={msg.audioUrl} className="w-full max-w-[260px] h-9" />
-                              </div>
-                            ) : (
-                              <span>{msg.text}</span>
-                            )}
+                            <span>{msg.text}</span>
                           </div>
                         </div>
                       );
@@ -2141,72 +2085,31 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                   )}
                 </div>
 
-                {voiceError && (
-                  <div className="px-3 py-1.5 bg-red-50 border-t border-red-200 text-red-700 text-[11px] font-semibold">
-                    {voiceError}
-                  </div>
-                )}
-
-                {/* Input d'envoi de message texte & vocal */}
+                {/* Input d'envoi de message écrit */}
                 <form
                   onSubmit={handleSendMessage}
                   className="p-3 bg-white border-t border-slate-200 flex items-center gap-2"
                 >
-                  {isRecordingVoice ? (
-                    <>
-                      <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-300 rounded-xl py-2 px-3 text-xs text-red-800 font-bold">
-                        <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
-                        <span>Enregistrement vocal... {voiceDurationSec}s</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => stopVoiceRecording(true)}
-                        className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
-                      >
-                        Annuler
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => stopVoiceRecording(false)}
-                        className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-sm">send</span>
-                        <span>Envoyer vocal</span>
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!isMessagingOpen || isSendingMessage}
-                        onClick={() => void startVoiceRecording()}
-                        title="Enregistrer un message vocal"
-                        className="p-2 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-lg">mic</span>
-                      </button>
-                      <input
-                        type="text"
-                        disabled={!isMessagingOpen || isSendingMessage}
-                        value={newMessageText}
-                        onChange={(e) => setNewMessageText(e.target.value)}
-                        placeholder={
-                          isMessagingOpen
-                            ? 'Écrire un message aux autres associés et à l’administrateur...'
-                            : 'La messagerie est actuellement fermée par l’administrateur.'
-                        }
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!isMessagingOpen || !newMessageText.trim() || isSendingMessage}
-                        className="py-2 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                      >
-                        <span>{isSendingMessage ? 'En attente...' : 'Envoyer'}</span>
-                        <span className="material-symbols-outlined text-sm">send</span>
-                      </button>
-                    </>
-                  )}
+                  <input
+                    type="text"
+                    disabled={!isMessagingOpen || isSendingMessage}
+                    value={newMessageText}
+                    onChange={(e) => setNewMessageText(e.target.value)}
+                    placeholder={
+                      isMessagingOpen
+                        ? 'Écrire un message aux autres associés et à l’administrateur...'
+                        : 'La messagerie est actuellement fermée par l’administrateur.'
+                    }
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!isMessagingOpen || !newMessageText.trim() || isSendingMessage}
+                    className="py-2 px-4 rounded-xl btn-gold-prestige font-bold text-xs flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                  >
+                    <span>{isSendingMessage ? 'En attente...' : 'Envoyer'}</span>
+                    <span className="material-symbols-outlined text-sm">send</span>
+                  </button>
                 </form>
               </div>
             </div>
@@ -2336,6 +2239,15 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
           </div>
         </div>
       )}
+
+      <CustomOrderModal
+        isOpen={isCustomOrderOpen}
+        onClose={() => setIsCustomOrderOpen(false)}
+        source="messagerie"
+        defaultCustomerName={activeInvestor?.name}
+        defaultCustomerPhone={activeInvestor?.phone}
+        defaultCustomerEmail={activeInvestor?.email}
+      />
     </div>
   );
 };

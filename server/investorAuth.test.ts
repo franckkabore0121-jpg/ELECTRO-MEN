@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type InvestorPasswordRecord,
   decryptInvestorEscrowPassword,
   encryptInvestorEscrowPassword,
   hashInvestorPassword,
@@ -50,5 +51,30 @@ describe('investor password credentials', () => {
     expect(escrow.ciphertext).not.toContain('InvestPass2026!');
     expect(decryptInvestorEscrowPassword(escrow)).toBe('InvestPass2026!');
     expect(decryptInvestorEscrowPassword({ ...escrow, tag: '00'.repeat(16) })).toBeNull();
+  });
+
+  it('stores admin-generated provisional password cleanly and verifies trimmed investor input', () => {
+    const generated = 'AbCdEf234567';
+    const cleanPassword = generated.trim();
+    const baseInvestor: InvestorPasswordRecord & {
+      id: string;
+      email: string;
+      totalInvested: number;
+      sharesCount: number;
+    } = {
+      id: 'inv-gen-1',
+      email: '  Investor.Test@Example.COM '.trim().toLowerCase(),
+      totalInvested: 150000,
+      sharesCount: 3
+    };
+    const record = {
+      ...withInvestorPassword(baseInvestor, cleanPassword),
+      passwordEscrow: encryptInvestorEscrowPassword(cleanPassword)
+    };
+
+    expect(record.email).toBe('investor.test@example.com');
+    expect(verifyInvestorPassword(generated, record)).toBe(true);
+    expect(verifyInvestorPassword(` ${generated} `.trim(), record)).toBe(true);
+    expect(decryptInvestorEscrowPassword(record.passwordEscrow)).toBe(generated);
   });
 });

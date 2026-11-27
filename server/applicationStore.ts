@@ -15,7 +15,8 @@ type CollectionKey =
   | 'fund-requests'
   | 'wallet-transactions'
   | 'investor-messages'
-  | 'profit-distributions';
+  | 'profit-distributions'
+  | 'custom-orders';
 
 export type ApplicationDataKey = CollectionKey | 'admin-config' | 'groups';
 
@@ -31,7 +32,8 @@ const collections: Record<CollectionKey, { table: string; filename: string }> = 
   'fund-requests': { table: 'app_fund_requests', filename: 'fund-requests.json' },
   'wallet-transactions': { table: 'app_wallet_transactions', filename: 'wallet-transactions.json' },
   'investor-messages': { table: 'app_investor_messages', filename: 'investor-messages.json' },
-  'profit-distributions': { table: 'app_profit_distributions', filename: 'profit-distributions.json' }
+  'profit-distributions': { table: 'app_profit_distributions', filename: 'profit-distributions.json' },
+  'custom-orders': { table: 'app_custom_orders', filename: 'custom-orders.json' }
 };
 
 const documents = {
@@ -47,6 +49,44 @@ const memDocuments = new Map<'admin-config' | 'groups', unknown>();
 const memSourcePresent = new Set<ApplicationDataKey>();
 const memExplicitlyWritten = new Set<ApplicationDataKey>();
 const memBackups = new Map<string, unknown>();
+
+const READ_CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHEABLE_READ_KEYS = new Set<ApplicationDataKey>([
+  'products',
+  'groups',
+  'admin-config',
+  'courses',
+  'course-categories',
+  'operations',
+  'activities',
+  'documents'
+]);
+const readCache = new Map<ApplicationDataKey, { value: unknown; expiresAt: number }>();
+const lastGoodSnapshots = new Map<ApplicationDataKey, unknown>();
+let applicationStoreDegraded = false;
+
+export function isApplicationStoreDegraded(): boolean {
+  return applicationStoreDegraded;
+}
+
+export function invalidateApplicationDataCache(key?: ApplicationDataKey): void {
+  if (key) {
+    readCache.delete(key);
+    return;
+  }
+  readCache.clear();
+}
+
+function setCachedSnapshot<T>(key: ApplicationDataKey, value: T): void {
+  const cloned = cloneData(value);
+  lastGoodSnapshots.set(key, cloned);
+  if (CACHEABLE_READ_KEYS.has(key)) {
+    readCache.set(key, {
+      value: cloned,
+      expiresAt: Date.now() + READ_CACHE_TTL_MS
+    });
+  }
+}
 
 function cloneData<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -331,35 +371,63 @@ export async function readApplicationData<T>(key: ApplicationDataKey, defaultVal
     return doc !== undefined ? (cloneData(doc) as T) : defaultValue;
   }
 
-  const pool = getDatabasePool();
-  if (isCollectionKey(key)) {
-    const { table } = collections[key];
-    const result = await pool.query<{ id: string; payload: T }>(
-      `SELECT id, payload FROM ${table} ORDER BY position ASC, id ASC`
-    );
-    if (result.rows.length > 0) {
-      return result.rows.map((row) => {
-        if (typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)) {
-          const obj = row.payload as Record<string, unknown>;
-          return (obj.id ? obj : { ...obj, id: row.id }) as T;
-        }
-        return row.payload;
-      }) as T;
+  if (CACHEABLE_READ_KEYS.has(key)) {
+    const cached = readCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cloneData(cached.value) as T;
     }
-
-    const migration = await pool.query<{ source_present: boolean; explicitly_written: boolean }>(
-      'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',
-      [key]
-    );
-    const state = migration.rows[0];
-    return state?.source_present || state?.explicitly_written ? ([] as T) : defaultValue;
   }
 
-  const table = documents[key].table;
-  const result = await pool.query<{ payload: T }>(
-    `SELECT payload FROM ${table} WHERE singleton_id = 1`
-  );
-  return result.rows[0]?.payload ?? defaultValue;
+  try {
+    const pool = getDatabasePool();
+    if (isCollectionKey(key)) {
+      const { table } = collections[key];
+      const result = await pool.query<{ id: string; payload: T }>(
+        `SELECT id, payload FROM ${table} ORDER BY position ASC, id ASC`
+      );
+      let resolved: T;
+      if (result.rows.length > 0) {
+        resolved = result.rows.map((row) => {
+          if (typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)) {
+            const obj = row.payload as Record<string, unknown>;
+            return (obj.id ? obj : { ...obj, id: row.id }) as T;
+          }
+          return row.payload;
+        }) as T;
+      } else {
+        const migration = await pool.query<{ source_present: boolean; explicitly_written: boolean }>(
+          'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',
+          [key]
+        );
+        const state = migration.rows[0];
+        resolved = state?.source_present || state?.explicitly_written ? ([] as T) : defaultValue;
+      }
+      applicationStoreDegraded = false;
+      setCachedSnapshot(key, resolved);
+      return cloneData(resolved);
+    }
+
+    const table = documents[key].table;
+    const result = await pool.query<{ payload: T }>(
+      `SELECT payload FROM ${table} WHERE singleton_id = 1`
+    );
+    const resolved = result.rows[0]?.payload ?? defaultValue;
+    applicationStoreDegraded = false;
+    setCachedSnapshot(key, resolved);
+    return cloneData(resolved);
+  } catch (error) {
+    if (CACHEABLE_READ_KEYS.has(key)) {
+      applicationStoreDegraded = true;
+      const fallbackSnapshot = lastGoodSnapshots.get(key);
+      if (fallbackSnapshot !== undefined) {
+        console.warn(
+          `[ELECTRO-MEN] Lecture PostgreSQL "${key}" indisponible — utilisation du dernier instantané en mémoire.`
+        );
+        return cloneData(fallbackSnapshot) as T;
+      }
+    }
+    throw error;
+  }
 }
 
 export async function readInvestorSubscriptions<T>(
@@ -493,6 +561,8 @@ export async function writeApplicationData<T>(key: ApplicationDataKey, value: T)
         [key]
       );
       await client.query('COMMIT');
+      applicationStoreDegraded = false;
+      setCachedSnapshot(key, items);
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -515,6 +585,8 @@ export async function writeApplicationData<T>(key: ApplicationDataKey, value: T)
     'UPDATE app_data_migrations SET explicitly_written = TRUE WHERE resource_key = $1',
     [key]
   );
+  applicationStoreDegraded = false;
+  setCachedSnapshot(key, payload);
 }
 
 export async function appendApplicationRecord<T extends { id: string }>(
@@ -551,6 +623,7 @@ export async function appendApplicationRecord<T extends { id: string }>(
       [key]
     );
     await client.query('COMMIT');
+    invalidateApplicationDataCache(key);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -604,6 +677,7 @@ export async function updateApplicationRecord<T extends { id: string }>(
       [key]
     );
     await client.query('COMMIT');
+    invalidateApplicationDataCache(key);
     return updated;
   } catch (error) {
     await client.query('ROLLBACK');
@@ -635,6 +709,7 @@ export async function deleteApplicationRecord(key: CollectionKey, id: string): P
       [key]
     );
     await client.query('COMMIT');
+    invalidateApplicationDataCache(key);
     return (result.rowCount ?? 0) > 0;
   } catch (error) {
     await client.query('ROLLBACK');

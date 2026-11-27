@@ -1,20 +1,57 @@
-import { CartItem, CategoryGroup, MarketplaceBoutique, Product } from '../data/mockData.ts';
+import {
+  CartItem,
+  CategoryGroup,
+  Course,
+  InvestmentProject,
+  InvestorActivity,
+  InvestorDocument,
+  MarketplaceBoutique,
+  Product
+} from '../data/mockData.ts';
 import { normalizeClientProduct } from './productFormat.ts';
 
 export const OFFLINE_PRODUCTS_KEY = 'electromen_offline_products_v1';
 export const OFFLINE_GROUPS_KEY = 'electromen_offline_groups_v1';
 export const OFFLINE_BOUTIQUES_KEY = 'electromen_offline_boutiques_v1';
 export const OFFLINE_CART_KEY = 'electromen_cart_items_v1';
+export const OFFLINE_CATALOG_META_KEY = 'electromen_catalog_cache_meta_v1';
+export const OFFLINE_COURSES_KEY = 'electromen_offline_courses_v1';
+export const OFFLINE_PROJECTS_KEY = 'electromen_offline_projects_v1';
+export const OFFLINE_ACTIVITIES_KEY = 'electromen_offline_activities_v1';
+export const OFFLINE_DOCUMENTS_KEY = 'electromen_offline_documents_v1';
+export const OFFLINE_CONFIG_KEY = 'electromen_offline_config_v1';
+
+export const CATALOG_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 export type DomainKey = 'electronique' | 'electrotechnique' | 'informatique';
+
+export interface OfflineAppConfigSnapshot {
+  heroVideoUrl?: string;
+  formationsVideoUrl?: string;
+  customAdminUrl?: string;
+  isMaintenanceMode?: boolean;
+  isInvestorChatOpen?: boolean;
+}
+
+const rawMemoryCache = new Map<string, { raw: string; parsed: unknown }>();
 
 function readStorageJson<T>(key: string): T | null {
   try {
     if (typeof localStorage === 'undefined') return null;
     const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw) as T;
+    if (!raw) {
+      rawMemoryCache.delete(key);
+      return null;
+    }
+    const cached = rawMemoryCache.get(key);
+    if (cached && cached.raw === raw) {
+      return cached.parsed as T;
+    }
+    const parsed = JSON.parse(raw) as T;
+    rawMemoryCache.set(key, { raw, parsed });
+    return parsed;
   } catch {
+    rawMemoryCache.delete(key);
     return null;
   }
 }
@@ -22,9 +59,47 @@ function readStorageJson<T>(key: string): T | null {
 function writeStorageJson(key: string, value: unknown): void {
   try {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(key, JSON.stringify(value));
+    const raw = JSON.stringify(value);
+    localStorage.setItem(key, raw);
+    rawMemoryCache.set(key, { raw, parsed: value });
   } catch {
     // Ignore storage quota / private mode failures gracefully
+  }
+}
+
+export function markCatalogCacheUpdated(timestamp = Date.now()): void {
+  writeStorageJson(OFFLINE_CATALOG_META_KEY, { updatedAt: timestamp });
+}
+
+export function getCatalogCacheTimestamp(): number | null {
+  const meta = readStorageJson<{ updatedAt?: unknown }>(OFFLINE_CATALOG_META_KEY);
+  const ts = typeof meta?.updatedAt === 'number' ? meta.updatedAt : NaN;
+  return Number.isFinite(ts) && ts > 0 ? ts : null;
+}
+
+export function getCatalogCacheAgeMs(now = Date.now()): number | null {
+  const ts = getCatalogCacheTimestamp();
+  if (ts === null) return null;
+  return Math.max(0, now - ts);
+}
+
+export function isCatalogCacheFresh(
+  ttlMs = CATALOG_CACHE_TTL_MS,
+  now = Date.now()
+): boolean {
+  const age = getCatalogCacheAgeMs(now);
+  if (age === null) return false;
+  return age < ttlMs && loadOfflineProducts().length > 0;
+}
+
+export function invalidateCatalogCache(): void {
+  try {
+    rawMemoryCache.delete(OFFLINE_CATALOG_META_KEY);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(OFFLINE_CATALOG_META_KEY);
+    }
+  } catch {
+    // Ignore
   }
 }
 
@@ -66,6 +141,57 @@ export function loadOfflineBoutiques(): MarketplaceBoutique[] {
     (item): item is MarketplaceBoutique =>
       Boolean(item && typeof item === 'object' && 'id' in item && 'name' in item)
   );
+}
+
+export function saveOfflineCourses(courses: Course[]): void {
+  if (!Array.isArray(courses)) return;
+  writeStorageJson(OFFLINE_COURSES_KEY, courses);
+}
+
+export function loadOfflineCourses(): Course[] | null {
+  const parsed = readStorageJson<unknown>(OFFLINE_COURSES_KEY);
+  return Array.isArray(parsed) ? (parsed as Course[]) : null;
+}
+
+export function saveOfflineProjects(projects: InvestmentProject[]): void {
+  if (!Array.isArray(projects)) return;
+  writeStorageJson(OFFLINE_PROJECTS_KEY, projects);
+}
+
+export function loadOfflineProjects(): InvestmentProject[] | null {
+  const parsed = readStorageJson<unknown>(OFFLINE_PROJECTS_KEY);
+  return Array.isArray(parsed) ? (parsed as InvestmentProject[]) : null;
+}
+
+export function saveOfflineActivities(activities: InvestorActivity[]): void {
+  if (!Array.isArray(activities)) return;
+  writeStorageJson(OFFLINE_ACTIVITIES_KEY, activities);
+}
+
+export function loadOfflineActivities(): InvestorActivity[] | null {
+  const parsed = readStorageJson<unknown>(OFFLINE_ACTIVITIES_KEY);
+  return Array.isArray(parsed) ? (parsed as InvestorActivity[]) : null;
+}
+
+export function saveOfflineDocuments(documents: InvestorDocument[]): void {
+  if (!Array.isArray(documents)) return;
+  writeStorageJson(OFFLINE_DOCUMENTS_KEY, documents);
+}
+
+export function loadOfflineDocuments(): InvestorDocument[] | null {
+  const parsed = readStorageJson<unknown>(OFFLINE_DOCUMENTS_KEY);
+  return Array.isArray(parsed) ? (parsed as InvestorDocument[]) : null;
+}
+
+export function saveOfflineConfig(config: OfflineAppConfigSnapshot): void {
+  if (!config || typeof config !== 'object') return;
+  writeStorageJson(OFFLINE_CONFIG_KEY, config);
+}
+
+export function loadOfflineConfig(): OfflineAppConfigSnapshot | null {
+  const parsed = readStorageJson<unknown>(OFFLINE_CONFIG_KEY);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as OfflineAppConfigSnapshot;
 }
 
 export function saveCartItems(items: CartItem[]): void {
