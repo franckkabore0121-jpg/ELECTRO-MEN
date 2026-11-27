@@ -29,12 +29,6 @@
       ]
     },
     {
-      "source": "/(.*)\\.(?:png|jpg|jpeg|webp|gif|svg|ico|woff2?|avif)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=2592000, stale-while-revalidate=86400" }
-      ]
-    },
-    {
       "source": "/sw.js",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
@@ -52,15 +46,7 @@
     {
       "source": "/index.html",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate, proxy-revalidate" },
-        { "key": "Pragma", "value": "no-cache" },
-        { "key": "Expires", "value": "0" }
-      ]
-    },
-    {
-      "source": "/((?!api(?:/|$)|assets(?:/|$)|.*\\.(?:js|css|png|jpg|jpeg|svg|webp|ico|woff2?|mp4|json|txt|xml)$).*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate, proxy-revalidate" },
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate, proxy-revalidate" },
         { "key": "Pragma", "value": "no-cache" },
         { "key": "Expires", "value": "0" }
       ]
@@ -69,19 +55,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index?__pathname=/api/$1"
+      "destination": "/api/index"
     },
     {
       "source": "/uploads/(.*)",
-      "destination": "/api/index?__pathname=/uploads/$1"
+      "destination": "/api/index?pathname=/uploads/$1"
     },
     {
       "source": "/assets/videos/(.*)",
-      "destination": "/api/index?__pathname=/assets/videos/$1"
-    },
-    {
-      "source": "/((?!api(?:/|$)).*)",
-      "destination": "/index.html"
+      "destination": "/api/index?pathname=/assets/videos/$1"
     }
   ]
 }
