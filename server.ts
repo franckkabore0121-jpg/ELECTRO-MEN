@@ -3131,13 +3131,15 @@ function normalizeProductRecord(raw: unknown): Record<string, unknown> | null {
   const isPublished = item.isPublished === false || item.isPublished === 'false' ? false : !isDraft;
   const cleanName = formatProductTitleServer(item.name);
   const rawImage = typeof item.image === 'string' ? item.image.trim() : '';
-  const hasRealPhoto = rawImage.length > 0 && item.hasRealPhoto !== false && item.hasRealPhoto !== 'false';
+  const isOversizedInline = rawImage.startsWith('data:image/') && rawImage.length > PRODUCT_IMAGE_MAX_LEN;
+  const effectiveImage = isOversizedInline ? '' : rawImage;
+  const hasRealPhoto = effectiveImage.length > 0 && item.hasRealPhoto !== false && item.hasRealPhoto !== 'false';
 
   return {
     ...item,
     ...(cleanName ? { name: cleanName } : {}),
     domain,
-    image: hasRealPhoto ? rawImage : '',
+    image: hasRealPhoto ? effectiveImage : '',
     hasRealPhoto,
     price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0,
     ...(parsedOldPrice !== undefined && Number.isFinite(parsedOldPrice) && parsedOldPrice > 0 ? { oldPrice: parsedOldPrice } : {}),
@@ -3146,6 +3148,73 @@ function normalizeProductRecord(raw: unknown): Record<string, unknown> | null {
     isPublished
   };
 }
+
+app.get('/api/catalog-bootstrap', asyncRoute(async (_req: Request, res: Response) => {
+  applyNoCacheHeaders(res);
+  const [
+    rawProducts,
+    storedGroups,
+    config,
+    security,
+    admins,
+    operations,
+    inventoriesList,
+    courses,
+    activities,
+    documents
+  ] = await Promise.all([
+    readJson<any[]>(PRODUCTS_FILE, []),
+    readJson<Record<string, unknown>>(GROUPS_FILE, {}),
+    loadConfig(),
+    getAdminSecuritySettings(),
+    listAdmins<ServerAdminUser>(),
+    readJson<InvestmentOperation[]>(OPERATIONS_FILE, []),
+    listOperationInventories(),
+    readJson<any[]>(COURSES_FILE, []),
+    readJson<InvestorActivity[]>(ACTIVITIES_FILE, []),
+    readJson<InvestorDocument[]>(DOCUMENTS_FILE, [])
+  ]);
+
+  const products = rawProducts
+    .map(normalizeProductRecord)
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+
+  const inventories = new Map(inventoriesList.map((item) => [item.operationId, item]));
+  const publishedOps = operations
+    .filter((op) => op.isPublished)
+    .map((op) => ({
+      ...op,
+      availableShares: inventories.get(op.id)?.totalShares ?? op.availableShares,
+      subscribedShares: inventories.get(op.id)?.committedShares ?? op.subscribedShares ?? 0,
+      offers: (op.offers || []).filter((o) => o.isPublished)
+    }));
+
+  const hasPrincipalAdmin = admins.some((admin) => admin.role === 'admin_principal');
+  const hasEnvMaster = Boolean(process.env.ADMIN_MASTER_PASSWORD?.trim());
+  const hasEnvInitial = Boolean(process.env.ADMIN_INITIAL_EMAIL?.trim() && process.env.ADMIN_INITIAL_PASSWORD?.trim());
+
+  res.json({
+    success: true,
+    products,
+    groups: storedGroups,
+    operations: publishedOps,
+    courses,
+    activities: activities.filter((a) => a.isPublished !== false),
+    documents: documents.filter((d) => d.isPublished !== false),
+    config: {
+      customAdminUrl: security?.customAdminUrl || config.customAdminUrl,
+      heroVideoUrl: config.heroVideoUrl || '/assets/videos/electromen-hero.mp4',
+      formationsVideoUrl: config.formationsVideoUrl || '/assets/videos/electromen-hero.mp4',
+      isMaintenanceMode: Boolean(config.isMaintenanceMode),
+      isInvestorChatOpen: config.isInvestorChatOpen !== false,
+      ...(Array.isArray(config.boutiques) ? { boutiques: config.boutiques } : {}),
+      hasMasterPassword: Boolean(security?.masterPasswordHash || hasEnvMaster),
+      hasPrincipalAdmin,
+      needsAdminSetup: !hasPrincipalAdmin && !security?.masterPasswordHash && !hasEnvMaster && !hasEnvInitial,
+      secondaryAdminsCount: admins.filter((admin) => admin.role === 'admin_secondaire').length
+    }
+  });
+}));
 
 app.get('/api/products', asyncRoute(async (req: Request, res: Response) => {
   applyNoCacheHeaders(res);

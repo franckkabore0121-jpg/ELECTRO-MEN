@@ -86,6 +86,10 @@ import {
   saveOfflineProducts,
   saveOfflineProjects
 } from './utils/offlineCache.ts';
+import {
+  canTriggerWithCooldown,
+  fetchJsonDeduplicated
+} from './utils/requestGuard.ts';
 import { OfflineIndicator } from './components/OfflineIndicator.tsx';
 
 const DEFAULT_PROFILE: InvestorProfile = {
@@ -166,7 +170,6 @@ export default function App() {
   const [isUsingOfflineData, setIsUsingOfflineData] = useState<boolean>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? loadOfflineProducts().length > 0 : false
   );
-  const productsRequestRef = useRef<AbortController | null>(null);
 
   const applyServerGroups = useCallback(
     (
@@ -233,103 +236,186 @@ export default function App() {
     return false;
   }, [applyServerGroups]);
 
-  const fetchProductsNow = useCallback(async (showSpinner = false, forceRefresh = false): Promise<void> => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      const hasCached = hydrateFromOfflineCache();
-      setIsLoadingProducts(false);
-      if (!hasCached) {
-        setProductsLoadError(
-          'Mode hors ligne : aucun catalogue local enregistré pour le moment.'
-        );
-      }
-      return;
-    }
+  const catalogMountedRef = useRef<boolean>(true);
+  useEffect(() => {
+    catalogMountedRef.current = true;
+    return () => {
+      catalogMountedRef.current = false;
+    };
+  }, []);
 
-    if (!forceRefresh && isCatalogCacheFresh()) {
-      const cached = loadOfflineProducts();
-      if (cached.length > 0) {
-        setProducts(cached);
-        const cachedGroups = loadOfflineGroups();
-        if (cachedGroups) applyServerGroups(cachedGroups, false);
-        const cachedBoutiques = loadOfflineBoutiques();
-        if (cachedBoutiques.length > 0) setMarketplaceBoutiques(cachedBoutiques);
-        setProductsLoadError(null);
-        setIsUsingOfflineData(false);
-        setIsLoadingProducts(false);
-        return;
+  const applyBootstrapConfig = useCallback(
+    (configData: {
+      heroVideoUrl?: string;
+      formationsVideoUrl?: string;
+      customAdminUrl?: string;
+      isMaintenanceMode?: boolean;
+      isInvestorChatOpen?: boolean;
+      boutiques?: MarketplaceBoutique[];
+      needsAdminSetup?: boolean;
+    }) => {
+      if (
+        configData.heroVideoUrl &&
+        !configData.heroVideoUrl.includes('BigBuckBunny') &&
+        !configData.heroVideoUrl.includes('commondatastorage')
+      ) {
+        setHeroVideoUrl(configData.heroVideoUrl);
       }
-    }
-
-    productsRequestRef.current?.abort();
-    const controller = new AbortController();
-    productsRequestRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-    if (showSpinner) setIsLoadingProducts(true);
-    setProductsLoadError(null);
-    try {
-      const response = await fetch(withNoCacheParam('/api/products'), {
-        ...NO_CACHE_FETCH_INIT,
-        signal: controller.signal
+      if (
+        configData.formationsVideoUrl &&
+        !configData.formationsVideoUrl.includes('BigBuckBunny') &&
+        !configData.formationsVideoUrl.includes('commondatastorage')
+      ) {
+        setFormationsVideoUrl(configData.formationsVideoUrl);
+      }
+      if (configData.customAdminUrl) setAdminCustomUrl(configData.customAdminUrl);
+      if (typeof configData.isMaintenanceMode === 'boolean') {
+        setIsMaintenanceMode(configData.isMaintenanceMode);
+      }
+      if (typeof configData.isInvestorChatOpen === 'boolean') {
+        setIsInvestorChatOpen(configData.isInvestorChatOpen);
+      }
+      if (Array.isArray(configData.boutiques) && configData.boutiques.length > 0) {
+        const normalizedBoutiques = configData.boutiques.map((b) => ({
+          ...b,
+          name: String(b.name || '').replace(/^ELECTRO-MEN\s*/i, '').trim()
+        }));
+        setMarketplaceBoutiques(normalizedBoutiques);
+        saveOfflineBoutiques(normalizedBoutiques);
+      }
+      saveOfflineConfig({
+        heroVideoUrl: configData.heroVideoUrl,
+        formationsVideoUrl: configData.formationsVideoUrl,
+        customAdminUrl: configData.customAdminUrl,
+        isMaintenanceMode: configData.isMaintenanceMode,
+        isInvestorChatOpen: configData.isInvestorChatOpen
       });
-      if (!response.ok) {
-        const errPayload = await response.json().catch(() => null) as { error?: string } | null;
-        if (!controller.signal.aborted || response.status >= 500) {
-          const restored = hydrateFromOfflineCache();
-          if (!restored) {
-            setProductsLoadError(
-              errPayload?.error ||
-                `Catalogue temporairement indisponible (HTTP ${response.status}).`
-            );
-          }
+      if (typeof configData.needsAdminSetup === 'boolean') {
+        setNeedsAdminSetup(configData.needsAdminSetup);
+      }
+    },
+    []
+  );
+
+  const fetchProductsNow = useCallback(
+    async (showSpinner = false, forceRefresh = false): Promise<void> => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const hasCached = hydrateFromOfflineCache();
+        setIsLoadingProducts(false);
+        if (!hasCached) {
+          setProductsLoadError(
+            'Mode hors ligne : aucun catalogue local enregistré pour le moment.'
+          );
         }
         return;
       }
-      const data = await response.json().catch(() => null) as {
-        products?: Product[];
-        groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
-      } | null;
-      if (!controller.signal.aborted && data && Array.isArray(data.products)) {
-        const normalizedList = data.products.map(normalizeClientProduct);
-        setProducts(normalizedList);
-        saveOfflineProducts(normalizedList);
-        markCatalogCacheUpdated();
-        setProductsLoadError(null);
-        setIsUsingOfflineData(false);
-        applyServerGroups(data.groups);
 
-        const byId = new Map(normalizedList.map((item) => [item.id, item]));
-        setSelectedProduct((prev) => (prev ? byId.get(prev.id) || prev : null));
-        setCartItems((prev) =>
-          prev.map((entry) => {
-            const latest = byId.get(entry.product.id);
-            return latest ? { ...entry, product: latest } : entry;
-          })
-        );
+      if (!forceRefresh && isCatalogCacheFresh()) {
+        const cached = loadOfflineProducts();
+        if (cached.length > 0) {
+          setProducts(cached);
+          const cachedGroups = loadOfflineGroups();
+          if (cachedGroups) applyServerGroups(cachedGroups, false);
+          const cachedBoutiques = loadOfflineBoutiques();
+          if (cachedBoutiques.length > 0) setMarketplaceBoutiques(cachedBoutiques);
+          setProductsLoadError(null);
+          setIsUsingOfflineData(false);
+          setIsLoadingProducts(false);
+          return;
+        }
       }
-    } catch (error) {
-      const isTimeoutAbort =
-        error instanceof DOMException &&
-        error.name === 'AbortError' &&
-        productsRequestRef.current === controller;
-      if (!(error instanceof DOMException && error.name === 'AbortError') || isTimeoutAbort) {
-        console.warn('Unable to load live products from PostgreSQL — using cached snapshot:', error);
+
+      if (showSpinner) setIsLoadingProducts(true);
+      setProductsLoadError(null);
+
+      try {
+        const data = await fetchJsonDeduplicated<{
+          products?: Product[];
+          groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
+          operations?: InvestmentProject[];
+          courses?: Course[];
+          activities?: InvestorActivity[];
+          documents?: InvestorDocument[];
+          config?: {
+            heroVideoUrl?: string;
+            formationsVideoUrl?: string;
+            customAdminUrl?: string;
+            isMaintenanceMode?: boolean;
+            isInvestorChatOpen?: boolean;
+            boutiques?: MarketplaceBoutique[];
+            needsAdminSetup?: boolean;
+          };
+        }>(
+          'catalog-bootstrap',
+          withNoCacheParam('/api/catalog-bootstrap'),
+          {
+            ...NO_CACHE_FETCH_INIT,
+            timeoutMs: 7500
+          }
+        );
+
+        if (!catalogMountedRef.current) return;
+
+        if (data && Array.isArray(data.products)) {
+          const normalizedList = data.products.map(normalizeClientProduct);
+          setProducts(normalizedList);
+          saveOfflineProducts(normalizedList);
+          setProductsLoadError(null);
+          setIsUsingOfflineData(false);
+          applyServerGroups(data.groups);
+
+          if (Array.isArray(data.operations)) {
+            setProjects(data.operations);
+            saveOfflineProjects(data.operations);
+          }
+          if (Array.isArray(data.courses)) {
+            setCourses(data.courses);
+            saveOfflineCourses(data.courses);
+          }
+          if (Array.isArray(data.activities)) {
+            setInvestorActivities(data.activities);
+            saveOfflineActivities(data.activities);
+          }
+          if (Array.isArray(data.documents)) {
+            setInvestorDocuments(data.documents);
+            saveOfflineDocuments(data.documents);
+          }
+          if (data.config) {
+            applyBootstrapConfig(data.config);
+          }
+          markCatalogCacheUpdated();
+
+          const byId = new Map(normalizedList.map((item) => [item.id, item]));
+          setSelectedProduct((prev) => (prev ? byId.get(prev.id) || prev : null));
+          setCartItems((prev) =>
+            prev.map((entry) => {
+              const latest = byId.get(entry.product.id);
+              return latest ? { ...entry, product: latest } : entry;
+            })
+          );
+        }
+      } catch (error) {
+        if (!catalogMountedRef.current) return;
+        console.warn('Unable to load live catalog from PostgreSQL — using cached snapshot:', error);
         const restored = hydrateFromOfflineCache();
         if (!restored) {
           setProductsLoadError(
             'Connexion au serveur catalogue interrompue. Mode secours local activé.'
           );
         }
+      } finally {
+        if (catalogMountedRef.current) {
+          setIsLoadingProducts(false);
+        }
       }
-    } finally {
-      window.clearTimeout(timeoutId);
-      if (productsRequestRef.current === controller) {
-        productsRequestRef.current = null;
-        setIsLoadingProducts(false);
-      }
-    }
-  }, [applyServerGroups, hydrateFromOfflineCache]);
+    },
+    [applyBootstrapConfig, applyServerGroups, hydrateFromOfflineCache]
+  );
 
   const handleManualCatalogRefresh = useCallback(() => {
+    if (!canTriggerWithCooldown('manual-catalog-refresh', 3000)) {
+      return;
+    }
     invalidateCatalogCache();
     void fetchProductsNow(true, true);
   }, [fetchProductsNow]);
@@ -341,9 +427,6 @@ export default function App() {
       return;
     }
     void fetchProductsNow(!isCatalogCacheFresh(), false);
-    return () => {
-      productsRequestRef.current?.abort();
-    };
   }, [fetchProductsNow, hydrateFromOfflineCache]);
 
   // Courses state with Admin mutability + offline snapshot persistence
@@ -1511,28 +1594,21 @@ export default function App() {
     let hadPublicFallbackError = false;
 
     const fetchSnapshot = async <T,>(url: string, signal: AbortSignal): Promise<T | null> => {
-      const timeoutSignal = new AbortController();
-      const onParentAbort = () => timeoutSignal.abort();
-      signal.addEventListener('abort', onParentAbort, { once: true });
-      const timer = window.setTimeout(() => timeoutSignal.abort(), 8000);
       try {
-        const response = await fetch(withNoCacheParam(url), {
-          ...NO_CACHE_FETCH_INIT,
-          signal: timeoutSignal.signal
-        });
-        if (!response.ok) {
-          if (response.status >= 500) hadPublicFallbackError = true;
-          return null;
-        }
-        return await response.json() as T;
+        return await fetchJsonDeduplicated<T>(
+          `snapshot:${url}`,
+          withNoCacheParam(url),
+          {
+            ...NO_CACHE_FETCH_INIT,
+            signal,
+            timeoutMs: 7500
+          }
+        );
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           hadPublicFallbackError = true;
         }
         return null;
-      } finally {
-        window.clearTimeout(timer);
-        signal.removeEventListener('abort', onParentAbort);
       }
     };
 
@@ -1601,15 +1677,10 @@ export default function App() {
         currentAdminPermissions.includes('manage_investors');
 
       const shouldFetchPublic = forcePublicRefresh || !isCatalogCacheFresh() || Boolean(currentAdminRole);
-      const operationUrl = canReadAdminOperations ? '/api/admin/operations' : '/api/operations';
 
       const [
-        operationData,
-        courseData,
-        activityData,
-        documentData,
-        groupsData,
-        configData,
+        ,
+        adminOperationData,
         adminFundData,
         adminAuditData,
         adminSubscriptionsData,
@@ -1619,33 +1690,11 @@ export default function App() {
         messagesData,
         profitDistributionsData
       ] = await Promise.all([
-        shouldFetchPublic || canReadAdminOperations
-          ? fetchSnapshot<{ operations: InvestmentProject[] }>(operationUrl, controller.signal)
-          : Promise.resolve(null),
         shouldFetchPublic
-          ? fetchSnapshot<{ courses: Course[] }>('/api/courses', controller.signal)
-          : Promise.resolve(null),
-        shouldFetchPublic
-          ? fetchSnapshot<{ activities: InvestorActivity[] }>('/api/activities', controller.signal)
-          : Promise.resolve(null),
-        shouldFetchPublic
-          ? fetchSnapshot<{ documents: InvestorDocument[] }>('/api/documents', controller.signal)
-          : Promise.resolve(null),
-        shouldFetchPublic
-          ? fetchSnapshot<{
-              groups?: Partial<Record<'electronique' | 'electrotechnique' | 'informatique', CategoryGroup[]>>;
-            }>('/api/groups', controller.signal)
-          : Promise.resolve(null),
-        shouldFetchPublic
-          ? fetchSnapshot<{
-              heroVideoUrl?: string;
-              formationsVideoUrl?: string;
-              customAdminUrl?: string;
-              isMaintenanceMode?: boolean;
-              isInvestorChatOpen?: boolean;
-              boutiques?: MarketplaceBoutique[];
-              needsAdminSetup?: boolean;
-            }>('/api/admin/config', controller.signal)
+          ? fetchProductsNow(false, forcePublicRefresh)
+          : Promise.resolve(),
+        canReadAdminOperations
+          ? fetchSnapshot<{ operations: InvestmentProject[] }>('/api/admin/operations', controller.signal)
           : Promise.resolve(null),
         canReadAdminFunds
           ? fetchSnapshot<{ fundRequests?: FundOperationRequest[]; transactions?: WalletTransaction[] }>('/api/admin/fund-requests', controller.signal)
@@ -1687,23 +1736,10 @@ export default function App() {
       if (hadPublicFallbackError && shouldFetchPublic) {
         hydrateFromOfflineCache();
       }
-      if (operationData && Array.isArray(operationData.operations)) {
-        setProjects(operationData.operations);
-        saveOfflineProjects(operationData.operations);
+      if (adminOperationData && Array.isArray(adminOperationData.operations)) {
+        setProjects(adminOperationData.operations);
+        saveOfflineProjects(adminOperationData.operations);
       }
-      if (courseData && Array.isArray(courseData.courses)) {
-        setCourses(courseData.courses);
-        saveOfflineCourses(courseData.courses);
-      }
-      if (activityData && Array.isArray(activityData.activities)) {
-        setInvestorActivities(activityData.activities);
-        saveOfflineActivities(activityData.activities);
-      }
-      if (documentData && Array.isArray(documentData.documents)) {
-        setInvestorDocuments(documentData.documents);
-        saveOfflineDocuments(documentData.documents);
-      }
-      if (groupsData?.groups) applyServerGroups(groupsData.groups);
 
       if (adminAuditData && Array.isArray(adminAuditData.auditLogs)) {
         setAuditLogs(adminAuditData.auditLogs);
@@ -1758,34 +1794,6 @@ export default function App() {
         }
         if (Array.isArray(investorWalletData.fundRequests)) setFundRequests(investorWalletData.fundRequests);
         if (Array.isArray(investorWalletData.transactions)) setTransactions(investorWalletData.transactions);
-      }
-
-      if (configData) {
-        if (configData.heroVideoUrl && !configData.heroVideoUrl.includes('BigBuckBunny') && !configData.heroVideoUrl.includes('commondatastorage')) {
-          setHeroVideoUrl(configData.heroVideoUrl);
-        }
-        if (configData.formationsVideoUrl && !configData.formationsVideoUrl.includes('BigBuckBunny') && !configData.formationsVideoUrl.includes('commondatastorage')) {
-          setFormationsVideoUrl(configData.formationsVideoUrl);
-        }
-        if (configData.customAdminUrl) setAdminCustomUrl(configData.customAdminUrl);
-        if (typeof configData.isMaintenanceMode === 'boolean') setIsMaintenanceMode(configData.isMaintenanceMode);
-        if (typeof configData.isInvestorChatOpen === 'boolean') setIsInvestorChatOpen(configData.isInvestorChatOpen);
-        if (Array.isArray(configData.boutiques) && configData.boutiques.length > 0) {
-          const normalizedBoutiques = configData.boutiques.map((b) => ({
-            ...b,
-            name: String(b.name || '').replace(/^ELECTRO-MEN\s*/i, '').trim()
-          }));
-          setMarketplaceBoutiques(normalizedBoutiques);
-          saveOfflineBoutiques(normalizedBoutiques);
-        }
-        saveOfflineConfig({
-          heroVideoUrl: configData.heroVideoUrl,
-          formationsVideoUrl: configData.formationsVideoUrl,
-          customAdminUrl: configData.customAdminUrl,
-          isMaintenanceMode: configData.isMaintenanceMode,
-          isInvestorChatOpen: configData.isInvestorChatOpen
-        });
-        if (typeof configData.needsAdminSetup === 'boolean') setNeedsAdminSetup(configData.needsAdminSetup);
       }
     };
 

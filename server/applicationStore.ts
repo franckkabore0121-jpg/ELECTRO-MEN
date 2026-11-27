@@ -50,7 +50,7 @@ const memSourcePresent = new Set<ApplicationDataKey>();
 const memExplicitlyWritten = new Set<ApplicationDataKey>();
 const memBackups = new Map<string, unknown>();
 
-const READ_CACHE_TTL_MS = 5 * 60 * 1000;
+const READ_CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHEABLE_READ_KEYS = new Set<ApplicationDataKey>([
   'products',
   'groups',
@@ -62,6 +62,7 @@ const CACHEABLE_READ_KEYS = new Set<ApplicationDataKey>([
   'documents'
 ]);
 const readCache = new Map<ApplicationDataKey, { value: unknown; expiresAt: number }>();
+const inflightReads = new Map<ApplicationDataKey, Promise<unknown>>();
 const lastGoodSnapshots = new Map<ApplicationDataKey, unknown>();
 let applicationStoreDegraded = false;
 
@@ -376,58 +377,78 @@ export async function readApplicationData<T>(key: ApplicationDataKey, defaultVal
     if (cached && cached.expiresAt > Date.now()) {
       return cloneData(cached.value) as T;
     }
+    const activeInflight = inflightReads.get(key);
+    if (activeInflight) {
+      const sharedResult = await activeInflight;
+      return cloneData(sharedResult) as T;
+    }
   }
 
-  try {
-    const pool = getDatabasePool();
-    if (isCollectionKey(key)) {
-      const { table } = collections[key];
-      const result = await pool.query<{ id: string; payload: T }>(
-        `SELECT id, payload FROM ${table} ORDER BY position ASC, id ASC`
-      );
-      let resolved: T;
-      if (result.rows.length > 0) {
-        resolved = result.rows.map((row) => {
-          if (typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)) {
-            const obj = row.payload as Record<string, unknown>;
-            return (obj.id ? obj : { ...obj, id: row.id }) as T;
-          }
-          return row.payload;
-        }) as T;
-      } else {
-        const migration = await pool.query<{ source_present: boolean; explicitly_written: boolean }>(
-          'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',
-          [key]
+  const executeRead = async (): Promise<T> => {
+    try {
+      const pool = getDatabasePool();
+      if (isCollectionKey(key)) {
+        const { table } = collections[key];
+        const result = await pool.query<{ id: string; payload: T }>(
+          `SELECT id, payload FROM ${table} ORDER BY position ASC, id ASC`
         );
-        const state = migration.rows[0];
-        resolved = state?.source_present || state?.explicitly_written ? ([] as T) : defaultValue;
+        let resolved: T;
+        if (result.rows.length > 0) {
+          resolved = result.rows.map((row) => {
+            if (typeof row.payload === 'object' && row.payload !== null && !Array.isArray(row.payload)) {
+              const obj = row.payload as Record<string, unknown>;
+              return (obj.id ? obj : { ...obj, id: row.id }) as T;
+            }
+            return row.payload;
+          }) as T;
+        } else {
+          const migration = await pool.query<{ source_present: boolean; explicitly_written: boolean }>(
+            'SELECT source_present, explicitly_written FROM app_data_migrations WHERE resource_key = $1',
+            [key]
+          );
+          const state = migration.rows[0];
+          resolved = state?.source_present || state?.explicitly_written ? ([] as T) : defaultValue;
+        }
+        applicationStoreDegraded = false;
+        setCachedSnapshot(key, resolved);
+        return resolved;
       }
+
+      const table = documents[key].table;
+      const result = await pool.query<{ payload: T }>(
+        `SELECT payload FROM ${table} WHERE singleton_id = 1`
+      );
+      const resolved = result.rows[0]?.payload ?? defaultValue;
       applicationStoreDegraded = false;
       setCachedSnapshot(key, resolved);
-      return cloneData(resolved);
-    }
-
-    const table = documents[key].table;
-    const result = await pool.query<{ payload: T }>(
-      `SELECT payload FROM ${table} WHERE singleton_id = 1`
-    );
-    const resolved = result.rows[0]?.payload ?? defaultValue;
-    applicationStoreDegraded = false;
-    setCachedSnapshot(key, resolved);
-    return cloneData(resolved);
-  } catch (error) {
-    if (CACHEABLE_READ_KEYS.has(key)) {
-      applicationStoreDegraded = true;
-      const fallbackSnapshot = lastGoodSnapshots.get(key);
-      if (fallbackSnapshot !== undefined) {
-        console.warn(
-          `[ELECTRO-MEN] Lecture PostgreSQL "${key}" indisponible — utilisation du dernier instantané en mémoire.`
-        );
-        return cloneData(fallbackSnapshot) as T;
+      return resolved;
+    } catch (error) {
+      if (CACHEABLE_READ_KEYS.has(key)) {
+        applicationStoreDegraded = true;
+        const fallbackSnapshot = lastGoodSnapshots.get(key);
+        if (fallbackSnapshot !== undefined) {
+          console.warn(
+            `[ELECTRO-MEN] Lecture PostgreSQL "${key}" indisponible — utilisation du dernier instantané en mémoire.`
+          );
+          return fallbackSnapshot as T;
+        }
       }
+      throw error;
     }
-    throw error;
+  };
+
+  if (CACHEABLE_READ_KEYS.has(key)) {
+    const sharedPromise = executeRead().finally(() => {
+      if (inflightReads.get(key) === sharedPromise) {
+        inflightReads.delete(key);
+      }
+    });
+    inflightReads.set(key, sharedPromise);
+    const resolved = await sharedPromise;
+    return cloneData(resolved);
   }
+
+  return cloneData(await executeRead());
 }
 
 export async function readInvestorSubscriptions<T>(

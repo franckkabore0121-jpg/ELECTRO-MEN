@@ -7,6 +7,7 @@ import {
 } from '../data/mockData.ts';
 import { getBoutiqueContact } from '../utils/whatsapp.ts';
 import { formatProductTitle } from '../utils/productFormat.ts';
+import { useDebouncedValue } from '../utils/requestGuard.ts';
 import { ProductImage } from './ProductImage.tsx';
 import { CustomOrderModal } from './CustomOrderModal.tsx';
 
@@ -139,9 +140,11 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
     }
   }, [categoryOptions, selectedGroup]);
 
-  // Filtered products based on selected category & search query
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 180);
+
+  // Filtered products based on selected category & debounced search query
   const displayedProducts = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = debouncedSearchQuery.toLowerCase().trim();
     const selectedNorm = normalizeToken(selectedGroup);
     const selectedLabelNorm = normalizeToken(
       categoryOptions.find((c) => c.id === selectedGroup)?.label
@@ -165,7 +168,7 @@ export const BoutiqueStorefront: React.FC<BoutiqueStorefrontProps> = ({
         (p.description || '').toLowerCase().includes(q);
       return matchGroup && matchSearch;
     });
-  }, [publishedShopProducts, selectedGroup, searchQuery, categoryOptions]);
+  }, [publishedShopProducts, selectedGroup, debouncedSearchQuery, categoryOptions]);
 
   // Curated sections when viewing "Tout" with no search query
   const curatedSections = useMemo(() => {

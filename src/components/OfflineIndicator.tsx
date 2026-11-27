@@ -25,7 +25,9 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
       <div className="flex items-center gap-2 min-w-0">
         <span className="w-2 h-2 rounded-full bg-[#d4af37] shrink-0" />
         <span className="leading-snug">
-          Mode hors ligne / catalogue enregistré — Certaines actions en direct sont temporairement indisponibles
+          {isOnline
+            ? 'Affichage depuis le cache récent — La synchronisation en direct reprendra automatiquement'
+            : 'Mode hors ligne / catalogue enregistré — La synchronisation en direct reprendra automatiquement'}
         </span>
       </div>
       {isOnline && onRetrySync && (

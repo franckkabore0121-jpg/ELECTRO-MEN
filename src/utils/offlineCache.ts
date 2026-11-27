@@ -21,7 +21,7 @@ export const OFFLINE_ACTIVITIES_KEY = 'electromen_offline_activities_v1';
 export const OFFLINE_DOCUMENTS_KEY = 'electromen_offline_documents_v1';
 export const OFFLINE_CONFIG_KEY = 'electromen_offline_config_v1';
 
-export const CATALOG_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const CATALOG_CACHE_TTL_MS = 12 * 60 * 1000; // 12 minutes
 
 export type DomainKey = 'electronique' | 'electrotechnique' | 'informatique';
 

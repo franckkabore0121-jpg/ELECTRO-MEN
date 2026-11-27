@@ -9,6 +9,7 @@ import {
 } from '../data/mockData.ts';
 import { buildBoutiqueWhatsAppUrl } from '../utils/whatsapp.ts';
 import { formatProductTitle } from '../utils/productFormat.ts';
+import { useDebouncedValue } from '../utils/requestGuard.ts';
 import { ProductImage } from './ProductImage.tsx';
 
 interface ScreenAccueilProps {
@@ -107,6 +108,8 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
   // Modal de gestion Vente Flash pour l'administrateur
   const [isFlashManagerOpen, setIsFlashManagerOpen] = useState(false);
 
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 180);
+
   // Filtered products on Home page
   const displayedProducts = useMemo(() => {
     return publishedProducts.filter((p) => {
@@ -118,9 +121,9 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
       if (quickFilter === 'featured' && !p.isFeaturedOnHome && !p.isPremium) return false;
       if (quickFilter === 'promos' && !p.isPromo && !p.isFlashSale && !(p.oldPrice && p.oldPrice > p.price)) return false;
       if (quickFilter === 'new' && !p.isNew && !p.isNewArrival) return false;
-      // Search query from header
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
+      // Search query from header (debounced)
+      if (debouncedSearchQuery.trim()) {
+        const q = debouncedSearchQuery.toLowerCase().trim();
         const matchName = p.name.toLowerCase().includes(q);
         const matchRef = p.ref.toLowerCase().includes(q);
         const matchCat = (p.categoryLabel || '').toLowerCase().includes(q);
@@ -130,7 +133,7 @@ export const ScreenAccueil: React.FC<ScreenAccueilProps> = ({
       }
       return true;
     });
-  }, [publishedProducts, selectedCategory, quickFilter, searchQuery]);
+  }, [publishedProducts, selectedCategory, quickFilter, debouncedSearchQuery]);
 
   const toggleProductFlash = (prod: Product) => {
     if (onUpdateProduct) {
