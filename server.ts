@@ -108,6 +108,10 @@ import {
   validateSafePositiveInt,
   validateSafeUrlOrPath
 } from './server/security.ts';
+import {
+  validateStrictEmail,
+  validateStrongPassword
+} from './src/utils/validation.ts';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -800,13 +804,9 @@ function validateRealIdentity(lastName: string, firstName: string, email: string
   ) {
     return { valid: false, error: 'Prénom invalide ou générique.' };
   }
-  if (
-    cleanEmail.length > 254 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) ||
-    cleanEmail.includes('fake') ||
-    cleanEmail.includes('test@test')
-  ) {
-    return { valid: false, error: 'Adresse e-mail invalide ou de test.' };
+  const emailCheck = validateStrictEmail(email);
+  if (!emailCheck.isValid) {
+    return { valid: false, error: emailCheck.error || 'Adresse e-mail invalide ou de test.' };
   }
   if (phoneDigits.length < 8 || phoneDigits.length > 15) {
     return { valid: false, error: 'Numéro de téléphone incomplet (au moins 8 chiffres requis).' };
@@ -1296,8 +1296,19 @@ app.post('/api/investor/change-password', sensitiveActionRateLimiter, asyncRoute
   if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
     return res.status(400).json({ success: false, error: 'Veuillez renseigner les mots de passe requis.' });
   }
-  if (currentPassword.length > 128 || newPassword.length < 12 || newPassword.length > 128) {
-    return res.status(400).json({ success: false, error: 'Le nouveau mot de passe doit comporter entre 12 et 128 caractères.' });
+  if (currentPassword.length > 128) {
+    return res.status(400).json({ success: false, error: 'Le mot de passe actuel est invalide.' });
+  }
+  const passwordStrengthCheck = validateStrongPassword(newPassword, {
+    email: investor.email,
+    firstName: investor.firstName,
+    lastName: investor.lastName
+  });
+  if (!passwordStrengthCheck.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: passwordStrengthCheck.error || 'Le nouveau mot de passe ne respecte pas les exigences de sécurité.'
+    });
   }
   if (!verifyInvestorPassword(currentPassword, investor)) {
     return res.status(400).json({ success: false, error: 'Le mot de passe actuel est incorrect.' });
@@ -1542,16 +1553,24 @@ app.post('/api/investor/register', otpRegisterRateLimiter, async (req: Request, 
   if (!identityCheck.valid) {
     return res.status(400).json({ success: false, error: identityCheck.error });
   }
-  if (password.length < 12 || password.length > 128) {
-    return res.status(400).json({ success: false, error: 'Le mot de passe doit comporter entre 12 et 128 caractères.' });
-  }
-
   const cleanEmail = validateEmailInput(email);
   const cleanPhone = validatePhoneInput(phone);
   const cleanLastName = sanitizePlainText(lastName, { minLength: 2, maxLength: 60, required: true });
   const cleanFirstName = sanitizePlainText(firstName, { minLength: 2, maxLength: 60, required: true });
   if (!cleanEmail || !cleanPhone || !cleanLastName || !cleanFirstName) {
     return res.status(400).json({ success: false, error: 'Les informations saisies sont invalides.' });
+  }
+
+  const passwordCheck = validateStrongPassword(password, {
+    email: cleanEmail,
+    firstName: cleanFirstName,
+    lastName: cleanLastName
+  });
+  if (!passwordCheck.isValid) {
+    return res.status(400).json({
+      success: false,
+      error: passwordCheck.error || 'Le mot de passe ne respecte pas les exigences de sécurité.'
+    });
   }
 
   try {

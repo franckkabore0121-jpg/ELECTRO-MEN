@@ -224,15 +224,15 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         <button
           type="button"
           onClick={() => void handleClick()}
-          className="w-full px-3 py-2 rounded-xl hover:bg-slate-100 flex items-center justify-between text-left text-xs font-semibold text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
+          className="w-full px-3 py-2 rounded-xl bg-[#0ea5e9] hover:bg-[#0369a1] active:bg-[#0284c7] text-white flex items-center justify-between text-left text-xs font-semibold shadow-sm transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined text-base text-slate-600">
+            <span className="material-symbols-outlined text-base text-white">
               install_mobile
             </span>
             <span>{lang === 'FR' ? "Installer l'application" : 'Install App'}</span>
           </div>
-          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-bold">
+          <span className="px-1.5 py-0.5 rounded bg-white/20 text-white text-[10px] font-bold">
             PWA
           </span>
         </button>
@@ -262,9 +262,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           onClick={() => void handleClick()}
           aria-label={lang === 'FR' ? "Installer l'application ELECTRO-MEN" : 'Install ELECTRO-MEN App'}
           title={lang === 'FR' ? "Installer l'application" : 'Install App'}
-          className="md:hidden h-8 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/90 flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-colors"
+          className="md:hidden h-8 px-2.5 rounded-xl bg-[#0ea5e9] hover:bg-[#0369a1] active:bg-[#0284c7] text-white border border-[#0284c7] shadow-sm flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 transition-colors font-semibold"
         >
-          <span className="material-symbols-outlined text-[15px] text-slate-600">
+          <span className="material-symbols-outlined text-[15px] text-white">
             download
           </span>
           <span className="text-[11px] font-semibold tracking-tight whitespace-nowrap">
@@ -296,9 +296,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         onClick={() => void handleClick()}
         aria-label={lang === 'FR' ? "Installer l'application ELECTRO-MEN" : 'Install ELECTRO-MEN App'}
         title={lang === 'FR' ? "Installer l'application" : 'Install App'}
-        className="hidden md:inline-flex items-center gap-1 h-8 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/90 text-[11px] font-semibold cursor-pointer active:scale-95 transition-colors whitespace-nowrap"
+        className="hidden md:inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-[#0ea5e9] hover:bg-[#0369a1] active:bg-[#0284c7] text-white border border-[#0284c7] shadow-sm text-[11px] font-semibold cursor-pointer active:scale-95 transition-colors whitespace-nowrap"
       >
-        <span className="material-symbols-outlined text-[15px] text-slate-600">
+        <span className="material-symbols-outlined text-[15px] text-white">
           download
         </span>
         <span>{label}</span>

@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { InvestmentProject, InvestorProfile, InvestorActivity, InvestorDocument } from '../data/mockData.ts';
-import { validatePersonData } from '../utils/validation.ts';
+import {
+  evaluatePasswordStrength,
+  validatePersonData,
+  validateStrictEmail,
+  validateStrongPassword
+} from '../utils/validation.ts';
 import { CustomOrderModal } from './CustomOrderModal.tsx';
 
 export type InvestorStatus = 'demande_non_soumise' | 'en_attente' | 'approuve' | 'refuse' | 'suspendu' | 'bloque';
@@ -142,6 +147,8 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   const [regEmail, setRegEmail] = useState(currentProfile?.email || '');
   const [regPassword, setRegPassword] = useState('');
   const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegPasswordConfirm, setShowRegPasswordConfirm] = useState(false);
   const [regTermsAccepted, setRegTermsAccepted] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
@@ -149,6 +156,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -318,8 +326,19 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
       return;
     }
 
-    if (regPassword.length < 12 || regPassword.length > 128) {
-      setRegError('Le mot de passe doit comporter entre 12 et 128 caractères.');
+    const emailCheck = validateStrictEmail(regEmail);
+    if (!emailCheck.isValid) {
+      setRegError(emailCheck.error || 'Veuillez saisir une adresse e-mail réelle et valide.');
+      return;
+    }
+
+    const passwordCheck = validateStrongPassword(regPassword, {
+      email: regEmail,
+      firstName: regFirstName,
+      lastName: regLastName
+    });
+    if (!passwordCheck.isValid) {
+      setRegError(passwordCheck.error || 'Le mot de passe ne respecte pas les exigences de sécurité.');
       return;
     }
 
@@ -432,6 +451,15 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
     event.preventDefault();
     setPasswordChangeError(null);
     setPasswordChangeMessage(null);
+    const passwordCheck = validateStrongPassword(newPassword, {
+      email: activeInvestor?.email,
+      firstName: activeInvestor?.firstName,
+      lastName: activeInvestor?.lastName
+    });
+    if (!passwordCheck.isValid) {
+      setPasswordChangeError(passwordCheck.error || 'Le nouveau mot de passe ne respecte pas les exigences de sécurité.');
+      return;
+    }
     if (newPassword !== confirmNewPassword) {
       setPasswordChangeError('La confirmation du nouveau mot de passe ne correspond pas.');
       return;
@@ -892,49 +920,189 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                     <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
                       Adresse Email Réelle *
                     </label>
-                    <input
-                      type="email"
-                      required
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      placeholder="nom@exemple.com"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
-                    />
+                    {(() => {
+                      const trimmedEmail = regEmail.trim();
+                      const emailCheck = trimmedEmail ? validateStrictEmail(trimmedEmail) : null;
+                      return (
+                        <>
+                          <input
+                            type="email"
+                            required
+                            value={regEmail}
+                            onChange={(e) => setRegEmail(e.target.value)}
+                            placeholder="nom@exemple.com"
+                            className={`w-full bg-slate-50 border rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white outline-none transition-colors ${
+                              emailCheck && !emailCheck.isValid
+                                ? 'border-red-400 focus:border-red-500'
+                                : emailCheck?.isValid
+                                ? 'border-emerald-400 focus:border-emerald-500'
+                                : 'border-slate-200 focus:border-amber-500'
+                            }`}
+                          />
+                          {emailCheck && !emailCheck.isValid && (
+                            <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[14px]">info</span>
+                              <span>{emailCheck.error}</span>
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
-                        Mot de Passe Sécurisé *
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
-                        minLength={12}
-                        maxLength={128}
-                        placeholder="12 caractères minimum"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none font-mono"
-                      />
-                    </div>
+                  {(() => {
+                    const strength = evaluatePasswordStrength(regPassword, {
+                      email: regEmail,
+                      firstName: regFirstName,
+                      lastName: regLastName
+                    });
+                    const passwordsMatch =
+                      regPasswordConfirm.length > 0 && regPassword === regPasswordConfirm;
+                    const barColor =
+                      strength.level === 'tres_fort'
+                        ? 'bg-emerald-600'
+                        : strength.level === 'fort'
+                        ? 'bg-emerald-500'
+                        : strength.level === 'moyen'
+                        ? 'bg-amber-500'
+                        : 'bg-red-500';
+                    const badgeColor =
+                      strength.level === 'tres_fort'
+                        ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                        : strength.level === 'fort'
+                        ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                        : strength.level === 'moyen'
+                        ? 'text-amber-700 bg-amber-50 border-amber-200'
+                        : 'text-red-700 bg-red-50 border-red-200';
 
-                    <div>
-                      <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
-                        Confirmation Mot de Passe *
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={regPasswordConfirm}
-                        onChange={(e) => setRegPasswordConfirm(e.target.value)}
-                        minLength={12}
-                        maxLength={128}
-                        placeholder="Répétez le mot de passe"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none font-mono"
-                      />
-                    </div>
-                  </div>
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
+                              Mot de Passe Sécurisé *
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showRegPassword ? 'text' : 'password'}
+                                required
+                                autoComplete="new-password"
+                                value={regPassword}
+                                onChange={(e) => setRegPassword(e.target.value)}
+                                minLength={12}
+                                maxLength={128}
+                                placeholder="12 caractères minimum"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pr-10 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowRegPassword((prev) => !prev)}
+                                aria-label={showRegPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800 cursor-pointer flex items-center justify-center"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  {showRegPassword ? 'visibility_off' : 'visibility'}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
+                              Confirmation Mot de Passe *
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showRegPasswordConfirm ? 'text' : 'password'}
+                                required
+                                autoComplete="new-password"
+                                value={regPasswordConfirm}
+                                onChange={(e) => setRegPasswordConfirm(e.target.value)}
+                                minLength={12}
+                                maxLength={128}
+                                placeholder="Répétez le mot de passe"
+                                className={`w-full bg-slate-50 border rounded-xl p-2.5 pr-10 text-xs text-slate-900 focus:bg-white outline-none font-mono ${
+                                  regPasswordConfirm.length > 0 && !passwordsMatch
+                                    ? 'border-red-400 focus:border-red-500'
+                                    : passwordsMatch
+                                    ? 'border-emerald-400 focus:border-emerald-500'
+                                    : 'border-slate-200 focus:border-amber-500'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowRegPasswordConfirm((prev) => !prev)}
+                                aria-label={showRegPasswordConfirm ? 'Masquer la confirmation' : 'Afficher la confirmation'}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800 cursor-pointer flex items-center justify-center"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  {showRegPasswordConfirm ? 'visibility_off' : 'visibility'}
+                                </span>
+                              </button>
+                            </div>
+                            {regPasswordConfirm.length > 0 && !passwordsMatch && (
+                              <p className="mt-1 text-[11px] text-red-600 font-medium">
+                                Les mots de passe ne correspondent pas.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Real-time Password Strength Meter & Criteria Checklist */}
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-slate-700">
+                              Robustesse du mot de passe
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide ${
+                                regPassword.length === 0
+                                  ? 'text-slate-500 bg-slate-100 border-slate-200'
+                                  : badgeColor
+                              }`}
+                            >
+                              {regPassword.length === 0 ? 'Non défini' : strength.label}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-1.5" aria-hidden="true">
+                            {[1, 2, 3, 4].map((segment) => (
+                              <div
+                                key={segment}
+                                className={`h-1.5 rounded-full transition-colors duration-200 ${
+                                  regPassword.length > 0 && strength.score >= segment
+                                    ? barColor
+                                    : 'bg-slate-200'
+                                }`}
+                              />
+                            ))}
+                          </div>
+
+                          {regPassword.length > 0 && !strength.isValid && strength.error && (
+                            <p className="text-[11px] text-red-600 font-medium">
+                              {strength.error}
+                            </p>
+                          )}
+
+                          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                            {strength.criteria.map((item) => (
+                              <li
+                                key={item.id}
+                                className={`flex items-center gap-1.5 text-[11px] ${
+                                  item.met ? 'text-emerald-700 font-semibold' : 'text-slate-500'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[14px] shrink-0">
+                                  {item.met ? 'check_circle' : 'radio_button_unchecked'}
+                                </span>
+                                <span>{item.label}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
                     <input
@@ -979,16 +1147,28 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
                 <label className="text-[11px] font-bold uppercase text-slate-700 block mb-1">
                   Mot de passe
                 </label>
-                <input
-                  type="password"
-                  required
-                  maxLength={128}
-                  autoComplete="current-password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Votre mot de passe"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
-                />
+                <div className="relative">
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    maxLength={128}
+                    autoComplete="current-password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Votre mot de passe"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pr-10 text-xs text-slate-900 focus:bg-white focus:border-amber-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((prev) => !prev)}
+                    aria-label={showLoginPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800 cursor-pointer flex items-center justify-center"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {showLoginPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               {loginError && (
@@ -1717,7 +1897,7 @@ export const ScreenBourseIR: React.FC<ScreenBourseIRProps> = ({
               <form onSubmit={handleChangePassword} className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
                 <div>
                   <h3 className="font-syne text-sm font-bold text-slate-900">Sécurité du compte</h3>
-                  <p className="text-[11px] text-slate-500">Vérifiez votre mot de passe actuel pour en choisir un nouveau (12 caractères minimum).</p>
+                  <p className="text-[11px] text-slate-500">Vérifiez votre mot de passe actuel pour en choisir un nouveau (12 caractères min., majuscule, minuscule, chiffre et caractère spécial).</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input required type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Mot de passe actuel" className="rounded-lg border border-slate-300 p-2 text-xs" />
